@@ -712,7 +712,7 @@
       createEventStore, 
       SqlJsStorage, 
       isConflict 
-    } from './boundless.browser.js?v=4';
+    } from './boundless.browser.js?v=5';
 
     // Configuration for the demo
     const DEMO_SECRET = 'demo-secret-key-for-hmac-signing';
@@ -1175,8 +1175,13 @@
         return;
       }
 
+      console.log('quickAction called:', { type, data });
+      const eventToAppend = [{ type, data }];
+      console.log('Event to append:', JSON.stringify(eventToAppend));
+      
       try {
-        const result = await store.append([{ type, data }], null);
+        const result = await store.append(eventToAppend, null);
+        console.log('Append result:', result);
         
         if (isConflict(result)) {
           showFeedback('quick-result', `⚠️ Conflict!`, 'conflict');

@@ -2910,16 +2910,19 @@ var EventStore = class {
     const now = /* @__PURE__ */ new Date();
     const eventsToStore = events.map((event) => {
       const id = generateUUID();
+      console.log("[EventStore] Generated UUID:", id);
       if (!id) {
         throw new Error("Failed to generate event ID");
       }
-      return {
+      const eventToStore = {
         id,
         type: event.type,
         data: event.data,
         metadata: event.metadata,
         timestamp: now
       };
+      console.log("[EventStore] Event to store:", JSON.stringify(eventToStore));
+      return eventToStore;
     });
     const position = await this.storage.append(eventsToStore, keysPerEvent);
     const newTokenQuery = await this.buildQueryFromEvents(events, token);
