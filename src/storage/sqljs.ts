@@ -180,11 +180,13 @@ export class SqlJsStorage implements EventStorage {
       return [];
     }
 
-    // Build dynamic OR clause for conditions
+    // sql.js doesn't support params properly - use escaped SQL
+    const escapeSql = (s: string): string => "'" + s.replace(/'/g, "''") + "'";
+
+    // Build dynamic OR clause for conditions with escaped values
     const whereClauses = conditions.map(
-      () => '(e.event_type = ? AND k.key_name = ? AND k.key_value = ?)'
+      c => `(e.event_type = ${escapeSql(c.type)} AND k.key_name = ${escapeSql(c.key)} AND k.key_value = ${escapeSql(c.value)})`
     );
-    const whereParams: (string | number)[] = conditions.flatMap(c => [c.type, c.key, c.value]);
 
     let sql = `
       SELECT DISTINCT
@@ -199,21 +201,18 @@ export class SqlJsStorage implements EventStorage {
       WHERE (${whereClauses.join(' OR ')})
     `;
 
-    const params: (string | number)[] = [...whereParams];
-
     if (fromPosition !== undefined) {
-      sql += ' AND e.position > ?';
-      params.push(Number(fromPosition));
+      sql += ` AND e.position > ${Number(fromPosition)}`;
     }
 
     sql += ' ORDER BY e.position';
 
     if (limit !== undefined) {
-      sql += ' LIMIT ?';
-      params.push(limit);
+      sql += ` LIMIT ${Number(limit)}`;
     }
 
-    const result = db.exec(sql, params);
+    console.log('[SqlJsStorage.query] SQL:', sql.substring(0, 300));
+    const result = db.exec(sql);
     if (result.length === 0) return [];
 
     // sql.js uses 'columns' or 'lc' depending on version

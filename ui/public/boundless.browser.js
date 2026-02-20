@@ -2470,10 +2470,10 @@ var SqlJsStorage = class {
     if (conditions.length === 0) {
       return [];
     }
+    const escapeSql = (s) => "'" + s.replace(/'/g, "''") + "'";
     const whereClauses = conditions.map(
-      () => "(e.event_type = ? AND k.key_name = ? AND k.key_value = ?)"
+      (c) => `(e.event_type = ${escapeSql(c.type)} AND k.key_name = ${escapeSql(c.key)} AND k.key_value = ${escapeSql(c.value)})`
     );
-    const whereParams = conditions.flatMap((c) => [c.type, c.key, c.value]);
     let sql = `
       SELECT DISTINCT
         e.position,
@@ -2486,17 +2486,15 @@ var SqlJsStorage = class {
       JOIN event_keys k ON e.position = k.position
       WHERE (${whereClauses.join(" OR ")})
     `;
-    const params = [...whereParams];
     if (fromPosition !== void 0) {
-      sql += " AND e.position > ?";
-      params.push(Number(fromPosition));
+      sql += ` AND e.position > ${Number(fromPosition)}`;
     }
     sql += " ORDER BY e.position";
     if (limit !== void 0) {
-      sql += " LIMIT ?";
-      params.push(limit);
+      sql += ` LIMIT ${Number(limit)}`;
     }
-    const result = db.exec(sql, params);
+    console.log("[SqlJsStorage.query] SQL:", sql.substring(0, 300));
+    const result = db.exec(sql);
     if (result.length === 0) return [];
     const columns = result[0].columns || result[0].lc;
     const rows = result[0].values;
