@@ -2851,13 +2851,18 @@ var EventStore = class {
    */
   async read(query) {
     await this.ensureInitialized();
+    console.log("\u{1F4D6} READ: Querying events...");
+    console.log("   Conditions:", query.conditions.map((c) => `${c.type}[${c.key}=${c.value}]`).join(", "));
     const events = await this.storage.query(
       query.conditions,
       query.fromPosition,
       query.limit
     );
+    console.log(`   Found: ${events.length} events`);
     const position = events.length > 0 ? events[events.length - 1].position : await this.storage.getLatestPosition();
     const token = await createToken(query, position, this.secret);
+    console.log(`\u{1F39F}\uFE0F TOKEN: Generated at position #${position}`);
+    console.log(`   Scope: ${query.conditions.length} condition(s)`);
     return { events, token };
   }
   /**
@@ -2868,6 +2873,9 @@ var EventStore = class {
    */
   async append(events, token) {
     await this.ensureInitialized();
+    console.log(`\u270F\uFE0F APPEND: ${events.length} event(s)`);
+    events.forEach((e) => console.log(`   \u2192 ${e.type}: ${JSON.stringify(e.data).substring(0, 60)}...`));
+    console.log(`   Token: ${token ? "provided (will check conflicts)" : "null (no conflict check)"}`);
     if (events.length === 0) {
       const position2 = await this.storage.getLatestPosition();
       return {
@@ -2877,6 +2885,10 @@ var EventStore = class {
       };
     }
     const keysPerEvent = events.map((event) => this.keyExtractor.extract(event));
+    console.log(`\u{1F511} KEYS: Extracted from payload via config`);
+    keysPerEvent.forEach((keys, i) => {
+      console.log(`   Event ${i}: ${keys.map((k) => `${k.name}="${k.value}"`).join(", ")}`);
+    });
     if (token !== null) {
       let tokenPayload;
       try {
@@ -2887,10 +2899,13 @@ var EventStore = class {
         }
         throw e;
       }
+      console.log(`\u{1F50D} CONFLICT CHECK: Looking for events since position #${tokenPayload.pos}`);
+      console.log(`   Checking conditions: ${tokenPayload.q.map((c) => `${c.type}[${c.key}=${c.value}]`).join(", ")}`);
       const conflictingEvents = await this.storage.getEventsSince(
         tokenPayload.q,
         tokenPayload.pos
       );
+      console.log(`   Result: ${conflictingEvents.length} matching event(s) found since #${tokenPayload.pos}`);
       if (conflictingEvents.length > 0) {
         console.log("");
         console.log("\u274C \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
@@ -2945,8 +2960,10 @@ var EventStore = class {
       };
     });
     const position = await this.storage.append(eventsToStore, keysPerEvent);
+    console.log(`\u{1F4BE} STORED: Event(s) at position #${position}`);
     const newTokenQuery = await this.buildQueryFromEvents(events, token);
     const newToken = await createToken(newTokenQuery, position, this.secret);
+    console.log(`\u2705 SUCCESS: Append complete, new token at #${position}`);
     return {
       conflict: false,
       position,

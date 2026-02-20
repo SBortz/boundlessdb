@@ -176,11 +176,16 @@ export class EventStore {
   async read(query: Query): Promise<ReadResult> {
     await this.ensureInitialized();
     
+    console.log('📖 READ: Querying events...');
+    console.log('   Conditions:', query.conditions.map(c => `${c.type}[${c.key}=${c.value}]`).join(', '));
+    
     const events = await this.storage.query(
       query.conditions,
       query.fromPosition,
       query.limit
     );
+    
+    console.log(`   Found: ${events.length} events`);
 
     // Get the latest position for the token
     // If we have events, use the last event's position
@@ -190,6 +195,9 @@ export class EventStore {
       : await this.storage.getLatestPosition();
 
     const token = await createToken(query, position, this.secret);
+    
+    console.log(`🎟️ TOKEN: Generated at position #${position}`);
+    console.log(`   Scope: ${query.conditions.length} condition(s)`);
 
     return { events, token };
   }
@@ -206,6 +214,10 @@ export class EventStore {
   ): Promise<AppendResult | ConflictResult> {
     await this.ensureInitialized();
     
+    console.log(`✏️ APPEND: ${events.length} event(s)`);
+    events.forEach(e => console.log(`   → ${e.type}: ${JSON.stringify(e.data).substring(0, 60)}...`));
+    console.log(`   Token: ${token ? 'provided (will check conflicts)' : 'null (no conflict check)'}`);
+    
     if (events.length === 0) {
       // Nothing to append
       const position = await this.storage.getLatestPosition();
@@ -218,6 +230,10 @@ export class EventStore {
 
     // Extract keys from all events
     const keysPerEvent = events.map(event => this.keyExtractor.extract(event));
+    console.log(`🔑 KEYS: Extracted from payload via config`);
+    keysPerEvent.forEach((keys, i) => {
+      console.log(`   Event ${i}: ${keys.map(k => `${k.name}="${k.value}"`).join(', ')}`);
+    });
 
     // If token provided, validate and check for conflicts
     if (token !== null) {
@@ -232,10 +248,15 @@ export class EventStore {
       }
 
       // Check for conflicts: any events since token position that match the query?
+      console.log(`🔍 CONFLICT CHECK: Looking for events since position #${tokenPayload.pos}`);
+      console.log(`   Checking conditions: ${tokenPayload.q.map((c:any) => `${c.type}[${c.key}=${c.value}]`).join(', ')}`);
+      
       const conflictingEvents = await this.storage.getEventsSince(
         tokenPayload.q,
         tokenPayload.pos
       );
+      
+      console.log(`   Result: ${conflictingEvents.length} matching event(s) found since #${tokenPayload.pos}`);
 
       if (conflictingEvents.length > 0) {
         // Conflict detected — log details
@@ -299,12 +320,16 @@ export class EventStore {
 
     // Append atomically
     const position = await this.storage.append(eventsToStore, keysPerEvent);
+    
+    console.log(`💾 STORED: Event(s) at position #${position}`);
 
     // Build new token
     // The new token should include the query conditions that were checked
     // plus any new conditions from the appended events
     const newTokenQuery = await this.buildQueryFromEvents(events, token);
     const newToken = await createToken(newTokenQuery, position, this.secret);
+    
+    console.log(`✅ SUCCESS: Append complete, new token at #${position}`);
 
     return {
       conflict: false,
