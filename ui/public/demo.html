@@ -720,19 +720,19 @@
       eventTypes: {
         CourseCreated: {
           keys: [
-            { name: 'course', path: 'courseId' }
+            { name: 'course', path: 'data.courseId' }
           ]
         },
         StudentSubscribed: {
           keys: [
-            { name: 'course', path: 'courseId' },
-            { name: 'student', path: 'studentId' }
+            { name: 'course', path: 'data.courseId' },
+            { name: 'student', path: 'data.studentId' }
           ]
         },
         StudentUnsubscribed: {
           keys: [
-            { name: 'course', path: 'courseId' },
-            { name: 'student', path: 'studentId' }
+            { name: 'course', path: 'data.courseId' },
+            { name: 'student', path: 'data.studentId' }
           ]
         }
       }
