@@ -1,6 +1,6 @@
 # Boundless
 
-A DCB-native Event Store with **Dynamic Consistency Boundaries**.
+A **DCB-inspired** Event Store with config-based consistency keys.
 
 > *Boundless* — because consistency boundaries should be dynamic, not fixed.
 
