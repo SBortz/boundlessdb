@@ -239,6 +239,58 @@
       color: #ccc;
     }
     
+    .comparison-box {
+      background: #0a1628;
+      border: 1px solid #0f3460;
+      border-radius: 12px;
+      padding: 1.5rem;
+      max-width: 800px;
+      margin: 0 auto;
+      text-align: left;
+    }
+    
+    .comparison-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+    
+    @media (max-width: 600px) {
+      .comparison-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+    
+    .comparison-item {
+      background: #0d1929;
+      border: 1px solid #1e3a5f;
+      border-radius: 8px;
+      padding: 1rem;
+    }
+    
+    .comparison-item.highlight {
+      border-color: #0cf;
+      background: rgba(0, 204, 255, 0.05);
+    }
+    
+    .comparison-label {
+      color: #888;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.5rem;
+    }
+    
+    .comparison-item.highlight .comparison-label {
+      color: #0cf;
+    }
+    
+    .comparison-content {
+      color: #ccc;
+      font-size: 0.9rem;
+      line-height: 1.5;
+    }
+    
     footer {
       text-align: center;
       padding: 3rem 2rem;
@@ -306,6 +358,41 @@
       <div class="feature-icon">💾</div>
       <h3>SQLite & Memory</h3>
       <p>Production-ready SQLite storage or in-memory for testing.</p>
+    </div>
+  </div>
+  
+  <div class="architecture" style="margin-top: 3rem;">
+    <h2>Beyond Traditional DCB</h2>
+    <div class="comparison-box">
+      <p style="color: #888; margin-bottom: 1.5rem;">
+        <strong style="color: #0cf;">Dynamic Consistency Boundaries (DCB)</strong> solves optimistic concurrency 
+        by attaching consistency keys (tags) to events. Boundless takes this further:
+      </p>
+      
+      <div class="comparison-grid">
+        <div class="comparison-item">
+          <div class="comparison-label">Traditional DCB</div>
+          <div class="comparison-content">
+            Keys (tags) are <strong>written onto events</strong> at append time.<br>
+            Once written, they're immutable.
+          </div>
+        </div>
+        <div class="comparison-item highlight">
+          <div class="comparison-label">Boundless Approach</div>
+          <div class="comparison-content">
+            Keys are <strong>extracted from payloads via config</strong>.<br>
+            Events stay pure. Config can change anytime.
+          </div>
+        </div>
+      </div>
+      
+      <div class="flow-note" style="margin-top: 1.5rem;">
+        💡 <strong>Why more flexible?</strong><br><br>
+        • <strong>No migration needed</strong> — Change your consistency boundaries by updating config, not events<br>
+        • <strong>Events stay clean</strong> — Business data only, no infrastructure concerns<br>
+        • <strong>Retroactive changes</strong> — Add new keys to existing events via reindex<br>
+        • <strong>DRY</strong> — Key paths defined once in config, not repeated on every append
+      </div>
     </div>
   </div>
   
