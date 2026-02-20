@@ -794,7 +794,7 @@
       createEventStore, 
       SqlJsStorage, 
       isConflict 
-    } from './boundless.browser.js?v=23';
+    } from './boundless.browser.js?v=24';
 
     // Configuration for the demo
     const DEMO_SECRET = 'demo-secret-key-for-hmac-signing';
@@ -945,117 +945,164 @@
 
     // ==================== GUIDED DEMO SCENARIOS ====================
     
-    // Normal Flow Demo (slower for observation)
+    // Normal Flow Demo - creates multiple events, 1 per second
     window.runNormalFlowDemo = async function() {
       if (!store) {
         showScenarioResult('❌ Store not initialized', 'conflict');
         return;
       }
       
-      showScenarioResult('🔄 Step 1/3: Reading CS101 current state...\n\n→ store.read({ conditions: [...] })', 'info');
-      await sleep(8000);
+      const students = ['Emma', 'Liam', 'Olivia', 'Noah', 'Ava', 'Ethan', 'Sophia', 'Mason', 'Isabella', 'Lucas'];
       
-      // Step 1: Read current state
-      const readResult = await store.read({
-        conditions: [
-          {type:'CourseCreated', key:'course', value:'cs101'},
-          {type:'StudentSubscribed', key:'course', value:'cs101'}
-        ]
-      });
-      const token = readResult.token;
-      
-      showScenarioResult(`✅ Step 1 complete!\n\nRead ${readResult.events.length} events.\nToken received: ${token.substring(0, 30)}...\n\nThe token captures: "I read all events matching course=cs101 up to position ${readResult.events.length > 0 ? Math.max(...readResult.events.map(e => Number(e.position))) : 0}"`, 'info');
-      await sleep(10000);
-      
-      showScenarioResult(`🔄 Step 2/3: Deciding...\n\nBusiness logic: Check if course is full, validate student, etc.\n\n(In real app: this is where your domain logic runs)`, 'info');
-      await sleep(8000);
-      
-      showScenarioResult(`🔄 Step 3/3: Appending with token...\n\n→ store.append([event], token)\n\nThe token ensures no one wrote to course=cs101 since our read!`, 'info');
-      await sleep(8000);
-      
-      // Step 2: Append with valid token
-      const appendResult = await store.append(
-        [{ type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'demo-' + Date.now(), name: 'Demo Student' } }],
-        token
-      );
-      
+      // First ensure course exists
+      showScenarioResult('📚 Creating course CS101...', 'info');
+      await store.append([{ type: 'CourseCreated', data: { courseId: 'cs101', name: 'Computer Science 101', capacity: 30 } }], null);
       await refreshAll();
-      await refreshLiveQuery();
+      await sleep(1000);
       
-      if (isConflict(appendResult)) {
-        showScenarioResult(`⚠️ Unexpected Conflict! Someone else wrote concurrently.`, 'conflict');
-      } else {
-        showScenarioResult(`🎉 SUCCESS!\n\nEvent #${appendResult.position} stored!\n\n✅ Normal Flow complete:\n   1. READ → got token\n   2. DECIDE → business logic\n   3. APPEND with token → success!`, 'success');
+      // Enroll students one by one
+      for (let i = 0; i < students.length; i++) {
+        const student = students[i];
+        
+        // Read current state
+        showScenarioResult(`👤 ${student}: Reading CS101 state...\n\n→ store.read({ course: 'cs101' })`, 'info');
+        await sleep(1000);
+        
+        const { events, token } = await store.read({
+          conditions: [
+            {type:'CourseCreated', key:'course', value:'cs101'},
+            {type:'StudentSubscribed', key:'course', value:'cs101'}
+          ]
+        });
+        
+        const enrolled = events.filter(e => e.type === 'StudentSubscribed').length;
+        showScenarioResult(`👤 ${student}: Found ${enrolled} students enrolled.\nToken at position: ${events.length > 0 ? Math.max(...events.map(e => Number(e.position))) : 0}\n\nDeciding to enroll...`, 'info');
+        await sleep(1000);
+        
+        // Append with token
+        const result = await store.append(
+          [{ type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: student.toLowerCase(), name: student } }],
+          token
+        );
+        
+        await refreshAll();
+        await refreshLiveQuery();
+        
+        if (result.conflict) {
+          showScenarioResult(`👤 ${student}: ⚠️ Conflict! Someone enrolled first. Retry needed.`, 'conflict');
+        } else {
+          showScenarioResult(`👤 ${student}: ✅ Enrolled! Event #${result.position}\n\n${i + 1}/${students.length} students processed`, 'success');
+        }
+        await sleep(1000);
       }
+      
+      showScenarioResult(`🎉 NORMAL FLOW COMPLETE!\n\n${students.length} students enrolled successfully.\nEach followed: READ → DECIDE → APPEND with token`, 'success');
     };
     
-    // Show Conflict Demo (slower for observation)
+    // Show Conflict Demo - demonstrates concurrent writes with conflict
     window.runShowConflictDemo = async function() {
       if (!store) {
         showScenarioResult('❌ Store not initialized', 'conflict');
         return;
       }
       
-      showScenarioResult('👤 ALICE: Step 1/4\n\nAlice reads CS101 enrollments...\n\n→ store.read({ conditions: [course=cs101] })', 'info');
-      await sleep(8000);
+      // Setup: Create course and some initial enrollments
+      showScenarioResult('📚 Setup: Creating MATH201 with some students...', 'info');
+      await store.append([{ type: 'CourseCreated', data: { courseId: 'math201', name: 'Linear Algebra', capacity: 5 } }], null);
+      await refreshAll();
+      await sleep(1000);
       
-      // Step 1: Read current state
-      const readResult = await store.read({
+      // Add some initial students
+      const initialStudents = ['Chris', 'Dana', 'Eve'];
+      for (const student of initialStudents) {
+        await store.append(
+          [{ type: 'StudentSubscribed', data: { courseId: 'math201', studentId: student.toLowerCase(), name: student } }],
+          null
+        );
+        await refreshAll();
+        showScenarioResult(`📚 Setup: ${student} enrolled in MATH201`, 'info');
+        await sleep(1000);
+      }
+      
+      showScenarioResult(`📚 Setup complete!\n\nMATH201: 3/5 seats taken (2 left!)\n\n🎭 Now the conflict scenario begins...`, 'info');
+      await sleep(2000);
+      
+      // ALICE reads
+      showScenarioResult('👩 ALICE: Reading MATH201...\n\n→ store.read({ course: "math201" })', 'info');
+      await sleep(1500);
+      
+      const aliceRead = await store.read({
         conditions: [
-          {type:'CourseCreated', key:'course', value:'cs101'},
-          {type:'StudentSubscribed', key:'course', value:'cs101'}
+          {type:'CourseCreated', key:'course', value:'math201'},
+          {type:'StudentSubscribed', key:'course', value:'math201'}
         ]
       });
-      const oldToken = readResult.token;
-      const posAtRead = readResult.events.length > 0 
-        ? Math.max(...readResult.events.map(e => Number(e.position)))
+      const aliceToken = aliceRead.token;
+      const alicePos = aliceRead.events.length > 0 
+        ? Math.max(...aliceRead.events.map(e => Number(e.position)))
         : 0;
+      const aliceEnrolled = aliceRead.events.filter(e => e.type === 'StudentSubscribed').length;
       
-      showScenarioResult(`👤 ALICE: Step 1 complete!\n\nRead ${readResult.events.length} events (up to position #${posAtRead})\nToken saved: ${oldToken.substring(0, 25)}...\n\nAlice is now thinking about her decision...`, 'info');
-      await sleep(10000);
+      showScenarioResult(`👩 ALICE: Sees ${aliceEnrolled}/5 enrolled.\nToken position: #${alicePos}\n\n"Great, 2 seats left! Let me think..."`, 'info');
+      await sleep(2000);
       
-      showScenarioResult(`👤 ALICE is deciding...\n\n🔵 Meanwhile...\n\n👤 BOB also reads CS101 and decides to enroll!\nBob writes directly (no conflict check)...`, 'info');
-      await sleep(8000);
+      // While Alice thinks, Bob and Carol also want to enroll
+      showScenarioResult(`👩 ALICE is deciding...\n\n⏳ Meanwhile, BOB and CAROL also want the last seats!`, 'info');
+      await sleep(2000);
       
-      // Step 2: Concurrent user writes
-      const concurrentResult = await store.append(
-        [{ type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'bob-' + Date.now(), name: 'Bob (concurrent)' } }],
-        null // No token - direct write
+      // BOB reads and writes quickly
+      showScenarioResult(`👨 BOB: Reads and immediately enrolls!`, 'info');
+      await sleep(1000);
+      const bobResult = await store.append(
+        [{ type: 'StudentSubscribed', data: { courseId: 'math201', studentId: 'bob', name: 'Bob' } }],
+        null
       );
       await refreshAll();
+      showScenarioResult(`👨 BOB: ✅ Enrolled at position #${bobResult.position}! (4/5 seats)`, 'success');
+      await sleep(1500);
       
-      showScenarioResult(`👤 BOB: Enrolled successfully at position #${concurrentResult.position}! ✅\n\n👤 ALICE doesn't know this yet...\nShe still has her old token from position #${posAtRead}\n\nNow Alice tries to enroll with her OLD token...`, 'info');
-      await sleep(10000);
+      // CAROL reads and writes quickly  
+      showScenarioResult(`👧 CAROL: Reads and immediately enrolls!`, 'info');
+      await sleep(1000);
+      const carolResult = await store.append(
+        [{ type: 'StudentSubscribed', data: { courseId: 'math201', studentId: 'carol', name: 'Carol' } }],
+        null
+      );
+      await refreshAll();
+      showScenarioResult(`👧 CAROL: ✅ Enrolled at position #${carolResult.position}! (5/5 seats - FULL!)`, 'success');
+      await sleep(2000);
       
-      showScenarioResult(`👤 ALICE: Step 3/4\n\nTrying to append with token from position #${posAtRead}...\n\n→ store.append([StudentSubscribed], oldToken)\n\nBoundless checks: "Any events matching course=cs101 since #${posAtRead}?"`, 'info');
-      await sleep(8000);
+      // Now Alice tries with her OLD token
+      showScenarioResult(`👩 ALICE: "OK, I'll enroll now!"\n\nUsing her OLD token from position #${alicePos}...\n(But Bob #${bobResult.position} and Carol #${carolResult.position} wrote since then!)`, 'info');
+      await sleep(2000);
       
-      // Step 3: Try to append with old token
-      const appendResult = await store.append(
-        [{ type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice-' + Date.now(), name: 'Alice (conflict)' } }],
-        oldToken
+      const aliceResult = await store.append(
+        [{ type: 'StudentSubscribed', data: { courseId: 'math201', studentId: 'alice', name: 'Alice' } }],
+        aliceToken
       );
       
       await refreshAll();
       await refreshLiveQuery();
       
-      if (isConflict(appendResult)) {
-        const conflictEvent = appendResult.conflictingEvents[0];
+      if (isConflict(aliceResult)) {
+        const conflicts = aliceResult.conflictingEvents;
         showScenarioResult(
           `❌ CONFLICT DETECTED!\n\n` +
-          `👤 ALICE's append was REJECTED!\n\n` +
-          `Why? Bob's Event #${conflictEvent.position} (${conflictEvent.type}) was written AFTER Alice read at position #${posAtRead}.\n\n` +
-          `The token check found:\n` +
-          `  • Alice's token: pos=${posAtRead}\n` +
-          `  • New matching event: pos=${conflictEvent.position}\n` +
-          `  • Query: course=cs101 ✓ (matches!)\n\n` +
-          `🔄 Alice gets a NEW token and can retry with fresh data.\n\n` +
-          `This is DCB: No lost updates, precise conflict scope!`,
+          `👩 ALICE's enrollment was REJECTED!\n\n` +
+          `Why? ${conflicts.length} events written since her read:\n` +
+          conflicts.map(e => `  • #${e.position}: ${e.data?.name || 'Unknown'} enrolled`).join('\n') + `\n\n` +
+          `Alice's token was at position #${alicePos}\n` +
+          `But matching events exist at: ${conflicts.map(e => '#' + e.position).join(', ')}\n\n` +
+          `🔄 Alice must RE-READ to see the course is now FULL!\n\n` +
+          `✨ DCB prevented Alice from "stealing" a non-existent seat!`,
           'conflict'
         );
       } else {
-        showScenarioResult(`✅ Event #${appendResult.position} stored (unexpectedly no conflict)`, 'success');
+        showScenarioResult(`✅ Alice enrolled (unexpectedly no conflict)`, 'success');
       }
+      
+      await refreshAll();
+      await refreshLiveQuery();
     };
     
     function showScenarioResult(text, type) {
