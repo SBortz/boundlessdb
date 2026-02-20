@@ -2448,13 +2448,14 @@ var SqlJsStorage = class {
         console.log("[SqlJsStorage] SQL:", sql.substring(0, 200));
         db.run(sql);
         const result = db.exec("SELECT last_insert_rowid() as position");
+        console.log("[SqlJsStorage] last_insert_rowid result:", JSON.stringify(result));
         const position = BigInt(result[0].values[0][0]);
+        console.log("[SqlJsStorage] position:", position.toString());
         lastPosition = position;
         for (const key of eventKeys) {
-          db.run(
-            `INSERT INTO event_keys (position, key_name, key_value) VALUES (?, ?, ?)`,
-            [Number(position), key.name, key.value]
-          );
+          const keySql = `INSERT INTO event_keys (position, key_name, key_value) VALUES (${Number(position)}, ${escapeSql(key.name)}, ${escapeSql(key.value)})`;
+          console.log("[SqlJsStorage] Key SQL:", keySql);
+          db.run(keySql);
         }
       }
       db.run("COMMIT");

@@ -147,15 +147,16 @@ export class SqlJsStorage implements EventStorage {
 
         // Get the last inserted position
         const result = db.exec('SELECT last_insert_rowid() as position');
+        console.log('[SqlJsStorage] last_insert_rowid result:', JSON.stringify(result));
         const position = BigInt(result[0].values[0][0] as number);
+        console.log('[SqlJsStorage] position:', position.toString());
         lastPosition = position;
 
-        // Insert keys
+        // Insert keys (also use escaped SQL since db.run ignores params)
         for (const key of eventKeys) {
-          db.run(
-            `INSERT INTO event_keys (position, key_name, key_value) VALUES (?, ?, ?)`,
-            [Number(position), key.name, key.value]
-          );
+          const keySql = `INSERT INTO event_keys (position, key_name, key_value) VALUES (${Number(position)}, ${escapeSql(key.name)}, ${escapeSql(key.value)})`;
+          console.log('[SqlJsStorage] Key SQL:', keySql);
+          db.run(keySql);
         }
       }
 
