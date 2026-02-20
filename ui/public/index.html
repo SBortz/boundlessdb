@@ -289,16 +289,18 @@
   
   <div class="code-section">
     <h2>Conflict? No Problem!</h2>
-    <pre><code><span class="keyword">if</span> (<span class="function">isConflict</span>(result)) {
+    <pre><code><span class="keyword">if</span> (result.conflict) {
   <span class="comment">// Someone else enrolled while you were deciding!</span>
-  console.<span class="function">log</span>(<span class="string">'Conflict! Events since your read:'</span>, result.conflictingEvents);
+  console.<span class="function">log</span>(<span class="string">'Events since your read:'</span>, result.conflictingEvents);
   
-  <span class="comment">// You get a fresh token to retry with</span>
+  <span class="comment">// You get a fresh token to retry</span>
   <span class="keyword">const</span> freshToken = result.newToken;
   
   <span class="comment">// Re-read, re-decide, re-write...</span>
 } <span class="keyword">else</span> {
-  console.<span class="function">log</span>(<span class="string">'Success! Enrolled at position'</span>, result.position);
+  <span class="comment">// Success!</span>
+  console.<span class="function">log</span>(<span class="string">'Enrolled at position'</span>, result.position);
+  console.<span class="function">log</span>(<span class="string">'New token for next operation:'</span>, result.token);
 }</code></pre>
   </div>
   
