@@ -556,7 +556,10 @@
 <body>
   <!-- Debug Panel (visible on page) -->
   <div id="debug-panel" style="position:fixed;bottom:0;left:0;right:0;height:150px;background:#000;color:#0f0;font-family:monospace;font-size:11px;overflow-y:auto;z-index:9999;padding:5px;border-top:2px solid #0f0;">
-    <strong>🐛 Debug Log:</strong><br>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
+      <strong>🐛 Debug Log:</strong>
+      <button onclick="copyDebugLog()" style="background:#0f0;color:#000;border:none;padding:2px 8px;font-size:11px;cursor:pointer;">📋 Copy</button>
+    </div>
     <div id="debug-log"></div>
   </div>
   <script>
@@ -579,6 +582,11 @@
     console.log = (...args) => { origLog(...args); addDebug('LOG', '#0f0', args); };
     console.error = (...args) => { origError(...args); addDebug('ERR', '#f00', args); };
     console.warn = (...args) => { origWarn(...args); addDebug('WRN', '#ff0', args); };
+    
+    window.copyDebugLog = () => {
+      const text = Array.from(debugLog.children).map(el => el.textContent).join('\n');
+      navigator.clipboard.writeText(text).then(() => alert('Copied!')).catch(e => alert('Copy failed: ' + e));
+    };
   </script>
 
   <!-- Mobile Header -->
@@ -739,7 +747,7 @@
       createEventStore, 
       SqlJsStorage, 
       isConflict 
-    } from './boundless.browser.js?v=13';
+    } from './boundless.browser.js?v=14';
 
     // Configuration for the demo
     const DEMO_SECRET = 'demo-secret-key-for-hmac-signing';
