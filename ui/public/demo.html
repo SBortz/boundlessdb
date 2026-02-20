@@ -554,29 +554,41 @@
   </style>
 </head>
 <body>
-  <!-- Debug Panel (visible on page) -->
-  <div id="debug-panel" style="position:fixed;bottom:0;left:0;right:0;height:150px;background:#000;color:#0f0;font-family:monospace;font-size:11px;overflow-y:auto;z-index:9999;padding:5px;border-top:2px solid #0f0;">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
-      <strong>🐛 Debug Log:</strong>
-      <button onclick="copyDebugLog()" style="background:#0f0;color:#000;border:none;padding:2px 8px;font-size:11px;cursor:pointer;">📋 Copy</button>
-    </div>
-    <div id="debug-log"></div>
-  </div>
   <script>
     // Intercept console.log to show in debug panel
-    const debugLog = document.getElementById('debug-log');
+    // debugLog element is created later in HTML, so we use a getter
+    let _debugLogEl = null;
+    const getDebugLog = () => _debugLogEl || (_debugLogEl = document.getElementById('debug-log'));
+    
     const origLog = console.log.bind(console);
     const origError = console.error.bind(console);
     const origWarn = console.warn.bind(console);
     
+    // Buffer for early logs before DOM ready
+    const earlyLogs = [];
+    
     function addDebug(prefix, color, args) {
+      const debugLog = getDebugLog();
+      if (!debugLog) {
+        earlyLogs.push({ prefix, color, args });
+        return;
+      }
+      // Flush early logs first
+      while (earlyLogs.length > 0) {
+        const early = earlyLogs.shift();
+        addDebugLine(debugLog, early.prefix, early.color, early.args);
+      }
+      addDebugLine(debugLog, prefix, color, args);
+    }
+    
+    function addDebugLine(debugLog, prefix, color, args) {
       const line = document.createElement('div');
       line.style.color = color;
       line.textContent = prefix + ' ' + Array.from(args).map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
       debugLog.appendChild(line);
       debugLog.scrollTop = debugLog.scrollHeight;
-      // Keep only last 50 lines
-      while (debugLog.children.length > 50) debugLog.removeChild(debugLog.firstChild);
+      // Keep only last 100 lines
+      while (debugLog.children.length > 100) debugLog.removeChild(debugLog.firstChild);
     }
     
     console.log = (...args) => { origLog(...args); addDebug('LOG', '#0f0', args); };
@@ -584,6 +596,8 @@
     console.warn = (...args) => { origWarn(...args); addDebug('WRN', '#ff0', args); };
     
     window.copyDebugLog = () => {
+      const debugLog = getDebugLog();
+      if (!debugLog) return alert('Debug log not ready');
       const text = Array.from(debugLog.children).map(el => el.textContent).join('\n');
       navigator.clipboard.writeText(text).then(() => alert('Copied!')).catch(e => alert('Copy failed: ' + e));
     };
@@ -600,6 +614,7 @@
     <button class="mobile-tab active" onclick="showMobileTab('controls')">⚡ Actions</button>
     <button class="mobile-tab" onclick="showMobileTab('live-query')">🔍 Query</button>
     <button class="mobile-tab" onclick="showMobileTab('sidebar')">📊 Log</button>
+    <button class="mobile-tab" onclick="showMobileTab('debug')">🐛 Debug</button>
   </div>
   
   <div class="layout" style="height:calc(100vh - 150px);">
@@ -739,6 +754,15 @@
         <div class="sidebar-content" id="keys-list"></div>
       </div>
     </div>
+    
+    <!-- Debug Tab (hidden on desktop, visible on mobile when selected) -->
+    <div class="debug-section" id="section-debug" style="display:none;background:#000;color:#0f0;font-family:monospace;font-size:11px;padding:10px;overflow-y:auto;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <strong>🐛 Debug Log</strong>
+        <button onclick="copyDebugLog()" style="background:#0f0;color:#000;border:none;padding:4px 12px;font-size:12px;cursor:pointer;border-radius:4px;">📋 Copy</button>
+      </div>
+      <div id="debug-log"></div>
+    </div>
   </div>
   
   <script type="module">
@@ -747,7 +771,7 @@
       createEventStore, 
       SqlJsStorage, 
       isConflict 
-    } from './boundless.browser.js?v=14';
+    } from './boundless.browser.js?v=15';
 
     // Configuration for the demo
     const DEMO_SECRET = 'demo-secret-key-for-hmac-signing';
@@ -791,11 +815,14 @@
       document.querySelectorAll('.mobile-tab').forEach(t => t.classList.remove('active'));
       event.target.classList.add('active');
       
-      // Update sections
-      document.querySelectorAll('.controls, .live-query, .sidebar').forEach(s => {
+      // Update sections - hide all, show selected
+      document.querySelectorAll('.controls, .live-query, .sidebar, .debug-section').forEach(s => {
         s.classList.remove('mobile-active');
+        if (s.classList.contains('debug-section')) s.style.display = 'none';
       });
-      document.getElementById('section-' + section).classList.add('mobile-active');
+      const target = document.getElementById('section-' + section);
+      target.classList.add('mobile-active');
+      if (section === 'debug') target.style.display = 'block';
     };
 
     // Advanced section toggle
