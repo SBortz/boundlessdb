@@ -68,16 +68,13 @@ function sortObjectKeys(obj: unknown): unknown {
  */
 async function hashConfig(config: ConsistencyConfig): Promise<string> {
   const normalized = JSON.stringify(sortObjectKeys(config));
-  console.log('[hashConfig] Input config (normalized):', normalized);
   const encoder = new TextEncoder();
   const data = encoder.encode(normalized);
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
   const hashArray = new Uint8Array(hashBuffer);
-  const hash = Array.from(hashArray)
+  return Array.from(hashArray)
     .map(b => b.toString(16).padStart(2, '0'))
     .join('');
-  console.log('[hashConfig] Generated hash:', hash.substring(0, 16) + '...');
-  return hash;
 }
 
 export interface EventStoreConfig extends EventStoreOptions {
@@ -139,13 +136,10 @@ export class EventStore {
 
     if (storedHash === null) {
       // First run — just store the hash
-      console.log('[EventStore] First run, storing config hash:', currentHash.substring(0, 16) + '...');
       await this.storage.setConfigHash(currentHash);
     } else if (storedHash !== currentHash) {
       // Config changed — reindex!
-      console.log('[EventStore] ⚠️  Config changed! Rebuilding key index...');
-      console.log(`[EventStore]    Old hash: ${storedHash.substring(0, 16)}...`);
-      console.log(`[EventStore]    New hash: ${currentHash.substring(0, 16)}...`);
+      console.log('🔄 [EventStore] Config changed! Rebuilding key index...');
       const startTime = Date.now();
       
       let eventCount = 0;
@@ -238,30 +232,38 @@ export class EventStore {
       }
 
       // Check for conflicts: any events since token position that match the query?
-      console.log('🔍 [Conflict Check] Token position:', tokenPayload.pos.toString());
-      console.log('🔍 [Conflict Check] Query conditions:', JSON.stringify(tokenPayload.q));
-      
       const conflictingEvents = await this.storage.getEventsSince(
         tokenPayload.q,
         tokenPayload.pos
       );
 
-      console.log('🔍 [Conflict Check] Events since pos ' + tokenPayload.pos + ':', conflictingEvents.length);
-
       if (conflictingEvents.length > 0) {
-        // Conflict detected — return delta
-        console.log('❌ [CONFLICT DETECTED]');
-        console.log('   Token was at position: #' + tokenPayload.pos);
-        console.log('   Query conditions checked:');
+        // Conflict detected — log details
+        console.log('');
+        console.log('❌ ═══════════════════════════════════════');
+        console.log('   CONFLICT DETECTED');
+        console.log('═══════════════════════════════════════════');
+        console.log('');
+        console.log('📍 Your token position: #' + tokenPayload.pos);
+        console.log('');
+        console.log('🔍 Query conditions you checked:');
         tokenPayload.q.forEach((c: any) => {
-          console.log(`     → type="${c.type}" key="${c.key}" value="${c.value}"`);
+          console.log(`   • ${c.type} where ${c.key}="${c.value}"`);
         });
-        console.log('   Conflicting events found:');
+        console.log('');
+        console.log('⚡ Events written SINCE your read (that match your query):');
         conflictingEvents.forEach(e => {
-          console.log(`     → #${e.position}: ${e.type} - ${JSON.stringify(e.data)}`);
+          console.log(`   • Event #${e.position}: ${e.type}`);
+          console.log(`     Data: ${JSON.stringify(e.data)}`);
         });
-        console.log('   Why conflict? These events MATCH your query conditions!');
-        console.log('   Solution: Use result.newToken to retry with fresh data.');
+        console.log('');
+        console.log('💡 Why conflict?');
+        console.log('   These events match your query conditions!');
+        console.log('   Your decision was based on stale data.');
+        console.log('');
+        console.log('🔄 Solution: Use result.newToken to retry.');
+        console.log('═══════════════════════════════════════════');
+        console.log('');
         
         const latestPosition = conflictingEvents[conflictingEvents.length - 1].position;
         const newToken = await createToken(
@@ -275,35 +277,25 @@ export class EventStore {
           conflictingEvents,
           newToken,
         };
-      } else {
-        console.log('✅ [Conflict Check] No conflicts - clear to append!');
       }
     }
 
     // No conflict — prepare events for storage
     const now = new Date();
-    console.log('🔵 [EventStore.append] Starting to prepare events, count:', events.length);
     
-    const eventsToStore = events.map((event, idx) => {
-      console.log(`🔵 [EventStore.append] Processing event ${idx}:`, JSON.stringify(event));
+    const eventsToStore = events.map((event) => {
       const id = generateUUID();
-      console.log(`🟢 [EventStore.append] Generated UUID for event ${idx}:`, id, 'type:', typeof id);
       if (!id) {
-        console.error('🔴 [EventStore.append] UUID generation returned falsy:', id);
         throw new Error('Failed to generate event ID');
       }
-      const eventToStore = {
+      return {
         id,
         type: event.type,
         data: event.data,
         metadata: event.metadata,
         timestamp: now,
       };
-      console.log(`🟢 [EventStore.append] eventToStore ${idx}:`, JSON.stringify(eventToStore));
-      return eventToStore;
     });
-    
-    console.log('🔵 [EventStore.append] All eventsToStore:', JSON.stringify(eventsToStore));
 
     // Append atomically
     const position = await this.storage.append(eventsToStore, keysPerEvent);

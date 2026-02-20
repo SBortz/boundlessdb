@@ -2412,7 +2412,6 @@ var SqlJsStorage = class {
     return this.db;
   }
   async append(eventsToStore, keys) {
-    console.log("\u{1F7E3} [SqlJsStorage.append] Called with eventsToStore:", JSON.stringify(eventsToStore, (k, v) => k === "timestamp" ? v?.toISOString?.() ?? v : v));
     const db = await this.ensureInitialized();
     if (eventsToStore.length !== keys.length) {
       throw new Error("Events and keys arrays must have the same length");
@@ -2423,38 +2422,29 @@ var SqlJsStorage = class {
     let lastPosition = 0n;
     db.run("BEGIN TRANSACTION");
     try {
+      const escapeSql = (s) => {
+        if (s === null) return "NULL";
+        return "'" + s.replace(/'/g, "''") + "'";
+      };
       for (let i = 0; i < eventsToStore.length; i++) {
         const event = eventsToStore[i];
-        console.log(`\u{1F7E3} [SqlJsStorage.append] Event ${i} raw:`, event);
-        console.log(`\u{1F7E3} [SqlJsStorage.append] Event ${i} id:`, event.id, "type:", typeof event.id);
         const eventKeys = keys[i];
         const eventId = String(event.id);
         const eventType = String(event.type);
         const eventData = JSON.stringify(event.data);
         const eventMeta = event.metadata ? JSON.stringify(event.metadata) : null;
         const eventTime = event.timestamp.toISOString();
-        console.log(`\u{1F7E3} [SqlJsStorage.append] After String(): eventId="${eventId}"`);
-        console.log(`\u{1F7E3} [SqlJsStorage.append] eventId length:`, eventId.length);
-        console.log("[SqlJsStorage] Inserting:", { eventId, eventType, eventData });
         if (!eventId || eventId === "undefined" || eventId === "null") {
           throw new Error(`[SqlJsStorage] Invalid event ID: "${eventId}"`);
         }
-        const escapeSql = (s) => {
-          if (s === null) return "NULL";
-          return "'" + s.replace(/'/g, "''") + "'";
-        };
         const sql = `INSERT INTO events (event_id, event_type, data, metadata, timestamp)
            VALUES (${escapeSql(eventId)}, ${escapeSql(eventType)}, ${escapeSql(eventData)}, ${eventMeta === null ? "NULL" : escapeSql(eventMeta)}, ${escapeSql(eventTime)})`;
-        console.log("[SqlJsStorage] SQL:", sql.substring(0, 200));
         db.run(sql);
         const result = db.exec("SELECT last_insert_rowid() as position");
-        console.log("[SqlJsStorage] last_insert_rowid result:", JSON.stringify(result));
         const position = BigInt(result[0].values[0][0]);
-        console.log("[SqlJsStorage] position:", position.toString());
         lastPosition = position;
         for (const key of eventKeys) {
           const keySql = `INSERT INTO event_keys (position, key_name, key_value) VALUES (${Number(position)}, ${escapeSql(key.name)}, ${escapeSql(key.value)})`;
-          console.log("[SqlJsStorage] Key SQL:", keySql);
           db.run(keySql);
         }
       }
@@ -2493,7 +2483,6 @@ var SqlJsStorage = class {
     if (limit !== void 0) {
       sql += ` LIMIT ${Number(limit)}`;
     }
-    console.log("[SqlJsStorage.query] SQL:", sql.substring(0, 300));
     const result = db.exec(sql);
     if (result.length === 0) return [];
     const columns = result[0].columns || result[0].lc;
@@ -2528,20 +2517,16 @@ var SqlJsStorage = class {
    */
   async getAllEvents() {
     const db = await this.ensureInitialized();
-    console.log("[SqlJsStorage.getAllEvents] Querying...");
     const result = db.exec(`
       SELECT position, event_id, event_type, data, metadata, timestamp
       FROM events
       ORDER BY position ASC
     `);
-    console.log("[SqlJsStorage.getAllEvents] Raw result:", JSON.stringify(result));
     if (result.length === 0) {
-      console.log("[SqlJsStorage.getAllEvents] No results, returning []");
       return [];
     }
     const columns = result[0].columns || result[0].lc;
     const rows = result[0].values;
-    console.log("[SqlJsStorage.getAllEvents] columns:", columns, "rowCount:", rows.length);
     return rows.map((row) => {
       const obj = {};
       columns.forEach((col, i) => {
@@ -2792,14 +2777,11 @@ function sortObjectKeys(obj) {
 }
 async function hashConfig(config) {
   const normalized = JSON.stringify(sortObjectKeys(config));
-  console.log("[hashConfig] Input config (normalized):", normalized);
   const encoder = new TextEncoder();
   const data = encoder.encode(normalized);
   const hashBuffer = await crypto.subtle.digest("SHA-256", data);
   const hashArray = new Uint8Array(hashBuffer);
-  const hash = Array.from(hashArray).map((b) => b.toString(16).padStart(2, "0")).join("");
-  console.log("[hashConfig] Generated hash:", hash.substring(0, 16) + "...");
-  return hash;
+  return Array.from(hashArray).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 var EventStore = class {
   constructor(options) {
@@ -2839,12 +2821,9 @@ var EventStore = class {
       }
       const storedHash = await this.storage.getConfigHash();
       if (storedHash === null) {
-        console.log("[EventStore] First run, storing config hash:", currentHash.substring(0, 16) + "...");
         await this.storage.setConfigHash(currentHash);
       } else if (storedHash !== currentHash) {
-        console.log("[EventStore] \u26A0\uFE0F  Config changed! Rebuilding key index...");
-        console.log(`[EventStore]    Old hash: ${storedHash.substring(0, 16)}...`);
-        console.log(`[EventStore]    New hash: ${currentHash.substring(0, 16)}...`);
+        console.log("\u{1F504} [EventStore] Config changed! Rebuilding key index...");
         const startTime = Date.now();
         let eventCount = 0;
         let keyCount = 0;
@@ -2908,26 +2887,36 @@ var EventStore = class {
         }
         throw e;
       }
-      console.log("\u{1F50D} [Conflict Check] Token position:", tokenPayload.pos.toString());
-      console.log("\u{1F50D} [Conflict Check] Query conditions:", JSON.stringify(tokenPayload.q));
       const conflictingEvents = await this.storage.getEventsSince(
         tokenPayload.q,
         tokenPayload.pos
       );
-      console.log("\u{1F50D} [Conflict Check] Events since pos " + tokenPayload.pos + ":", conflictingEvents.length);
       if (conflictingEvents.length > 0) {
-        console.log("\u274C [CONFLICT DETECTED]");
-        console.log("   Token was at position: #" + tokenPayload.pos);
-        console.log("   Query conditions checked:");
+        console.log("");
+        console.log("\u274C \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
+        console.log("   CONFLICT DETECTED");
+        console.log("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
+        console.log("");
+        console.log("\u{1F4CD} Your token position: #" + tokenPayload.pos);
+        console.log("");
+        console.log("\u{1F50D} Query conditions you checked:");
         tokenPayload.q.forEach((c) => {
-          console.log(`     \u2192 type="${c.type}" key="${c.key}" value="${c.value}"`);
+          console.log(`   \u2022 ${c.type} where ${c.key}="${c.value}"`);
         });
-        console.log("   Conflicting events found:");
+        console.log("");
+        console.log("\u26A1 Events written SINCE your read (that match your query):");
         conflictingEvents.forEach((e) => {
-          console.log(`     \u2192 #${e.position}: ${e.type} - ${JSON.stringify(e.data)}`);
+          console.log(`   \u2022 Event #${e.position}: ${e.type}`);
+          console.log(`     Data: ${JSON.stringify(e.data)}`);
         });
-        console.log("   Why conflict? These events MATCH your query conditions!");
-        console.log("   Solution: Use result.newToken to retry with fresh data.");
+        console.log("");
+        console.log("\u{1F4A1} Why conflict?");
+        console.log("   These events match your query conditions!");
+        console.log("   Your decision was based on stale data.");
+        console.log("");
+        console.log("\u{1F504} Solution: Use result.newToken to retry.");
+        console.log("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
+        console.log("");
         const latestPosition = conflictingEvents[conflictingEvents.length - 1].position;
         const newToken2 = await createToken(
           { conditions: tokenPayload.q },
@@ -2939,31 +2928,22 @@ var EventStore = class {
           conflictingEvents,
           newToken: newToken2
         };
-      } else {
-        console.log("\u2705 [Conflict Check] No conflicts - clear to append!");
       }
     }
     const now = /* @__PURE__ */ new Date();
-    console.log("\u{1F535} [EventStore.append] Starting to prepare events, count:", events.length);
-    const eventsToStore = events.map((event, idx) => {
-      console.log(`\u{1F535} [EventStore.append] Processing event ${idx}:`, JSON.stringify(event));
+    const eventsToStore = events.map((event) => {
       const id = generateUUID();
-      console.log(`\u{1F7E2} [EventStore.append] Generated UUID for event ${idx}:`, id, "type:", typeof id);
       if (!id) {
-        console.error("\u{1F534} [EventStore.append] UUID generation returned falsy:", id);
         throw new Error("Failed to generate event ID");
       }
-      const eventToStore = {
+      return {
         id,
         type: event.type,
         data: event.data,
         metadata: event.metadata,
         timestamp: now
       };
-      console.log(`\u{1F7E2} [EventStore.append] eventToStore ${idx}:`, JSON.stringify(eventToStore));
-      return eventToStore;
     });
-    console.log("\u{1F535} [EventStore.append] All eventsToStore:", JSON.stringify(eventsToStore));
     const position = await this.storage.append(eventsToStore, keysPerEvent);
     const newTokenQuery = await this.buildQueryFromEvents(events, token);
     const newToken = await createToken(newTokenQuery, position, this.secret);

@@ -93,8 +93,6 @@ export class SqlJsStorage implements EventStorage {
   }
 
   async append(eventsToStore: EventToStore[], keys: ExtractedKey[][]): Promise<bigint> {
-    console.log('🟣 [SqlJsStorage.append] Called with eventsToStore:', JSON.stringify(eventsToStore, (k, v) => k === 'timestamp' ? v?.toISOString?.() ?? v : v));
-    
     const db = await this.ensureInitialized();
 
     if (eventsToStore.length !== keys.length) {
@@ -111,10 +109,14 @@ export class SqlJsStorage implements EventStorage {
     db.run('BEGIN TRANSACTION');
 
     try {
+      // sql.js db.run() doesn't support params properly - use escaped SQL
+      const escapeSql = (s: string | null): string => {
+        if (s === null) return 'NULL';
+        return "'" + s.replace(/'/g, "''") + "'";
+      };
+      
       for (let i = 0; i < eventsToStore.length; i++) {
         const event = eventsToStore[i];
-        console.log(`🟣 [SqlJsStorage.append] Event ${i} raw:`, event);
-        console.log(`🟣 [SqlJsStorage.append] Event ${i} id:`, event.id, 'type:', typeof event.id);
         const eventKeys = keys[i];
 
         // Insert event
@@ -124,38 +126,23 @@ export class SqlJsStorage implements EventStorage {
         const eventMeta = event.metadata ? JSON.stringify(event.metadata) : null;
         const eventTime = event.timestamp.toISOString();
         
-        console.log(`🟣 [SqlJsStorage.append] After String(): eventId="${eventId}"`);
-        console.log(`🟣 [SqlJsStorage.append] eventId length:`, eventId.length);
-        
-        console.log('[SqlJsStorage] Inserting:', { eventId, eventType, eventData });
-        
         if (!eventId || eventId === 'undefined' || eventId === 'null') {
           throw new Error(`[SqlJsStorage] Invalid event ID: "${eventId}"`);
         }
         
-        // sql.js db.run() doesn't support params properly - use escaped SQL
-        const escapeSql = (s: string | null): string => {
-          if (s === null) return 'NULL';
-          return "'" + s.replace(/'/g, "''") + "'";
-        };
-        
         const sql = `INSERT INTO events (event_id, event_type, data, metadata, timestamp)
            VALUES (${escapeSql(eventId)}, ${escapeSql(eventType)}, ${escapeSql(eventData)}, ${eventMeta === null ? 'NULL' : escapeSql(eventMeta)}, ${escapeSql(eventTime)})`;
         
-        console.log('[SqlJsStorage] SQL:', sql.substring(0, 200));
         db.run(sql);
 
         // Get the last inserted position
         const result = db.exec('SELECT last_insert_rowid() as position');
-        console.log('[SqlJsStorage] last_insert_rowid result:', JSON.stringify(result));
         const position = BigInt(result[0].values[0][0] as number);
-        console.log('[SqlJsStorage] position:', position.toString());
         lastPosition = position;
 
-        // Insert keys (also use escaped SQL since db.run ignores params)
+        // Insert keys
         for (const key of eventKeys) {
           const keySql = `INSERT INTO event_keys (position, key_name, key_value) VALUES (${Number(position)}, ${escapeSql(key.name)}, ${escapeSql(key.value)})`;
-          console.log('[SqlJsStorage] Key SQL:', keySql);
           db.run(keySql);
         }
       }
@@ -211,7 +198,6 @@ export class SqlJsStorage implements EventStorage {
       sql += ` LIMIT ${Number(limit)}`;
     }
 
-    console.log('[SqlJsStorage.query] SQL:', sql.substring(0, 300));
     const result = db.exec(sql);
     if (result.length === 0) return [];
 
@@ -257,23 +243,19 @@ export class SqlJsStorage implements EventStorage {
    */
   async getAllEvents(): Promise<StoredEvent[]> {
     const db = await this.ensureInitialized();
-    console.log('[SqlJsStorage.getAllEvents] Querying...');
     const result = db.exec(`
       SELECT position, event_id, event_type, data, metadata, timestamp
       FROM events
       ORDER BY position ASC
     `);
-    console.log('[SqlJsStorage.getAllEvents] Raw result:', JSON.stringify(result));
 
     if (result.length === 0) {
-      console.log('[SqlJsStorage.getAllEvents] No results, returning []');
       return [];
     }
 
     // sql.js uses 'columns' or 'lc' depending on version
     const columns = (result[0] as any).columns || (result[0] as any).lc;
     const rows = result[0].values;
-    console.log('[SqlJsStorage.getAllEvents] columns:', columns, 'rowCount:', rows.length);
 
     return rows.map((row: SqlValue[]) => {
       const obj: Record<string, unknown> = {};
