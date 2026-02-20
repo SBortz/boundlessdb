@@ -174,7 +174,3 @@ npm install
 npm test
 npm run build
 ```
-
-## License
-
-MIT
