@@ -13,10 +13,11 @@ The entire event store runs client-side in your browser using WebAssembly SQLite
 ## Features
 
 - 🚀 **Works in Browser** — Full client-side event sourcing via sql.js (WASM)
-- 🔑 **No Streams** — Events are organized via configurable consistency keys
+- 🔑 **No Streams** — Events organized via configurable consistency keys
 - ⚙️ **Config-based Key Extraction** — Events remain pure business data
 - 🔐 **HMAC-signed Consistency Tokens** — Tamper-proof optimistic concurrency
 - ⚡ **Conflict Detection with Delta** — Get exactly what changed since your read
+- 🔄 **Auto-Reindex** — Change your config, keys are automatically rebuilt
 - 💾 **SQLite & In-Memory Storage** — Production-ready and test-friendly
 
 ## Installation
@@ -25,62 +26,149 @@ The entire event store runs client-side in your browser using WebAssembly SQLite
 npm install @sbortz/boundless
 ```
 
-## Quick Start
+## How It Works
+
+### 1️⃣ Event Appended
+You append an event with business data:
+```typescript
+await store.append([{ 
+  type: 'StudentSubscribed', 
+  data: { courseId: 'cs101', studentId: 'alice' } 
+}], token);
+```
+
+### 2️⃣ Keys Extracted
+Your config tells Boundless which fields are consistency keys:
+```typescript
+consistency: {
+  eventTypes: {
+    StudentSubscribed: {
+      keys: [
+        { name: 'course', path: 'data.courseId' },
+        { name: 'student', path: 'data.studentId' }
+      ]
+    }
+  }
+}
+// → Extracts: course='cs101', student='alice'
+```
+
+### 3️⃣ Index Updated
+Keys are stored in a separate index table, linked to the event position:
+```
+event_keys: [pos:1, course, cs101], [pos:1, student, alice]
+```
+
+### 4️⃣ Query by Keys
+Find all events matching any combination of key conditions:
+```typescript
+const { events, token } = await store.read({
+  conditions: [
+    { type: 'StudentSubscribed', key: 'course', value: 'cs101' }
+  ]
+});
+// token captures: "I read all matching events up to position X"
+```
+
+## The DCB Pattern: Read → Decide → Write
 
 ```typescript
-import { createEventStore, SqliteStorage, isConflict } from '@sbortz/boundless';
-
-const store = createEventStore({
-  storage: new SqliteStorage('./events.db'),
-  secret: process.env.TOKEN_SECRET!,
-  consistency: {
-    eventTypes: {
-      CourseCreated: {
-        keys: [{ name: 'course', path: 'data.courseId' }],
-      },
-      StudentSubscribed: {
-        keys: [
-          { name: 'course', path: 'data.courseId' },
-          { name: 'student', path: 'data.studentId' },
-        ],
-      },
-    },
-  },
-});
-
-// 1. READ — Get current state + consistency token
+// 1️⃣ READ — Query events and get a consistency token
 const { events, token } = await store.read({
   conditions: [
     { type: 'CourseCreated', key: 'course', value: 'cs101' },
     { type: 'StudentSubscribed', key: 'course', value: 'cs101' },
-  ],
+  ]
 });
 
-// 2. DECIDE — Check invariants
+// 2️⃣ DECIDE — Project state and check business rules
+const course = events.find(e => e.type === 'CourseCreated');
 const enrolled = events.filter(e => e.type === 'StudentSubscribed').length;
-if (enrolled >= 30) throw new Error('Course is full');
 
-// 3. APPEND — Write with consistency check
-const result = await store.append(
-  [{ type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } }],
-  token
-);
+if (enrolled >= course.data.capacity) {
+  throw new Error('Course is full!');
+}
 
-if (isConflict(result)) {
-  console.log('Conflict! Events since your read:', result.conflictingEvents);
+// 3️⃣ WRITE — Append with the token from your read
+const result = await store.append([
+  { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } }
+], token);  // ← Token ensures no one else wrote since your read!
+
+// Handle result
+if (result.conflict) {
+  // Someone else enrolled while you were deciding!
+  console.log('Events since your read:', result.conflictingEvents);
   // Retry with result.newToken...
 } else {
   console.log('Enrolled at position', result.position);
 }
 ```
 
+## Query Across Multiple Dimensions
+
+Traditional streams give you ONE boundary. DCB lets you query ANY combination:
+
+```typescript
+// "Has Alice already enrolled in CS101?"
+const { events, token } = await store.read({
+  conditions: [
+    { type: 'StudentSubscribed', key: 'course', value: 'cs101' },
+    { type: 'StudentSubscribed', key: 'student', value: 'alice' },
+  ]
+});
+// Checks BOTH course AND student boundaries in one query!
+```
+
+## Config-based Key Extraction
+
+Keys are extracted from event payloads via configuration — events stay pure:
+
+```typescript
+const consistency = {
+  eventTypes: {
+    OrderPlaced: {
+      keys: [
+        { name: 'order', path: 'data.orderId' },
+        { name: 'customer', path: 'data.customer.id' },
+        { name: 'month', path: 'data.timestamp', transform: 'MONTH' }
+      ]
+    }
+  }
+};
+```
+
+### Key Options
+
+| Option | Description |
+|--------|-------------|
+| `name` | Key name for queries |
+| `path` | Dot-notation path in event (e.g., `data.customer.id`) |
+| `transform` | `LOWER`, `UPPER`, `MONTH`, `YEAR`, `DATE` |
+| `nullHandling` | `error` (default), `skip`, `default` |
+| `defaultValue` | Value when `nullHandling: 'default'` |
+
+## Auto-Reindex on Config Change
+
+The config is hashed and stored in the database. On startup:
+
+```
+stored_hash:  "a1b2c3..."  (from last run)
+current_hash: "x9y8z7..."  (from your config)
+
+→ Hash mismatch detected!
+→ Rebuilding key index...
+→ ✅ Reindex complete: 1523 events, 4211 keys (847ms)
+```
+
+**Just change your config and restart.** No manual migration needed!
+
 ## Browser Usage
 
-Boundless works **entirely in the browser** with no server required!
+Boundless works **entirely in the browser** with no server required:
 
 ```html
 <script type="module">
-  import { createEventStore, SqlJsStorage, isConflict } from './boundless.browser.js';
+  import { createEventStore, SqlJsStorage } from './boundless.browser.js';
 
   const store = createEventStore({
     storage: new SqlJsStorage(),
@@ -93,9 +181,6 @@ Boundless works **entirely in the browser** with no server required!
   });
 
   // Everything runs client-side!
-  const { events, token } = await store.read({
-    conditions: [{ type: 'TodoAdded', key: 'list', value: 'my-list' }]
-  });
 </script>
 ```
 
@@ -106,25 +191,15 @@ npm run build:browser
 # → ui/public/boundless.browser.js (~100KB)
 ```
 
-## Why "Boundless"?
+## Storage Backends
 
-Traditional event stores use **streams** as consistency boundaries — but streams are static. What if you need to check consistency across multiple dimensions?
+| Backend | Environment | Persistence |
+|---------|-------------|-------------|
+| `SqliteStorage` | Node.js | File or `:memory:` |
+| `SqlJsStorage` | Browser | In-memory (WASM) |
+| `InMemoryStorage` | Any | None (testing) |
 
-**Dynamic Consistency Boundaries (DCB)** let you query events by any combination of keys:
-
-```typescript
-// Check consistency across course AND student
-const { token } = await store.read({
-  conditions: [
-    { type: 'StudentSubscribed', key: 'course', value: 'cs101' },
-    { type: 'StudentSubscribed', key: 'student', value: 'alice' },
-  ],
-});
-```
-
-The consistency token captures *exactly* what you read, enabling precise conflict detection.
-
-## API
+## API Reference
 
 ### `createEventStore(options)`
 
@@ -151,50 +226,17 @@ const { events, token } = await store.read({
 ```typescript
 const result = await store.append(
   [{ type: 'MyEvent', data: {...} }],
-  token  // or null to skip check
+  token  // or null to skip consistency check
 );
 
-if (isConflict(result)) {
-  result.conflictingEvents;  // What changed
-  result.newToken;           // For retry
+if (result.conflict) {
+  result.conflictingEvents;  // What changed since your read
+  result.newToken;           // Fresh token for retry
+} else {
+  result.position;           // Position of last appended event
+  result.token;              // Token for next operation
 }
 ```
-
-## Consistency Configuration
-
-Keys are extracted from event payloads — events stay pure:
-
-```typescript
-const config = {
-  eventTypes: {
-    OrderPlaced: {
-      keys: [
-        { name: 'order', path: 'data.orderId' },
-        { name: 'customer', path: 'data.customer.id' },
-        { name: 'month', path: 'data.timestamp', transform: 'MONTH' },
-      ],
-    },
-  },
-};
-```
-
-### Key Options
-
-| Option | Description |
-|--------|-------------|
-| `name` | Key name for queries |
-| `path` | Dot-notation path in event |
-| `transform` | `LOWER`, `UPPER`, `MONTH`, `YEAR`, `DATE` |
-| `nullHandling` | `error` (default), `skip`, `default` |
-| `defaultValue` | Value when `nullHandling: 'default'` |
-
-## Storage Backends
-
-| Backend | Environment | Persistence |
-|---------|-------------|-------------|
-| `SqliteStorage` | Node.js | File or `:memory:` |
-| `SqlJsStorage` | Browser | In-memory (WASM) |
-| `InMemoryStorage` | Any | None (testing) |
 
 ## Development
 
