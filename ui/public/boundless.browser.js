@@ -2436,8 +2436,14 @@ var SqlJsStorage = class {
         }
         db.run(
           `INSERT INTO events (event_id, event_type, data, metadata, timestamp)
-           VALUES (?, ?, ?, ?, ?)`,
-          [eventId, eventType, eventData, eventMeta, eventTime]
+           VALUES ($id, $type, $data, $meta, $time)`,
+          {
+            $id: eventId,
+            $type: eventType,
+            $data: eventData,
+            $meta: eventMeta,
+            $time: eventTime
+          }
         );
         const result = db.exec("SELECT last_insert_rowid() as position");
         const position = BigInt(result[0].values[0][0]);
