@@ -454,10 +454,19 @@
         display: block;
       }
       
-      .sidebar.mobile-active {
-        display: flex;
+      .events-section.mobile-active,
+      .keys-section.mobile-active {
+        display: flex !important;
         flex-direction: column;
         min-height: 80vh;
+      }
+      
+      .keys-section {
+        display: none !important;
+      }
+      
+      .keys-section.mobile-active {
+        display: flex !important;
       }
       
       .debug-section {
@@ -623,7 +632,8 @@
   <div class="mobile-tabs">
     <button class="mobile-tab active" onclick="showMobileTab('controls')">⚡ Actions</button>
     <button class="mobile-tab" onclick="showMobileTab('live-query')">🔍 Query</button>
-    <button class="mobile-tab" onclick="showMobileTab('sidebar')">📊 Log</button>
+    <button class="mobile-tab" onclick="showMobileTab('events')">📊 Events</button>
+    <button class="mobile-tab" onclick="showMobileTab('keys')">🔑 Keys</button>
     <button class="mobile-tab" onclick="showMobileTab('debug')">🐛 Debug</button>
   </div>
   
@@ -746,9 +756,9 @@
       </div>
     </div>
     
-    <!-- Right: Event Log -->
-    <div class="sidebar" id="section-sidebar">
-      <div class="sidebar-section" style="flex:2">
+    <!-- Right: Events Tab -->
+    <div class="sidebar events-section" id="section-events">
+      <div class="sidebar-section" style="flex:1">
         <div class="sidebar-header">
           📊 All Events
           <div>
@@ -758,7 +768,10 @@
         </div>
         <div class="sidebar-content" id="events-list"></div>
       </div>
-      
+    </div>
+    
+    <!-- Keys Tab -->
+    <div class="sidebar keys-section" id="section-keys" style="display:none;">
       <div class="sidebar-section" style="flex:1">
         <div class="sidebar-header">🔑 All Keys</div>
         <div class="sidebar-content" id="keys-list"></div>
@@ -781,7 +794,7 @@
       createEventStore, 
       SqlJsStorage, 
       isConflict 
-    } from './boundless.browser.js?v=19';
+    } from './boundless.browser.js?v=20';
 
     // Configuration for the demo
     const DEMO_SECRET = 'demo-secret-key-for-hmac-signing';
@@ -826,13 +839,13 @@
       event.target.classList.add('active');
       
       // Update sections - hide all, show selected
-      document.querySelectorAll('.controls, .live-query, .sidebar, .debug-section').forEach(s => {
+      document.querySelectorAll('.controls, .live-query, .events-section, .keys-section, .debug-section').forEach(s => {
         s.classList.remove('mobile-active');
-        if (s.classList.contains('debug-section')) s.style.display = 'none';
+        if (s.classList.contains('debug-section') || s.classList.contains('keys-section')) s.style.display = 'none';
       });
       const target = document.getElementById('section-' + section);
       target.classList.add('mobile-active');
-      if (section === 'debug') target.style.display = 'block';
+      if (section === 'debug' || section === 'keys') target.style.display = 'block';
     };
 
     // Advanced section toggle
