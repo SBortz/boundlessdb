@@ -2908,11 +2908,26 @@ var EventStore = class {
         }
         throw e;
       }
+      console.log("\u{1F50D} [Conflict Check] Token position:", tokenPayload.pos.toString());
+      console.log("\u{1F50D} [Conflict Check] Query conditions:", JSON.stringify(tokenPayload.q));
       const conflictingEvents = await this.storage.getEventsSince(
         tokenPayload.q,
         tokenPayload.pos
       );
+      console.log("\u{1F50D} [Conflict Check] Events since pos " + tokenPayload.pos + ":", conflictingEvents.length);
       if (conflictingEvents.length > 0) {
+        console.log("\u274C [CONFLICT DETECTED]");
+        console.log("   Token was at position: #" + tokenPayload.pos);
+        console.log("   Query conditions checked:");
+        tokenPayload.q.forEach((c) => {
+          console.log(`     \u2192 type="${c.type}" key="${c.key}" value="${c.value}"`);
+        });
+        console.log("   Conflicting events found:");
+        conflictingEvents.forEach((e) => {
+          console.log(`     \u2192 #${e.position}: ${e.type} - ${JSON.stringify(e.data)}`);
+        });
+        console.log("   Why conflict? These events MATCH your query conditions!");
+        console.log("   Solution: Use result.newToken to retry with fresh data.");
         const latestPosition = conflictingEvents[conflictingEvents.length - 1].position;
         const newToken2 = await createToken(
           { conditions: tokenPayload.q },
@@ -2924,6 +2939,8 @@ var EventStore = class {
           conflictingEvents,
           newToken: newToken2
         };
+      } else {
+        console.log("\u2705 [Conflict Check] No conflicts - clear to append!");
       }
     }
     const now = /* @__PURE__ */ new Date();
