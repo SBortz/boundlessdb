@@ -68,13 +68,16 @@ function sortObjectKeys(obj: unknown): unknown {
  */
 async function hashConfig(config: ConsistencyConfig): Promise<string> {
   const normalized = JSON.stringify(sortObjectKeys(config));
+  console.log('[hashConfig] Input config (normalized):', normalized);
   const encoder = new TextEncoder();
   const data = encoder.encode(normalized);
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
   const hashArray = new Uint8Array(hashBuffer);
-  return Array.from(hashArray)
+  const hash = Array.from(hashArray)
     .map(b => b.toString(16).padStart(2, '0'))
     .join('');
+  console.log('[hashConfig] Generated hash:', hash.substring(0, 16) + '...');
+  return hash;
 }
 
 export interface EventStoreConfig extends EventStoreOptions {
