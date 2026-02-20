@@ -2740,6 +2740,16 @@ async function validateToken(token, secret) {
 }
 
 // src/event-store.browser.ts
+function generateUUID() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = Math.random() * 16 | 0;
+    const v = c === "x" ? r : r & 3 | 8;
+    return v.toString(16);
+  });
+}
 function sortObjectKeys(obj) {
   if (obj === null || typeof obj !== "object") {
     return obj;
@@ -2888,7 +2898,7 @@ var EventStore = class {
     }
     const now = /* @__PURE__ */ new Date();
     const eventsToStore = events.map((event) => ({
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       type: event.type,
       data: event.data,
       metadata: event.metadata,
