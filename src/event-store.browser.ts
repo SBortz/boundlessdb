@@ -259,10 +259,14 @@ export class EventStore {
 
     // No conflict — prepare events for storage
     const now = new Date();
-    const eventsToStore = events.map(event => {
+    console.log('🔵 [EventStore.append] Starting to prepare events, count:', events.length);
+    
+    const eventsToStore = events.map((event, idx) => {
+      console.log(`🔵 [EventStore.append] Processing event ${idx}:`, JSON.stringify(event));
       const id = generateUUID();
-      console.log('[EventStore] Generated UUID:', id);
+      console.log(`🟢 [EventStore.append] Generated UUID for event ${idx}:`, id, 'type:', typeof id);
       if (!id) {
+        console.error('🔴 [EventStore.append] UUID generation returned falsy:', id);
         throw new Error('Failed to generate event ID');
       }
       const eventToStore = {
@@ -272,9 +276,11 @@ export class EventStore {
         metadata: event.metadata,
         timestamp: now,
       };
-      console.log('[EventStore] Event to store:', JSON.stringify(eventToStore));
+      console.log(`🟢 [EventStore.append] eventToStore ${idx}:`, JSON.stringify(eventToStore));
       return eventToStore;
     });
+    
+    console.log('🔵 [EventStore.append] All eventsToStore:', JSON.stringify(eventsToStore));
 
     // Append atomically
     const position = await this.storage.append(eventsToStore, keysPerEvent);

@@ -2412,6 +2412,7 @@ var SqlJsStorage = class {
     return this.db;
   }
   async append(eventsToStore, keys) {
+    console.log("\u{1F7E3} [SqlJsStorage.append] Called with eventsToStore:", JSON.stringify(eventsToStore, (k, v) => k === "timestamp" ? v?.toISOString?.() ?? v : v));
     const db = await this.ensureInitialized();
     if (eventsToStore.length !== keys.length) {
       throw new Error("Events and keys arrays must have the same length");
@@ -2424,12 +2425,16 @@ var SqlJsStorage = class {
     try {
       for (let i = 0; i < eventsToStore.length; i++) {
         const event = eventsToStore[i];
+        console.log(`\u{1F7E3} [SqlJsStorage.append] Event ${i} raw:`, event);
+        console.log(`\u{1F7E3} [SqlJsStorage.append] Event ${i} id:`, event.id, "type:", typeof event.id);
         const eventKeys = keys[i];
         const eventId = String(event.id);
         const eventType = String(event.type);
         const eventData = JSON.stringify(event.data);
         const eventMeta = event.metadata ? JSON.stringify(event.metadata) : null;
         const eventTime = event.timestamp.toISOString();
+        console.log(`\u{1F7E3} [SqlJsStorage.append] After String(): eventId="${eventId}"`);
+        console.log(`\u{1F7E3} [SqlJsStorage.append] eventId length:`, eventId.length);
         console.log("[SqlJsStorage] Inserting:", { eventId, eventType, eventData });
         if (!eventId || eventId === "undefined" || eventId === "null") {
           throw new Error(`[SqlJsStorage] Invalid event ID: "${eventId}"`);
@@ -2914,10 +2919,13 @@ var EventStore = class {
       }
     }
     const now = /* @__PURE__ */ new Date();
-    const eventsToStore = events.map((event) => {
+    console.log("\u{1F535} [EventStore.append] Starting to prepare events, count:", events.length);
+    const eventsToStore = events.map((event, idx) => {
+      console.log(`\u{1F535} [EventStore.append] Processing event ${idx}:`, JSON.stringify(event));
       const id = generateUUID();
-      console.log("[EventStore] Generated UUID:", id);
+      console.log(`\u{1F7E2} [EventStore.append] Generated UUID for event ${idx}:`, id, "type:", typeof id);
       if (!id) {
+        console.error("\u{1F534} [EventStore.append] UUID generation returned falsy:", id);
         throw new Error("Failed to generate event ID");
       }
       const eventToStore = {
@@ -2927,9 +2935,10 @@ var EventStore = class {
         metadata: event.metadata,
         timestamp: now
       };
-      console.log("[EventStore] Event to store:", JSON.stringify(eventToStore));
+      console.log(`\u{1F7E2} [EventStore.append] eventToStore ${idx}:`, JSON.stringify(eventToStore));
       return eventToStore;
     });
+    console.log("\u{1F535} [EventStore.append] All eventsToStore:", JSON.stringify(eventsToStore));
     const position = await this.storage.append(eventsToStore, keysPerEvent);
     const newTokenQuery = await this.buildQueryFromEvents(events, token);
     const newToken = await createToken(newTokenQuery, position, this.secret);

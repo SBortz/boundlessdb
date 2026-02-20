@@ -93,6 +93,8 @@ export class SqlJsStorage implements EventStorage {
   }
 
   async append(eventsToStore: EventToStore[], keys: ExtractedKey[][]): Promise<bigint> {
+    console.log('🟣 [SqlJsStorage.append] Called with eventsToStore:', JSON.stringify(eventsToStore, (k, v) => k === 'timestamp' ? v?.toISOString?.() ?? v : v));
+    
     const db = await this.ensureInitialized();
 
     if (eventsToStore.length !== keys.length) {
@@ -111,6 +113,8 @@ export class SqlJsStorage implements EventStorage {
     try {
       for (let i = 0; i < eventsToStore.length; i++) {
         const event = eventsToStore[i];
+        console.log(`🟣 [SqlJsStorage.append] Event ${i} raw:`, event);
+        console.log(`🟣 [SqlJsStorage.append] Event ${i} id:`, event.id, 'type:', typeof event.id);
         const eventKeys = keys[i];
 
         // Insert event
@@ -119,6 +123,9 @@ export class SqlJsStorage implements EventStorage {
         const eventData = JSON.stringify(event.data);
         const eventMeta = event.metadata ? JSON.stringify(event.metadata) : null;
         const eventTime = event.timestamp.toISOString();
+        
+        console.log(`🟣 [SqlJsStorage.append] After String(): eventId="${eventId}"`);
+        console.log(`🟣 [SqlJsStorage.append] eventId length:`, eventId.length);
         
         console.log('[SqlJsStorage] Inserting:', { eventId, eventType, eventData });
         
