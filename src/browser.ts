@@ -1,5 +1,8 @@
 /**
- * DCB Event Store - Public API
+ * DCB Event Store - Browser Bundle Entry Point
+ * 
+ * This file exports everything needed for browser usage with sql.js storage.
+ * Uses Web Crypto API for HMAC operations (async).
  */
 
 // Core types
@@ -22,18 +25,17 @@ export type {
 
 export { isConflict } from './types.js';
 
-// Event Store
-export { EventStore, createEventStore, type EventStoreConfig } from './event-store.js';
+// Event Store (browser version with async crypto)
+export { EventStore, createEventStore, type EventStoreConfig } from './event-store.browser.js';
 
-// Storage
+// Storage - Only sql.js and InMemory for browser (not better-sqlite3)
 export type { EventStorage, EventToStore } from './storage/interface.js';
 export { InMemoryStorage } from './storage/memory.js';
-export { SqliteStorage } from './storage/sqlite.js';
 export { SqlJsStorage, type SqlJsStorageOptions } from './storage/sqljs.js';
 
 // Config
 export { KeyExtractor, KeyExtractionError } from './config/extractor.js';
 export { validateConfig, ConfigValidationError } from './config/validator.js';
 
-// Token
-export { createToken, validateToken, TokenValidationError } from './token.js';
+// Token (browser version with async crypto)
+export { createToken, validateToken, TokenValidationError } from './token.browser.js';

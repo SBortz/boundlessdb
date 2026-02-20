@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>DCB Event Store - Test UI</title>
+  <title>Boundless DCB Event Store - Interactive Demo</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -192,6 +192,7 @@
     }
     .status.connected { background: #0a4; color: #fff; }
     .status.disconnected { background: #a00; color: #fff; }
+    .status.loading { background: #a70; color: #fff; }
     
     /* Event List Styles */
     .event-item {
@@ -317,33 +318,53 @@
     .live-query-stats .count { color: #0cf; font-weight: bold; }
     .live-query-stats .token { color: #666; font-size: 0.65rem; cursor: pointer; }
     .live-query-stats .token:hover { color: #aaa; }
+    
+    .back-link {
+      display: inline-block;
+      color: #0cf;
+      text-decoration: none;
+      font-size: 0.85rem;
+      margin-bottom: 0.5rem;
+    }
+    .back-link:hover { text-decoration: underline; }
+    
+    .browser-badge {
+      display: inline-block;
+      background: linear-gradient(90deg, #0f4c75, #1e5f74);
+      color: #0cf;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.7rem;
+      margin-left: 0.5rem;
+    }
   </style>
 </head>
 <body>
   <div class="layout">
     <!-- Left: Controls -->
     <div class="controls">
-      <h1>🗃️ DCB Event Store</h1>
+      <a href="/" class="back-link">← Back to Home</a>
+      <h1>🗃️ Boundless Demo <span class="browser-badge">100% Client-Side</span></h1>
       
       <!-- Quick Actions -->
       <div class="panel">
         <h2>🚀 Quick Actions</h2>
         
         <div class="quick-buttons">
-          <button class="success" onclick="quickAction('CourseCreated', {courseId:'cs101',name:'Intro to CS',capacity:30}, [{name:'course',value:'cs101'}])">📚 CS101</button>
-          <button class="success" onclick="quickAction('CourseCreated', {courseId:'math201',name:'Linear Algebra',capacity:25}, [{name:'course',value:'math201'}])">📚 MATH201</button>
+          <button class="success" onclick="quickAction('CourseCreated', {courseId:'cs101',name:'Intro to CS',capacity:30})">📚 CS101</button>
+          <button class="success" onclick="quickAction('CourseCreated', {courseId:'math201',name:'Linear Algebra',capacity:25})">📚 MATH201</button>
         </div>
         
         <div class="quick-buttons">
-          <button onclick="quickAction('StudentSubscribed', {courseId:'cs101',studentId:'alice',name:'Alice'}, [{name:'course',value:'cs101'},{name:'student',value:'alice'}])">👩‍🎓 Alice→CS</button>
-          <button onclick="quickAction('StudentSubscribed', {courseId:'cs101',studentId:'bob',name:'Bob'}, [{name:'course',value:'cs101'},{name:'student',value:'bob'}])">👨‍🎓 Bob→CS</button>
-          <button onclick="quickAction('StudentSubscribed', {courseId:'cs101',studentId:'carol',name:'Carol'}, [{name:'course',value:'cs101'},{name:'student',value:'carol'}])">👩‍🎓 Carol→CS</button>
-          <button onclick="quickAction('StudentSubscribed', {courseId:'math201',studentId:'alice',name:'Alice'}, [{name:'course',value:'math201'},{name:'student',value:'alice'}])">👩‍🎓 Alice→M</button>
+          <button onclick="quickAction('StudentSubscribed', {courseId:'cs101',studentId:'alice',name:'Alice'})">👩‍🎓 Alice→CS</button>
+          <button onclick="quickAction('StudentSubscribed', {courseId:'cs101',studentId:'bob',name:'Bob'})">👨‍🎓 Bob→CS</button>
+          <button onclick="quickAction('StudentSubscribed', {courseId:'cs101',studentId:'carol',name:'Carol'})">👩‍🎓 Carol→CS</button>
+          <button onclick="quickAction('StudentSubscribed', {courseId:'math201',studentId:'alice',name:'Alice'})">👩‍🎓 Alice→M</button>
         </div>
         
         <div class="quick-buttons">
-          <button class="danger" onclick="quickAction('StudentUnsubscribed', {courseId:'cs101',studentId:'bob'}, [{name:'course',value:'cs101'},{name:'student',value:'bob'}])">❌ Bob</button>
-          <button class="danger" onclick="quickAction('StudentUnsubscribed', {courseId:'cs101',studentId:'alice'}, [{name:'course',value:'cs101'},{name:'student',value:'alice'}])">❌ Alice</button>
+          <button class="danger" onclick="quickAction('StudentUnsubscribed', {courseId:'cs101',studentId:'bob'})">❌ Bob</button>
+          <button class="danger" onclick="quickAction('StudentUnsubscribed', {courseId:'cs101',studentId:'alice'})">❌ Alice</button>
         </div>
         
         <div id="quick-result" class="result" style="display:none"></div>
@@ -365,7 +386,6 @@
             <textarea id="token-payload" style="min-height:180px;font-size:0.75rem" placeholder="Klicke 'From Live Query' um Token zu laden"></textarea>
             <div class="quick-buttons" style="margin-top:0.3rem">
               <button class="query" onclick="loadFromLiveQuery()">📋 From Live Query</button>
-              <button class="success" onclick="applyTokenPayload()">✓ Apply</button>
               <button onclick="clearAppendToken()">🗑️ Clear</button>
             </div>
             <div id="token-status" style="margin-top:0.3rem;color:#888"></div>
@@ -379,14 +399,16 @@
       <!-- Conflict Demo -->
       <div class="panel">
         <h2>⚡ Conflict Demo</h2>
+        <p style="font-size:0.75rem;color:#888;margin-bottom:0.5rem">
+          Simulates concurrent writes to demonstrate DCB conflict detection.
+        </p>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.25rem">
           <input type="text" id="demo-type" value="CourseCreated" placeholder="Type">
           <input type="text" id="demo-key" value="course" placeholder="Key">
           <input type="text" id="demo-value" value="demo" placeholder="Value">
         </div>
         <div class="quick-buttons" style="margin-top:0.4rem">
-          <button onclick="runConflictDemo()">🚀 Start</button>
-          <button class="danger" onclick="manualAppendForConflict()">⚠️ Inject</button>
+          <button onclick="runConflictDemo()">🚀 Run Demo</button>
         </div>
         <div id="conflict-demo-status" class="result" style="display:none"></div>
       </div>
@@ -442,7 +464,7 @@
         <div class="sidebar-header">
           📊 All Events
           <div>
-            <span id="status" class="status disconnected">●</span>
+            <span id="status" class="status loading">⏳ Loading...</span>
             <button onclick="clearStore()">Clear</button>
           </div>
         </div>
@@ -456,7 +478,42 @@
     </div>
   </div>
   
-  <script>
+  <script type="module">
+    // Import Boundless browser bundle
+    import { 
+      createEventStore, 
+      SqlJsStorage, 
+      isConflict 
+    } from './boundless.browser.js';
+
+    // Configuration for the demo
+    const DEMO_SECRET = 'demo-secret-key-for-hmac-signing';
+    const CONSISTENCY_CONFIG = {
+      eventTypes: {
+        CourseCreated: {
+          keys: [
+            { name: 'course', path: 'courseId' }
+          ]
+        },
+        StudentSubscribed: {
+          keys: [
+            { name: 'course', path: 'courseId' },
+            { name: 'student', path: 'studentId' }
+          ]
+        },
+        StudentUnsubscribed: {
+          keys: [
+            { name: 'course', path: 'courseId' },
+            { name: 'student', path: 'studentId' }
+          ]
+        }
+      }
+    };
+
+    // Global store instance
+    let store = null;
+    let storage = null;
+
     // Live Query State
     let currentLiveToken = null;
     let currentLiveConditions = [
@@ -464,68 +521,88 @@
       {type:'StudentSubscribed',key:'course',value:'cs101'},
       {type:'StudentUnsubscribed',key:'course',value:'cs101'}
     ];
-    
-    // SSE Connection
-    let eventSource;
-    function connectSSE() {
-      eventSource = new EventSource('/api/stream');
-      eventSource.onopen = () => {
+
+    // Initialize the store
+    async function initStore() {
+      console.log('🚀 Initializing Boundless with sql.js...');
+      document.getElementById('status').textContent = '⏳ Loading sql.js...';
+      document.getElementById('status').className = 'status loading';
+
+      try {
+        // Create sql.js storage (in-browser SQLite)
+        storage = new SqlJsStorage({
+          wasmUrl: 'https://sql.js.org/dist/sql-wasm.wasm'
+        });
+
+        // Create the event store
+        store = createEventStore({
+          storage,
+          secret: DEMO_SECRET,
+          consistency: CONSISTENCY_CONFIG
+        });
+
+        // Wait for initialization
+        await store.read({ conditions: [] });
+
+        document.getElementById('status').textContent = '✓ Ready';
         document.getElementById('status').className = 'status connected';
-        document.getElementById('status').textContent = '●';
-      };
-      eventSource.onmessage = () => {
-        refreshAll();
-        refreshLiveQuery();
-      };
-      eventSource.onerror = () => {
+        console.log('✅ Boundless ready!');
+
+        // Initial refresh
+        await refreshAll();
+        await refreshLiveQuery();
+
+      } catch (error) {
+        console.error('Failed to initialize:', error);
+        document.getElementById('status').textContent = '✗ Error';
         document.getElementById('status').className = 'status disconnected';
-        document.getElementById('status').textContent = '●';
-        setTimeout(connectSSE, 3000);
-      };
+      }
     }
-    
+
     async function refreshAll() {
       await Promise.all([refreshEvents(), refreshKeys()]);
     }
-    
+
     async function refreshEvents() {
+      if (!storage) return;
+      
       try {
-        const res = await fetch('/api/events');
-        const data = await res.json();
+        const events = await storage.getAllEvents();
         const list = document.getElementById('events-list');
-        const events = data.events.reverse(); // newest first
-        list.innerHTML = events.map(e => `
+        const reversed = [...events].reverse(); // newest first
+        list.innerHTML = reversed.map(e => `
           <div class="event-item">
             <span class="event-pos">#${e.position}</span>
             <span class="event-type">${e.type}</span>
             <span class="event-time">${new Date(e.timestamp).toLocaleTimeString()}</span>
             <div class="event-data">${JSON.stringify(e.data)}</div>
           </div>
-        `).join('');
+        `).join('') || '<div style="padding:1rem;color:#666">No events yet</div>';
       } catch (err) {
         console.error('Failed to refresh events:', err);
       }
     }
-    
+
     async function refreshKeys() {
+      if (!storage) return;
+      
       try {
-        const res = await fetch('/api/keys');
-        const data = await res.json();
+        const keys = await storage.getAllKeys();
         const list = document.getElementById('keys-list');
-        const keys = data.keys.reverse(); // newest first
-        list.innerHTML = keys.map(k => `
+        const reversed = [...keys].reverse(); // newest first
+        list.innerHTML = reversed.map(k => `
           <div class="key-item">
             <span class="key-pos">#${k.position}</span>
             <span><span class="key-name">${k.key_name}</span>: <span class="key-value">${k.key_value}</span></span>
           </div>
-        `).join('');
+        `).join('') || '<div style="padding:1rem;color:#666">No keys yet</div>';
       } catch (err) {
         console.error('Failed to refresh keys:', err);
       }
     }
-    
+
     // Live Query
-    function setLiveQuery(conditions, btn) {
+    window.setLiveQuery = function(conditions, btn) {
       // Update conditions in UI
       const container = document.getElementById('live-conditions');
       container.innerHTML = conditions.map((c, i) => `
@@ -543,9 +620,9 @@
       
       currentLiveConditions = conditions;
       refreshLiveQuery();
-    }
-    
-    function addLiveConditionRow() {
+    };
+
+    window.addLiveConditionRow = function() {
       const container = document.getElementById('live-conditions');
       const row = document.createElement('div');
       row.className = 'condition-row';
@@ -556,9 +633,11 @@
         <button onclick="this.parentElement.remove(); refreshLiveQuery()">-</button>
       `;
       container.appendChild(row);
-    }
-    
-    async function refreshLiveQuery() {
+    };
+
+    window.refreshLiveQuery = async function() {
+      if (!store) return;
+
       // Get conditions from UI
       const rows = document.querySelectorAll('#live-conditions .condition-row');
       const conditions = [];
@@ -579,35 +658,24 @@
       currentLiveConditions = conditions;
       
       try {
-        const res = await fetch('/api/read', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ conditions })
-        });
-        const result = await res.json();
-        
-        if (result.error) {
-          document.getElementById('live-events').innerHTML = `<div style="color:#f66;padding:1rem">${result.error}</div>`;
-          return;
-        }
+        const result = await store.read({ conditions });
         
         currentLiveToken = result.token;
         document.getElementById('live-count').textContent = result.events.length;
         document.getElementById('live-token').textContent = `Token: ${result.token.substring(0, 20)}...`;
         
         // Get keys for each event
-        const keysRes = await fetch('/api/keys');
-        const keysData = await keysRes.json();
+        const allKeys = await storage.getAllKeys();
         const keysByPos = {};
-        for (const k of keysData.keys) {
+        for (const k of allKeys) {
           if (!keysByPos[k.position]) keysByPos[k.position] = [];
           keysByPos[k.position].push(k);
         }
         
         // Render events (newest first)
-        const events = result.events.reverse();
+        const events = [...result.events].reverse();
         document.getElementById('live-events').innerHTML = events.map(e => {
-          const eventKeys = keysByPos[e.position] || [];
+          const eventKeys = keysByPos[Number(e.position)] || [];
           return `
             <div class="live-event-card">
               <span class="pos">#${e.position}</span>
@@ -624,9 +692,9 @@
       } catch (err) {
         document.getElementById('live-events').innerHTML = `<div style="color:#f66;padding:1rem">${err.message}</div>`;
       }
-    }
-    
-    function copyLiveToken() {
+    };
+
+    window.copyLiveToken = function() {
       if (currentLiveToken) {
         navigator.clipboard.writeText(currentLiveToken);
         document.getElementById('live-token').textContent = '✅ Copied!';
@@ -634,20 +702,19 @@
           document.getElementById('live-token').textContent = `Token: ${currentLiveToken.substring(0, 20)}...`;
         }, 1000);
       }
-    }
-    
-    async function clearStore() {
+    };
+
+    window.clearStore = async function() {
       if (!confirm('Alle Events löschen?')) return;
-      await fetch('/api/clear', { method: 'POST' });
-      refreshAll();
-      refreshLiveQuery();
-    }
-    
-    // Append Token State
+      await storage.clear();
+      await refreshAll();
+      await refreshLiveQuery();
+    };
+
+    // Token handling
     let appendToken = null;
-    
-    // Token state  
-    function loadFromLiveQuery() {
+
+    window.loadFromLiveQuery = function() {
       if (!currentLiveToken) {
         setTokenStatus('❌ Keine Live Query aktiv', 'error');
         return;
@@ -658,85 +725,31 @@
         const [payloadB64] = currentLiveToken.split('.');
         const payload = JSON.parse(atob(payloadB64.replace(/-/g,'+').replace(/_/g,'/')));
         document.getElementById('token-payload').value = JSON.stringify(payload, null, 2);
-        setTokenStatus('📋 Payload aus Live Query geladen. Editieren und "Apply" klicken.', 'info');
-        appendToken = null; // Clear until applied
+        appendToken = currentLiveToken;
+        setTokenStatus(`✅ Token geladen (pos=${payload.pos})`, 'success');
       } catch (e) {
         setTokenStatus('❌ Token decode error: ' + e.message, 'error');
       }
-    }
-    
-    async function applyTokenPayload() {
-      const payloadText = document.getElementById('token-payload').value.trim();
-      if (!payloadText) {
-        setTokenStatus('❌ Kein Payload', 'error');
-        return;
-      }
-      
-      let payload;
-      try {
-        payload = JSON.parse(payloadText);
-      } catch (e) {
-        setTokenStatus('❌ Invalid JSON: ' + e.message, 'error');
-        return;
-      }
-      
-      // Validate required fields
-      if (payload.pos === undefined || !payload.q) {
-        setTokenStatus('❌ Payload braucht "pos" und "q" Felder', 'error');
-        return;
-      }
-      
-      // Request signed token from server
-      try {
-        const res = await fetch('/api/create-token', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            position: parseInt(payload.pos, 10),
-            conditions: payload.q
-          })
-        });
-        const result = await res.json();
-        if (result.error) {
-          setTokenStatus('❌ ' + result.error, 'error');
-        } else if (result.token) {
-          appendToken = result.token;
-          setTokenStatus('✅ Token signiert und bereit (pos=' + payload.pos + ')', 'success');
-        }
-      } catch (err) {
-        setTokenStatus('❌ Server error: ' + err.message, 'error');
-      }
-    }
-    
-    function clearAppendToken() {
+    };
+
+    window.clearAppendToken = function() {
       appendToken = null;
       document.getElementById('token-payload').value = '';
-      setTokenStatus('Token gelöscht', 'info');
-    }
-    
+      setTokenStatus('Token gelöscht (nächster Append ohne Check)', 'info');
+    };
+
     function setTokenStatus(msg, type) {
       const el = document.getElementById('token-status');
       el.textContent = msg;
       el.style.color = type === 'error' ? '#f66' : type === 'success' ? '#6f6' : '#888';
     }
-    
-    function updateAppendTokenInfo() {
-      if (appendToken) {
-        try {
-          const [payloadB64] = appendToken.split('.');
-          const payload = JSON.parse(atob(payloadB64.replace(/-/g,'+').replace(/_/g,'/')));
-          document.getElementById('token-payload').value = JSON.stringify(payload, null, 2);
-          setTokenStatus(`✅ Token aktualisiert (pos=${payload.pos})`, 'success');
-        } catch (e) {
-          setTokenStatus('Token vorhanden', 'info');
-        }
-      } else {
-        document.getElementById('token-payload').value = '';
-        setTokenStatus('Token gelöscht (nächster Append ohne Check)', 'info');
+
+    window.appendEvent = async function() {
+      if (!store) {
+        showResult('append-result', 'Store not initialized', 'error');
+        return;
       }
-    }
-    
-    async function appendEvent() {
+
       const type = document.getElementById('append-type').value.trim();
       const dataStr = document.getElementById('append-data').value.trim();
       
@@ -750,56 +763,68 @@
       catch { return showResult('append-result', 'Invalid JSON', 'error'); }
       
       try {
-        const res = await fetch('/api/append', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type, data, token: appendToken })
-        });
-        const result = await res.json();
+        const result = await store.append([{ type, data }], appendToken);
         
-        if (result.error) {
-          showResult('append-result', `Error: ${result.error}`, 'error');
-        } else if (result.conflict) {
+        if (isConflict(result)) {
           const conflictInfo = result.conflictingEvents.map(e => `#${e.position} ${e.type}`).join(', ');
           showResult('append-result', `⚠️ CONFLICT!\nNeue Events seit Token:\n${conflictInfo}`, 'conflict');
           // Update token to new one for retry
           appendToken = result.newToken;
-          updateAppendTokenInfo();
+          try {
+            const [payloadB64] = result.newToken.split('.');
+            const payload = JSON.parse(atob(payloadB64.replace(/-/g,'+').replace(/_/g,'/')));
+            document.getElementById('token-payload').value = JSON.stringify(payload, null, 2);
+            setTokenStatus(`⚠️ Neuer Token (pos=${payload.pos}) - retry möglich`, 'error');
+          } catch {}
         } else {
           showResult('append-result', `✅ Appended at #${result.position}`, 'success');
           // Clear token after successful append
           appendToken = null;
-          updateAppendTokenInfo();
+          document.getElementById('token-payload').value = '';
+          setTokenStatus('Token gelöscht', 'info');
         }
+
+        await refreshAll();
+        await refreshLiveQuery();
       } catch (err) {
         showResult('append-result', `Error: ${err.message}`, 'error');
       }
-    }
-    
+    };
+
     function showResult(id, text, type) {
       const el = document.getElementById(id);
       el.style.display = 'block';
       el.textContent = text;
       el.className = `result ${type}`;
     }
-    
-    // Quick Actions - populate manual append form instead of executing
-    function quickAction(type, data, keys) {
-      // Fill the manual append form
-      document.getElementById('append-type').value = type;
-      document.getElementById('append-data').value = JSON.stringify(data, null, 2);
-      
-      // Scroll to the append panel
-      document.querySelector('.panel:nth-child(2)').scrollIntoView({ behavior: 'smooth' });
-      
-      // Show hint
-      showResult('quick-result', `📝 "${type}" in Append-Formular geladen`, 'success');
-    }
-    
+
+    // Quick Actions - directly append
+    window.quickAction = async function(type, data) {
+      if (!store) {
+        showResult('quick-result', 'Store not initialized', 'error');
+        return;
+      }
+
+      try {
+        const result = await store.append([{ type, data }], null);
+        
+        if (isConflict(result)) {
+          showResult('quick-result', `⚠️ Conflict!`, 'conflict');
+        } else {
+          showResult('quick-result', `✅ ${type} #${result.position}`, 'success');
+        }
+
+        await refreshAll();
+        await refreshLiveQuery();
+      } catch (err) {
+        showResult('quick-result', `Error: ${err.message}`, 'error');
+      }
+    };
+
     // Conflict Demo
-    let demoToken = null;
-    
-    async function runConflictDemo() {
+    window.runConflictDemo = async function() {
+      if (!store) return;
+
       const status = document.getElementById('conflict-demo-status');
       status.style.display = 'block';
       
@@ -807,58 +832,53 @@
       const key = document.getElementById('demo-key').value.trim();
       const value = document.getElementById('demo-value').value.trim();
       
-      status.textContent = '🔍 Reading...';
+      status.textContent = '1️⃣ Reading current state...';
       status.className = 'result';
       
-      const readRes = await fetch('/api/read', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ conditions: [{ type, key, value }] })
+      // Step 1: Read current state
+      const readResult = await store.read({
+        conditions: [{ type, key, value }]
       });
-      const readResult = await readRes.json();
-      demoToken = readResult.token;
+      const token = readResult.token;
       
-      status.textContent = `✅ ${readResult.events.length} events\n⏳ 3s... Click Inject!`;
+      status.textContent = `1️⃣ Read ${readResult.events.length} events, got token\n2️⃣ Simulating concurrent write...`;
+      await new Promise(r => setTimeout(r, 500));
       
-      await new Promise(r => setTimeout(r, 3000));
+      // Step 2: Simulate another process writing
+      await store.append([{ type, data: { id: value, source: 'concurrent' } }], null);
+      await refreshAll();
       
-      const appendRes = await fetch('/api/append', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type, data: { id: value }, keys: [{ name: key, value }], token: demoToken })
-      });
-      const appendResult = await appendRes.json();
+      status.textContent += '\n   ✓ Another process wrote an event\n3️⃣ Trying to write with old token...';
+      await new Promise(r => setTimeout(r, 500));
       
-      if (appendResult.conflict) {
-        status.textContent = `⚠️ CONFLICT! ${appendResult.conflictingEvents.length} new`;
+      // Step 3: Try to append with old token
+      const appendResult = await store.append(
+        [{ type, data: { id: value, source: 'demo' } }],
+        token
+      );
+      
+      if (isConflict(appendResult)) {
+        const conflicts = appendResult.conflictingEvents.map(e => `#${e.position} ${e.type}`).join(', ');
+        status.textContent = `1️⃣ Read state, got token
+2️⃣ Another process wrote: ✓
+3️⃣ Append with old token: ⚠️ CONFLICT!
+
+Conflicting events: ${conflicts}
+
+This is DCB in action! The store detected that 
+someone else modified the data you read.`;
         status.className = 'result conflict';
       } else {
-        status.textContent = `✅ No conflict #${appendResult.position}`;
+        status.textContent += '\n   ✓ No conflict (unexpected)';
         status.className = 'result success';
       }
-    }
-    
-    async function manualAppendForConflict() {
-      const type = document.getElementById('demo-type').value.trim();
-      const key = document.getElementById('demo-key').value.trim();
-      const value = document.getElementById('demo-value').value.trim();
-      
-      await fetch('/api/append', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type,
-          data: { id: value, injected: true },
-          keys: [{ name: key, value }]
-        })
-      });
-    }
-    
-    // Init
-    connectSSE();
-    refreshAll();
-    refreshLiveQuery();
-    setInterval(refreshAll, 5000);
+
+      await refreshAll();
+      await refreshLiveQuery();
+    };
+
+    // Initialize on load
+    initStore();
   </script>
 </body>
 </html>
