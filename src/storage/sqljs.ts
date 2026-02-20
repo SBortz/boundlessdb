@@ -216,7 +216,8 @@ export class SqlJsStorage implements EventStorage {
     const result = db.exec(sql, params);
     if (result.length === 0) return [];
 
-    const columns = result[0].columns;
+    // sql.js uses 'columns' or 'lc' depending on version
+    const columns = (result[0] as any).columns || (result[0] as any).lc;
     const rows = result[0].values;
 
     return rows.map((row: SqlValue[]) => {
@@ -265,8 +266,10 @@ export class SqlJsStorage implements EventStorage {
 
     if (result.length === 0) return [];
 
-    const columns = result[0].columns;
+    // sql.js uses 'columns' or 'lc' depending on version
+    const columns = (result[0] as any).columns || (result[0] as any).lc;
     const rows = result[0].values;
+    console.log('[SqlJsStorage.getAllEvents] columns:', columns, 'rowCount:', rows.length);
 
     return rows.map((row: SqlValue[]) => {
       const obj: Record<string, unknown> = {};

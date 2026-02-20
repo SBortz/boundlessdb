@@ -2498,7 +2498,7 @@ var SqlJsStorage = class {
     }
     const result = db.exec(sql, params);
     if (result.length === 0) return [];
-    const columns = result[0].columns;
+    const columns = result[0].columns || result[0].lc;
     const rows = result[0].values;
     return rows.map((row) => {
       const obj = {};
@@ -2536,8 +2536,9 @@ var SqlJsStorage = class {
       ORDER BY position ASC
     `);
     if (result.length === 0) return [];
-    const columns = result[0].columns;
+    const columns = result[0].columns || result[0].lc;
     const rows = result[0].values;
+    console.log("[SqlJsStorage.getAllEvents] columns:", columns, "rowCount:", rows.length);
     return rows.map((row) => {
       const obj = {};
       columns.forEach((col, i) => {
