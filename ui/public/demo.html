@@ -22,6 +22,11 @@
       height: 100vh;
     }
     
+    /* Mobile Tabs - hidden on desktop */
+    .mobile-tabs {
+      display: none;
+    }
+    
     /* Left: Controls */
     .controls {
       padding: 0.75rem;
@@ -129,6 +134,8 @@
     button.query { background: #06a; }
     button.query:hover { background: #17b; }
     button.active { background: #0a8; box-shadow: 0 0 8px #0a8; }
+    button.scenario { background: #704; }
+    button.scenario:hover { background: #915; }
     
     .toggle {
       display: flex;
@@ -154,6 +161,29 @@
     .result.success { border-left: 3px solid #0f0; }
     .result.error { border-left: 3px solid #f00; }
     .result.conflict { border-left: 3px solid #fa0; }
+    
+    /* Feedback Messages */
+    .feedback {
+      padding: 0.5rem;
+      border-radius: 4px;
+      font-size: 0.85rem;
+      margin-top: 0.4rem;
+    }
+    .feedback.success {
+      background: rgba(0, 255, 100, 0.15);
+      border: 1px solid #0f6;
+      color: #0f6;
+    }
+    .feedback.conflict {
+      background: rgba(255, 170, 0, 0.15);
+      border: 1px solid #fa0;
+      color: #fa0;
+    }
+    .feedback.info {
+      background: rgba(0, 200, 255, 0.15);
+      border: 1px solid #0cf;
+      color: #0cf;
+    }
     
     .condition-row {
       display: grid;
@@ -194,17 +224,36 @@
     .status.disconnected { background: #a00; color: #fff; }
     .status.loading { background: #a70; color: #fff; }
     
+    /* Collapsible Advanced Section */
+    .collapsible-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      user-select: none;
+    }
+    .collapsible-header:hover { opacity: 0.8; }
+    .collapsible-toggle {
+      font-size: 0.75rem;
+      color: #0cf;
+      background: none;
+      border: 1px solid #0cf;
+      padding: 0.2rem 0.5rem;
+      margin: 0;
+    }
+    .collapsible-content {
+      display: none;
+    }
+    .collapsible-content.open {
+      display: block;
+    }
+    
     /* Event List Styles */
     .event-item {
       padding: 0.4rem 0.6rem;
       border-bottom: 1px solid #1a2a4a;
-      animation: fadeIn 0.3s ease;
     }
     .event-item:hover { background: rgba(255,255,255,0.03); }
-    @keyframes fadeIn {
-      from { background: rgba(0,255,255,0.1); }
-      to { background: transparent; }
-    }
     
     .event-pos {
       font-weight: bold;
@@ -253,6 +302,19 @@
       padding: 0.25rem 0.5rem;
     }
     
+    /* Scenario Buttons */
+    .scenario-buttons {
+      display: flex;
+      gap: 0.5rem;
+      margin-top: 0.5rem;
+    }
+    .scenario-buttons button {
+      flex: 1;
+      padding: 0.6rem;
+      font-size: 0.85rem;
+      margin: 0;
+    }
+    
     /* Live Query */
     .query-presets {
       display: flex;
@@ -272,11 +334,6 @@
       border-radius: 6px;
       padding: 0.6rem;
       margin-bottom: 0.5rem;
-      animation: slideIn 0.3s ease;
-    }
-    @keyframes slideIn {
-      from { opacity: 0; transform: translateY(-10px); }
-      to { opacity: 1; transform: translateY(0); }
     }
     .live-event-card .pos { color: #0cf; font-weight: bold; }
     .live-event-card .type { color: #ff9e64; font-size: 0.9rem; }
@@ -337,14 +394,197 @@
       font-size: 0.7rem;
       margin-left: 0.5rem;
     }
+    
+    /* ==================== MOBILE STYLES ==================== */
+    @media (max-width: 768px) {
+      body {
+        overflow: auto;
+        height: auto;
+      }
+      
+      .layout {
+        display: block;
+        height: auto;
+      }
+      
+      /* Mobile Tab Navigation */
+      .mobile-tabs {
+        display: flex;
+        position: sticky;
+        top: 0;
+        z-index: 100;
+        background: #0d1929;
+        border-bottom: 2px solid #0f3460;
+      }
+      
+      .mobile-tab {
+        flex: 1;
+        padding: 0.8rem 0.5rem;
+        text-align: center;
+        background: #16213e;
+        border: none;
+        color: #888;
+        font-size: 0.8rem;
+        cursor: pointer;
+        margin: 0;
+        border-radius: 0;
+      }
+      .mobile-tab:hover {
+        background: #1e2f4e;
+      }
+      .mobile-tab.active {
+        background: #0f4c75;
+        color: #fff;
+        border-bottom: 2px solid #0cf;
+      }
+      
+      /* Hide non-active sections */
+      .controls,
+      .live-query,
+      .sidebar {
+        display: none;
+        border: none;
+        height: auto;
+        max-height: none;
+      }
+      
+      .controls.mobile-active,
+      .live-query.mobile-active,
+      .sidebar.mobile-active {
+        display: block;
+      }
+      
+      .sidebar.mobile-active {
+        display: flex;
+        flex-direction: column;
+        min-height: 80vh;
+      }
+      
+      /* Touch-friendly buttons */
+      button {
+        min-height: 44px;
+        padding: 0.5rem 1rem;
+        font-size: 0.9rem;
+      }
+      
+      .quick-buttons button {
+        min-height: 44px;
+        padding: 0.5rem 0.8rem;
+        font-size: 0.85rem;
+      }
+      
+      .scenario-buttons button {
+        min-height: 50px;
+        font-size: 1rem;
+      }
+      
+      .query-presets button {
+        min-height: 44px;
+        padding: 0.5rem 0.8rem;
+      }
+      
+      .condition-row button {
+        min-height: 40px;
+        padding: 0.4rem;
+      }
+      
+      /* Adjust inputs for touch */
+      input, textarea, select {
+        min-height: 44px;
+        padding: 0.5rem;
+        font-size: 16px; /* Prevents iOS zoom */
+      }
+      
+      /* Stack condition row on mobile */
+      .condition-row {
+        grid-template-columns: 1fr 1fr;
+        gap: 0.3rem;
+      }
+      .condition-row input:first-child {
+        grid-column: span 2;
+      }
+      
+      /* Sidebar sections full height */
+      .sidebar-section {
+        min-height: 40vh;
+      }
+      
+      /* Larger touch targets in lists */
+      .event-item {
+        padding: 0.6rem;
+      }
+      .key-item {
+        padding: 0.5rem 0.6rem;
+      }
+      
+      /* Hide back link on mobile to save space */
+      .back-link {
+        display: none;
+      }
+      
+      h1 {
+        font-size: 1rem;
+      }
+      
+      .browser-badge {
+        display: none;
+      }
+      
+      .mobile-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.5rem;
+        background: #0d1929;
+        border-bottom: 1px solid #0f3460;
+      }
+      
+      .mobile-header h1 {
+        margin: 0;
+        font-size: 1rem;
+      }
+    }
+    
+    /* Desktop: hide mobile header */
+    @media (min-width: 769px) {
+      .mobile-header {
+        display: none;
+      }
+    }
   </style>
 </head>
 <body>
+  <!-- Mobile Header -->
+  <div class="mobile-header">
+    <h1>🗃️ Boundless Demo</h1>
+    <span id="mobile-status" class="status loading">⏳</span>
+  </div>
+  
+  <!-- Mobile Tab Navigation -->
+  <div class="mobile-tabs">
+    <button class="mobile-tab active" onclick="showMobileTab('controls')">⚡ Actions</button>
+    <button class="mobile-tab" onclick="showMobileTab('live-query')">🔍 Query</button>
+    <button class="mobile-tab" onclick="showMobileTab('sidebar')">📊 Log</button>
+  </div>
+  
   <div class="layout">
     <!-- Left: Controls -->
-    <div class="controls">
+    <div class="controls mobile-active" id="section-controls">
       <a href="/" class="back-link">← Back to Home</a>
       <h1>🗃️ Boundless Demo <span class="browser-badge">100% Client-Side</span></h1>
+      
+      <!-- Guided Demo Scenarios -->
+      <div class="panel">
+        <h2>🎬 Guided Demo</h2>
+        <p style="font-size:0.75rem;color:#888;margin-bottom:0.5rem">
+          Klicke um automatisch Szenarien zu demonstrieren:
+        </p>
+        <div class="scenario-buttons">
+          <button class="success" onclick="runNormalFlowDemo()">▶️ Normal Flow</button>
+          <button class="scenario" onclick="runShowConflictDemo()">▶️ Show Conflict</button>
+        </div>
+        <div id="scenario-result" class="feedback" style="display:none"></div>
+      </div>
       
       <!-- Quick Actions -->
       <div class="panel">
@@ -367,55 +607,43 @@
           <button class="danger" onclick="quickAction('StudentUnsubscribed', {courseId:'cs101',studentId:'alice'})">❌ Alice</button>
         </div>
         
-        <div id="quick-result" class="result" style="display:none"></div>
+        <div id="quick-result" class="feedback" style="display:none"></div>
       </div>
       
-      <!-- Manual Append -->
+      <!-- Manual Append - Collapsed by default -->
       <div class="panel">
-        <h2>📝 Append with Consistency Check</h2>
+        <div class="collapsible-header" onclick="toggleAdvanced()">
+          <h2 style="margin:0;border:none;padding:0">📝 Advanced: Manual Append</h2>
+          <button class="collapsible-toggle" id="advanced-toggle">Show ▼</button>
+        </div>
         
-        <label>Type</label>
-        <input type="text" id="append-type" placeholder="StudentSubscribed">
-        
-        <label>Data</label>
-        <textarea id="append-data" style="min-height:120px" placeholder='{"courseId": "cs101", "studentId": "dave"}'></textarea>
-        
-        <div style="margin-top:0.5rem;padding:0.4rem;background:#0a1628;border-radius:4px;font-size:0.75rem">
-          <div style="color:#0cf;margin-bottom:0.3rem">🔐 Consistency Token (editierbar)</div>
-          <div id="token-editor">
-            <textarea id="token-payload" style="min-height:180px;font-size:0.75rem" placeholder="Klicke 'From Live Query' um Token zu laden"></textarea>
-            <div class="quick-buttons" style="margin-top:0.3rem">
-              <button class="query" onclick="loadFromLiveQuery()">📋 From Live Query</button>
-              <button onclick="clearAppendToken()">🗑️ Clear</button>
+        <div class="collapsible-content" id="advanced-content">
+          <label>Type</label>
+          <input type="text" id="append-type" placeholder="StudentSubscribed">
+          
+          <label>Data</label>
+          <textarea id="append-data" style="min-height:120px" placeholder='{"courseId": "cs101", "studentId": "dave"}'></textarea>
+          
+          <div style="margin-top:0.5rem;padding:0.4rem;background:#0a1628;border-radius:4px;font-size:0.75rem">
+            <div style="color:#0cf;margin-bottom:0.3rem">🔐 Consistency Token (editierbar)</div>
+            <div id="token-editor">
+              <textarea id="token-payload" style="min-height:180px;font-size:0.75rem" placeholder="Klicke 'From Live Query' um Token zu laden"></textarea>
+              <div class="quick-buttons" style="margin-top:0.3rem">
+                <button class="query" onclick="loadFromLiveQuery()">📋 From Live Query</button>
+                <button onclick="clearAppendToken()">🗑️ Clear</button>
+              </div>
+              <div id="token-status" style="margin-top:0.3rem;color:#888"></div>
             </div>
-            <div id="token-status" style="margin-top:0.3rem;color:#888"></div>
           </div>
+          
+          <button onclick="appendEvent()" style="width:100%;margin-top:0.5rem">Append</button>
+          <div id="append-result" class="feedback" style="display:none"></div>
         </div>
-        
-        <button onclick="appendEvent()" style="width:100%;margin-top:0.5rem">Append</button>
-        <div id="append-result" class="result" style="display:none"></div>
-      </div>
-      
-      <!-- Conflict Demo -->
-      <div class="panel">
-        <h2>⚡ Conflict Demo</h2>
-        <p style="font-size:0.75rem;color:#888;margin-bottom:0.5rem">
-          Simulates concurrent writes to demonstrate DCB conflict detection.
-        </p>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.25rem">
-          <input type="text" id="demo-type" value="CourseCreated" placeholder="Type">
-          <input type="text" id="demo-key" value="course" placeholder="Key">
-          <input type="text" id="demo-value" value="demo" placeholder="Value">
-        </div>
-        <div class="quick-buttons" style="margin-top:0.4rem">
-          <button onclick="runConflictDemo()">🚀 Run Demo</button>
-        </div>
-        <div id="conflict-demo-status" class="result" style="display:none"></div>
       </div>
     </div>
     
     <!-- Center: Live Query -->
-    <div class="live-query">
+    <div class="live-query" id="section-live-query">
       <div class="live-query-header">
         <h3>🔍 Live Query</h3>
         
@@ -459,7 +687,7 @@
     </div>
     
     <!-- Right: Event Log -->
-    <div class="sidebar">
+    <div class="sidebar" id="section-sidebar">
       <div class="sidebar-section" style="flex:2">
         <div class="sidebar-header">
           📊 All Events
@@ -522,11 +750,31 @@
       {type:'StudentUnsubscribed',key:'course',value:'cs101'}
     ];
 
+    // Mobile Tab Handling
+    window.showMobileTab = function(section) {
+      // Update tabs
+      document.querySelectorAll('.mobile-tab').forEach(t => t.classList.remove('active'));
+      event.target.classList.add('active');
+      
+      // Update sections
+      document.querySelectorAll('.controls, .live-query, .sidebar').forEach(s => {
+        s.classList.remove('mobile-active');
+      });
+      document.getElementById('section-' + section).classList.add('mobile-active');
+    };
+
+    // Advanced section toggle
+    window.toggleAdvanced = function() {
+      const content = document.getElementById('advanced-content');
+      const toggle = document.getElementById('advanced-toggle');
+      content.classList.toggle('open');
+      toggle.textContent = content.classList.contains('open') ? 'Hide ▲' : 'Show ▼';
+    };
+
     // Initialize the store
     async function initStore() {
       console.log('🚀 Initializing Boundless with sql.js...');
-      document.getElementById('status').textContent = '⏳ Loading sql.js...';
-      document.getElementById('status').className = 'status loading';
+      updateStatus('⏳ Loading sql.js...', 'loading');
 
       try {
         // Create sql.js storage (in-browser SQLite)
@@ -544,8 +792,7 @@
         // Wait for initialization
         await store.read({ conditions: [] });
 
-        document.getElementById('status').textContent = '✓ Ready';
-        document.getElementById('status').className = 'status connected';
+        updateStatus('✓ Ready', 'connected');
         console.log('✅ Boundless ready!');
 
         // Initial refresh
@@ -554,8 +801,18 @@
 
       } catch (error) {
         console.error('Failed to initialize:', error);
-        document.getElementById('status').textContent = '✗ Error';
-        document.getElementById('status').className = 'status disconnected';
+        updateStatus('✗ Error', 'disconnected');
+      }
+    }
+
+    function updateStatus(text, className) {
+      const status = document.getElementById('status');
+      const mobileStatus = document.getElementById('mobile-status');
+      status.textContent = text;
+      status.className = 'status ' + className;
+      if (mobileStatus) {
+        mobileStatus.textContent = text.substring(0, 10);
+        mobileStatus.className = 'status ' + className;
       }
     }
 
@@ -601,7 +858,117 @@
       }
     }
 
-    // Live Query
+    // ==================== GUIDED DEMO SCENARIOS ====================
+    
+    // Normal Flow Demo
+    window.runNormalFlowDemo = async function() {
+      if (!store) {
+        showScenarioResult('❌ Store not initialized', 'conflict');
+        return;
+      }
+      
+      showScenarioResult('🔄 Step 1/3: Reading CS101 current state...', 'info');
+      await sleep(600);
+      
+      // Step 1: Read current state
+      const readResult = await store.read({
+        conditions: [
+          {type:'CourseCreated', key:'course', value:'cs101'},
+          {type:'StudentSubscribed', key:'course', value:'cs101'}
+        ]
+      });
+      const token = readResult.token;
+      
+      showScenarioResult(`🔄 Step 2/3: Read ${readResult.events.length} events. Token erhalten. Appending...`, 'info');
+      await sleep(600);
+      
+      // Step 2: Append with valid token
+      const appendResult = await store.append(
+        [{ type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'demo-' + Date.now(), name: 'Demo Student' } }],
+        token
+      );
+      
+      await refreshAll();
+      await refreshLiveQuery();
+      
+      if (isConflict(appendResult)) {
+        showScenarioResult(`⚠️ Unerwarteter Conflict! Jemand anderes hat gleichzeitig geschrieben.`, 'conflict');
+      } else {
+        showScenarioResult(`✅ Event #${appendResult.position} erfolgreich gespeichert!\n\nNormaler Flow: Read → Token → Append → Success`, 'success');
+      }
+    };
+    
+    // Show Conflict Demo
+    window.runShowConflictDemo = async function() {
+      if (!store) {
+        showScenarioResult('❌ Store not initialized', 'conflict');
+        return;
+      }
+      
+      showScenarioResult('🔄 Step 1/4: Du liest CS101...', 'info');
+      await sleep(600);
+      
+      // Step 1: Read current state
+      const readResult = await store.read({
+        conditions: [
+          {type:'CourseCreated', key:'course', value:'cs101'},
+          {type:'StudentSubscribed', key:'course', value:'cs101'}
+        ]
+      });
+      const oldToken = readResult.token;
+      const posAtRead = readResult.events.length > 0 
+        ? Math.max(...readResult.events.map(e => e.position))
+        : 0;
+      
+      showScenarioResult(`🔄 Step 2/4: Du hast ${readResult.events.length} Events gelesen (bis #${posAtRead}).\nWährend du nachdenkst, schreibt jemand anderes...`, 'info');
+      await sleep(1000);
+      
+      // Step 2: Concurrent user writes
+      const concurrentResult = await store.append(
+        [{ type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'concurrent-' + Date.now(), name: 'Concurrent User' } }],
+        null // No token - direct write
+      );
+      await refreshAll();
+      
+      showScenarioResult(`🔄 Step 3/4: Event #${concurrentResult.position} kam dazwischen!\nDu versuchst jetzt mit altem Token zu schreiben...`, 'info');
+      await sleep(800);
+      
+      // Step 3: Try to append with old token
+      const appendResult = await store.append(
+        [{ type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'you-' + Date.now(), name: 'Your Write' } }],
+        oldToken
+      );
+      
+      await refreshAll();
+      await refreshLiveQuery();
+      
+      if (isConflict(appendResult)) {
+        const conflictEvent = appendResult.conflictingEvents[0];
+        showScenarioResult(
+          `⚠️ CONFLICT DETECTED!\n\n` +
+          `Event #${conflictEvent.position} (${conflictEvent.type}) kam dazwischen, während du gelesen hast.\n\n` +
+          `Dein Token war bei Position #${posAtRead}, aber jetzt gibt es Event #${conflictEvent.position}.\n\n` +
+          `➡️ DCB verhindert verlorene Updates. Du musst neu lesen und entscheiden.`,
+          'conflict'
+        );
+      } else {
+        showScenarioResult(`✅ Event #${appendResult.position} (kein Conflict - ungewöhnlich)`, 'success');
+      }
+    };
+    
+    function showScenarioResult(text, type) {
+      const el = document.getElementById('scenario-result');
+      el.style.display = 'block';
+      el.textContent = text;
+      el.className = 'feedback ' + type;
+    }
+    
+    function sleep(ms) {
+      return new Promise(r => setTimeout(r, ms));
+    }
+
+    // ==================== LIVE QUERY ====================
+    
     window.setLiveQuery = function(conditions, btn) {
       // Update conditions in UI
       const container = document.getElementById('live-conditions');
@@ -746,7 +1113,7 @@
 
     window.appendEvent = async function() {
       if (!store) {
-        showResult('append-result', 'Store not initialized', 'error');
+        showFeedback('append-result', 'Store not initialized', 'conflict');
         return;
       }
 
@@ -754,20 +1121,23 @@
       const dataStr = document.getElementById('append-data').value.trim();
       
       if (!type) {
-        showResult('append-result', 'Type required', 'error');
+        showFeedback('append-result', 'Type required', 'conflict');
         return;
       }
       
       let data;
       try { data = JSON.parse(dataStr || '{}'); }
-      catch { return showResult('append-result', 'Invalid JSON', 'error'); }
+      catch { return showFeedback('append-result', 'Invalid JSON', 'conflict'); }
       
       try {
         const result = await store.append([{ type, data }], appendToken);
         
         if (isConflict(result)) {
-          const conflictInfo = result.conflictingEvents.map(e => `#${e.position} ${e.type}`).join(', ');
-          showResult('append-result', `⚠️ CONFLICT!\nNeue Events seit Token:\n${conflictInfo}`, 'conflict');
+          const conflictEvent = result.conflictingEvents[0];
+          showFeedback('append-result', 
+            `⚠️ CONFLICT!\nEvent #${conflictEvent.position} (${conflictEvent.type}) kam dazwischen während du gelesen hast.\n\nToken wurde aktualisiert - retry möglich.`, 
+            'conflict'
+          );
           // Update token to new one for retry
           appendToken = result.newToken;
           try {
@@ -777,7 +1147,7 @@
             setTokenStatus(`⚠️ Neuer Token (pos=${payload.pos}) - retry möglich`, 'error');
           } catch {}
         } else {
-          showResult('append-result', `✅ Appended at #${result.position}`, 'success');
+          showFeedback('append-result', `✅ Event #${result.position} erfolgreich gespeichert!`, 'success');
           // Clear token after successful append
           appendToken = null;
           document.getElementById('token-payload').value = '';
@@ -787,21 +1157,21 @@
         await refreshAll();
         await refreshLiveQuery();
       } catch (err) {
-        showResult('append-result', `Error: ${err.message}`, 'error');
+        showFeedback('append-result', `Error: ${err.message}`, 'conflict');
       }
     };
 
-    function showResult(id, text, type) {
+    function showFeedback(id, text, type) {
       const el = document.getElementById(id);
       el.style.display = 'block';
       el.textContent = text;
-      el.className = `result ${type}`;
+      el.className = 'feedback ' + type;
     }
 
     // Quick Actions - directly append
     window.quickAction = async function(type, data) {
       if (!store) {
-        showResult('quick-result', 'Store not initialized', 'error');
+        showFeedback('quick-result', 'Store not initialized', 'conflict');
         return;
       }
 
@@ -809,72 +1179,21 @@
         const result = await store.append([{ type, data }], null);
         
         if (isConflict(result)) {
-          showResult('quick-result', `⚠️ Conflict!`, 'conflict');
+          showFeedback('quick-result', `⚠️ Conflict!`, 'conflict');
         } else {
-          showResult('quick-result', `✅ ${type} #${result.position}`, 'success');
+          const description = type === 'CourseCreated' 
+            ? `Kurs ${data.courseId} erstellt`
+            : type === 'StudentSubscribed'
+            ? `${data.name} zu ${data.courseId} hinzugefügt`
+            : `${data.studentId} von ${data.courseId} entfernt`;
+          showFeedback('quick-result', `✅ Event #${result.position}: ${description}`, 'success');
         }
 
         await refreshAll();
         await refreshLiveQuery();
       } catch (err) {
-        showResult('quick-result', `Error: ${err.message}`, 'error');
+        showFeedback('quick-result', `Error: ${err.message}`, 'conflict');
       }
-    };
-
-    // Conflict Demo
-    window.runConflictDemo = async function() {
-      if (!store) return;
-
-      const status = document.getElementById('conflict-demo-status');
-      status.style.display = 'block';
-      
-      const type = document.getElementById('demo-type').value.trim();
-      const key = document.getElementById('demo-key').value.trim();
-      const value = document.getElementById('demo-value').value.trim();
-      
-      status.textContent = '1️⃣ Reading current state...';
-      status.className = 'result';
-      
-      // Step 1: Read current state
-      const readResult = await store.read({
-        conditions: [{ type, key, value }]
-      });
-      const token = readResult.token;
-      
-      status.textContent = `1️⃣ Read ${readResult.events.length} events, got token\n2️⃣ Simulating concurrent write...`;
-      await new Promise(r => setTimeout(r, 500));
-      
-      // Step 2: Simulate another process writing
-      await store.append([{ type, data: { id: value, source: 'concurrent' } }], null);
-      await refreshAll();
-      
-      status.textContent += '\n   ✓ Another process wrote an event\n3️⃣ Trying to write with old token...';
-      await new Promise(r => setTimeout(r, 500));
-      
-      // Step 3: Try to append with old token
-      const appendResult = await store.append(
-        [{ type, data: { id: value, source: 'demo' } }],
-        token
-      );
-      
-      if (isConflict(appendResult)) {
-        const conflicts = appendResult.conflictingEvents.map(e => `#${e.position} ${e.type}`).join(', ');
-        status.textContent = `1️⃣ Read state, got token
-2️⃣ Another process wrote: ✓
-3️⃣ Append with old token: ⚠️ CONFLICT!
-
-Conflicting events: ${conflicts}
-
-This is DCB in action! The store detected that 
-someone else modified the data you read.`;
-        status.className = 'result conflict';
-      } else {
-        status.textContent += '\n   ✓ No conflict (unexpected)';
-        status.className = 'result success';
-      }
-
-      await refreshAll();
-      await refreshLiveQuery();
     };
 
     // Initialize on load
