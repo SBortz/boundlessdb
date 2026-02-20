@@ -1,31 +1,37 @@
 # Boundless
 
-A DCB-native Event Store for Node.js with **Dynamic Consistency Boundaries**.
+A DCB-native Event Store with **Dynamic Consistency Boundaries**.
 
 > *Boundless* — because consistency boundaries should be dynamic, not fixed.
 
+## 🎉 Try it Live!
+
+**[Interactive Browser Demo](https://boundless-seven.vercel.app/demo.html)** — No installation required!
+
+The entire event store runs client-side in your browser using WebAssembly SQLite.
+
 ## Features
 
-- **No Streams** — Events are organized via configurable consistency keys
-- **Config-based Key Extraction** — Events remain pure business data
-- **HMAC-signed Consistency Tokens** — Tamper-proof optimistic concurrency
-- **Conflict Detection with Delta** — Get exactly what changed since your read
-- **SQLite & In-Memory Storage** — Production-ready and test-friendly
+- 🚀 **Works in Browser** — Full client-side event sourcing via sql.js (WASM)
+- 🔑 **No Streams** — Events are organized via configurable consistency keys
+- ⚙️ **Config-based Key Extraction** — Events remain pure business data
+- 🔐 **HMAC-signed Consistency Tokens** — Tamper-proof optimistic concurrency
+- ⚡ **Conflict Detection with Delta** — Get exactly what changed since your read
+- 💾 **SQLite & In-Memory Storage** — Production-ready and test-friendly
 
 ## Installation
 
 ```bash
-npm install @sbortz/event-store
+npm install @sbortz/boundless
 ```
 
 ## Quick Start
 
 ```typescript
-import { createEventStore, InMemoryStorage, isConflict } from '@sbortz/event-store';
+import { createEventStore, SqliteStorage, isConflict } from '@sbortz/boundless';
 
-// Define consistency configuration
 const store = createEventStore({
-  storage: new InMemoryStorage(), // Or SqliteStorage for persistence
+  storage: new SqliteStorage('./events.db'),
   secret: process.env.TOKEN_SECRET!,
   consistency: {
     eventTypes: {
@@ -50,11 +56,9 @@ const { events, token } = await store.read({
   ],
 });
 
-// 2. DECIDE — Project events and check invariants
+// 2. DECIDE — Check invariants
 const enrolled = events.filter(e => e.type === 'StudentSubscribed').length;
-if (enrolled >= 30) {
-  throw new Error('Course is full');
-}
+if (enrolled >= 30) throw new Error('Course is full');
 
 // 3. APPEND — Write with consistency check
 const result = await store.append(
@@ -63,67 +67,105 @@ const result = await store.append(
 );
 
 if (isConflict(result)) {
-  console.log('Conflict! New events:', result.conflictingEvents);
+  console.log('Conflict! Events since your read:', result.conflictingEvents);
   // Retry with result.newToken...
 } else {
   console.log('Enrolled at position', result.position);
 }
 ```
 
+## Browser Usage
+
+Boundless works **entirely in the browser** with no server required!
+
+```html
+<script type="module">
+  import { createEventStore, SqlJsStorage, isConflict } from './boundless.browser.js';
+
+  const store = createEventStore({
+    storage: new SqlJsStorage(),
+    secret: 'demo-secret',
+    consistency: {
+      eventTypes: {
+        TodoAdded: { keys: [{ name: 'list', path: 'data.listId' }] }
+      }
+    }
+  });
+
+  // Everything runs client-side!
+  const { events, token } = await store.read({
+    conditions: [{ type: 'TodoAdded', key: 'list', value: 'my-list' }]
+  });
+</script>
+```
+
+### Build Browser Bundle
+
+```bash
+npm run build:browser
+# → ui/public/boundless.browser.js (~100KB)
+```
+
+## Why "Boundless"?
+
+Traditional event stores use **streams** as consistency boundaries — but streams are static. What if you need to check consistency across multiple dimensions?
+
+**Dynamic Consistency Boundaries (DCB)** let you query events by any combination of keys:
+
+```typescript
+// Check consistency across course AND student
+const { token } = await store.read({
+  conditions: [
+    { type: 'StudentSubscribed', key: 'course', value: 'cs101' },
+    { type: 'StudentSubscribed', key: 'student', value: 'alice' },
+  ],
+});
+```
+
+The consistency token captures *exactly* what you read, enabling precise conflict detection.
+
 ## API
 
 ### `createEventStore(options)`
 
-Creates an event store instance.
-
 ```typescript
-interface EventStoreConfig {
-  storage: EventStorage;           // InMemoryStorage or SqliteStorage
-  secret: string;                  // HMAC signing secret
-  consistency: ConsistencyConfig;  // Key extraction rules
-}
+const store = createEventStore({
+  storage: SqliteStorage | SqlJsStorage | InMemoryStorage,
+  secret: string,                  // HMAC signing secret
+  consistency: ConsistencyConfig,  // Key extraction rules
+});
 ```
 
 ### `store.read(query)`
 
-Read events matching a query.
-
 ```typescript
 const { events, token } = await store.read({
-  conditions: [
-    { type: 'EventType', key: 'keyName', value: 'keyValue' },
-  ],
-  fromPosition?: bigint,  // Optional: start after this position
-  limit?: number,         // Optional: max events to return
+  conditions: [{ type, key, value }],
+  fromPosition?: bigint,
+  limit?: number,
 });
 ```
 
 ### `store.append(events, token)`
 
-Append events with optional consistency check.
-
 ```typescript
 const result = await store.append(
-  [{ type: 'MyEvent', data: { ... }, metadata?: { ... } }],
-  token  // null to skip consistency check
+  [{ type: 'MyEvent', data: {...} }],
+  token  // or null to skip check
 );
 
 if (isConflict(result)) {
-  // Handle conflict
-  result.conflictingEvents;  // Events that caused conflict
-  result.newToken;           // Token for retry
-} else {
-  result.position;  // Position of last appended event
-  result.token;     // New token
+  result.conflictingEvents;  // What changed
+  result.newToken;           // For retry
 }
 ```
 
 ## Consistency Configuration
 
-Events don't carry tags — keys are extracted from the payload via configuration:
+Keys are extracted from event payloads — events stay pure:
 
 ```typescript
-const config: ConsistencyConfig = {
+const config = {
   eventTypes: {
     OrderPlaced: {
       keys: [
@@ -136,87 +178,23 @@ const config: ConsistencyConfig = {
 };
 ```
 
-### Key Definition Options
+### Key Options
 
-| Option | Type | Description |
-|--------|------|-------------|
-| `name` | string | Key name for queries |
-| `path` | string | Dot-notation path in event |
-| `transform` | string? | `LOWER`, `UPPER`, `MONTH`, `YEAR`, `DATE` |
-| `nullHandling` | string? | `error` (default), `skip`, `default` |
-| `defaultValue` | string? | Value when `nullHandling: 'default'` |
+| Option | Description |
+|--------|-------------|
+| `name` | Key name for queries |
+| `path` | Dot-notation path in event |
+| `transform` | `LOWER`, `UPPER`, `MONTH`, `YEAR`, `DATE` |
+| `nullHandling` | `error` (default), `skip`, `default` |
+| `defaultValue` | Value when `nullHandling: 'default'` |
 
 ## Storage Backends
 
-### InMemoryStorage
-
-```typescript
-import { InMemoryStorage } from '@sbortz/event-store';
-const storage = new InMemoryStorage();
-```
-
-Best for testing. Not persistent.
-
-### SqliteStorage
-
-```typescript
-import { SqliteStorage } from '@sbortz/event-store';
-const storage = new SqliteStorage('./events.db');
-// Or in-memory: new SqliteStorage(':memory:')
-```
-
-Production-ready with WAL mode enabled.
-
-### SqlJsStorage (Browser)
-
-```typescript
-import { SqlJsStorage } from '@sbortz/event-store';
-
-const storage = new SqlJsStorage({
-  wasmUrl: 'https://sql.js.org/dist/sql-wasm.wasm', // optional, defaults to CDN
-});
-```
-
-Works in browsers using [sql.js](https://github.com/sql-js/sql.js/) (WebAssembly SQLite).
-
-## Browser Usage
-
-Boundless works entirely in the browser with no server required!
-
-### Quick Start (Browser)
-
-```html
-<script type="module">
-  import { createEventStore, SqlJsStorage, isConflict } from './boundless.browser.js';
-
-  const storage = new SqlJsStorage();
-  const store = createEventStore({
-    storage,
-    secret: 'your-secret',
-    consistency: {
-      eventTypes: {
-        MyEvent: { keys: [{ name: 'id', path: 'entityId' }] }
-      }
-    }
-  });
-
-  // Read, append, detect conflicts — all client-side!
-  const { events, token } = await store.read({
-    conditions: [{ type: 'MyEvent', key: 'id', value: '123' }]
-  });
-</script>
-```
-
-### Build the Browser Bundle
-
-```bash
-npm run build:browser
-# Output: ui/public/boundless.browser.js
-```
-
-### Try the Demo
-
-Visit the [live demo](/demo.html) to interact with Boundless entirely in your browser.
+| Backend | Environment | Persistence |
+|---------|-------------|-------------|
+| `SqliteStorage` | Node.js | File or `:memory:` |
+| `SqlJsStorage` | Browser | In-memory (WASM) |
+| `InMemoryStorage` | Any | None (testing) |
 
 ## Development
 
@@ -224,4 +202,13 @@ Visit the [live demo](/demo.html) to interact with Boundless entirely in your br
 npm install
 npm test
 npm run build
+npm run build:browser
 ```
+
+## License
+
+MIT
+
+---
+
+Built with ❤️ for [Event Sourcing](https://www.eventstore.com/event-sourcing)
