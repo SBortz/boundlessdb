@@ -2425,6 +2425,10 @@ var SqlJsStorage = class {
       for (let i = 0; i < eventsToStore.length; i++) {
         const event = eventsToStore[i];
         const eventKeys = keys[i];
+        console.log("[SqlJsStorage] Inserting event:", { id: event.id, type: event.type });
+        if (!event.id) {
+          throw new Error(`[SqlJsStorage] event.id is ${event.id} (falsy)`);
+        }
         db.run(
           `INSERT INTO events (event_id, event_type, data, metadata, timestamp)
            VALUES (?, ?, ?, ?, ?)`,

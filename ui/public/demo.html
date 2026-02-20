@@ -712,7 +712,7 @@
       createEventStore, 
       SqlJsStorage, 
       isConflict 
-    } from './boundless.browser.js?v=5';
+    } from './boundless.browser.js?v=6';
 
     // Configuration for the demo
     const DEMO_SECRET = 'demo-secret-key-for-hmac-signing';
@@ -1175,13 +1175,12 @@
         return;
       }
 
-      console.log('quickAction called:', { type, data });
+      // Debug: Show what we're sending
       const eventToAppend = [{ type, data }];
-      console.log('Event to append:', JSON.stringify(eventToAppend));
+      showFeedback('quick-result', `DEBUG: Sending ${JSON.stringify(eventToAppend).substring(0, 100)}...`, 'info');
       
       try {
         const result = await store.append(eventToAppend, null);
-        console.log('Append result:', result);
         
         if (isConflict(result)) {
           showFeedback('quick-result', `⚠️ Conflict!`, 'conflict');
@@ -1197,11 +1196,20 @@
         await refreshAll();
         await refreshLiveQuery();
       } catch (err) {
-        showFeedback('quick-result', `Error: ${err.message}`, 'conflict');
+        // Show full error with stack
+        showFeedback('quick-result', `Error: ${err.message}\n\nStack: ${err.stack?.substring(0, 200) || 'no stack'}`, 'conflict');
       }
     };
 
     // Initialize on load
+    // Quick UUID test
+    try {
+      const testUUID = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'fallback-needed';
+      console.log('UUID test:', testUUID);
+    } catch(e) {
+      console.log('UUID test failed:', e);
+    }
+    
     initStore();
   </script>
 </body>

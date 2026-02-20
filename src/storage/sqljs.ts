@@ -114,6 +114,10 @@ export class SqlJsStorage implements EventStorage {
         const eventKeys = keys[i];
 
         // Insert event
+        console.log('[SqlJsStorage] Inserting event:', { id: event.id, type: event.type });
+        if (!event.id) {
+          throw new Error(`[SqlJsStorage] event.id is ${event.id} (falsy)`);
+        }
         db.run(
           `INSERT INTO events (event_id, event_type, data, metadata, timestamp)
            VALUES (?, ?, ?, ?, ?)`,
