@@ -352,6 +352,29 @@
   </div>
   
   <div class="code-section">
+    <h2>How Conflict Detection Works</h2>
+    <pre><code><span class="comment">// The token captures your exact query scope:</span>
+token = {
+  q: [{ type: <span class="string">'StudentSubscribed'</span>, key: <span class="string">'course'</span>, value: <span class="string">'cs101'</span> }],
+  pos: <span class="const">5</span>  <span class="comment">// Position at time of read</span>
+}
+
+<span class="comment">// On append, Boundless checks:</span>
+<span class="comment">// "Are there NEW events (pos > 5) that MATCH these conditions?"</span>
+
+<span class="comment">// ✅ NO conflict if someone wrote:</span>
+<span class="comment">//    - StudentSubscribed for course='math201' (different key value)</span>
+<span class="comment">//    - CourseCreated for cs101 (different event type)</span>
+
+<span class="comment">// ❌ CONFLICT only if:</span>
+<span class="comment">//    - StudentSubscribed for course='cs101' was written</span>
+<span class="comment">//    - (matches your query conditions!)</span></code></pre>
+    <div class="flow-note" style="margin-top:1rem">
+      💡 Conflicts are <strong>scoped to your read</strong> — not global. This is the power of Dynamic Consistency Boundaries!
+    </div>
+  </div>
+  
+  <div class="code-section">
     <h2>Query Across Multiple Dimensions</h2>
     <pre><code><span class="comment">// Traditional streams: ONE boundary (e.g., per course)</span>
 <span class="comment">// DCB: Query ANY combination of keys!</span>
