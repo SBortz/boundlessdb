@@ -104,6 +104,26 @@ if (result.conflict) {
 }
 ```
 
+## Why Signed Tokens?
+
+When you call `read()`, the server returns a token containing:
+- The **position** up to which events were read
+- The **query conditions** you used
+
+Why sign it? Two reasons:
+
+### 1. Performance (Safe Space)
+
+Without a position, the server must re-execute your full query on every `append()` to find conflicting events. With the position baked into the token, the server can skip all events before that point — they're in the "safe space" that was already checked during your read.
+
+### 2. Integrity
+
+The client cannot tamper with the position or query between `read()` and `append()`. The server trusts the token because it signed it itself.
+
+Think of it as a **promise from the server**: *"I guarantee these conditions were checked up to this position."*
+
+> The token is just base64-encoded JSON + HMAC signature, so it's still inspectable if needed. But the signature ensures it hasn't been modified.
+
 ## Query Across Multiple Dimensions
 
 Traditional streams give you ONE boundary. DCB lets you query ANY combination:
