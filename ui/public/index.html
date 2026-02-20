@@ -187,9 +187,28 @@
       display: inline-block;
     }
     
-    .arch-diagram .table { color: #ff9e64; }
-    .arch-diagram .arrow { color: #0cf; }
-    .arch-diagram .desc { color: #666; }
+    .arch-cards {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    
+    .arch-card {
+      background: #0a1628;
+      border: 1px solid #0f3460;
+      border-radius: 12px;
+      padding: 1rem 1.5rem;
+      text-align: center;
+      width: 100%;
+      max-width: 320px;
+    }
+    
+    .arch-icon { font-size: 1.5rem; margin-bottom: 0.3rem; }
+    .arch-title { color: #ff9e64; font-weight: 600; font-size: 1.1rem; }
+    .arch-desc { color: #888; font-size: 0.85rem; margin-bottom: 0.3rem; }
+    .arch-fields { color: #0cf; font-family: monospace; font-size: 0.8rem; }
+    .arch-arrow { color: #0cf; font-size: 1.5rem; }
     
     footer {
       text-align: center;
@@ -376,18 +395,27 @@
   
   <div class="architecture">
     <h2>Architecture</h2>
-    <div class="arch-diagram">
-<span class="table">events</span> <span class="desc">(append-only log)</span>
-   │
-   ├── position, event_type, data, timestamp
-   │
-<span class="table">event_keys</span> <span class="desc">(consistency index — rebuilt on config change)</span>
-   │
-   ├── position, key_name, key_value
-   │
-<span class="table">metadata</span>
-   │
-   └── config_hash <span class="arrow">→</span> <span class="desc">SHA256 of consistency config</span>
+    <div class="arch-cards">
+      <div class="arch-card">
+        <div class="arch-icon">📋</div>
+        <div class="arch-title">events</div>
+        <div class="arch-desc">Append-only log</div>
+        <div class="arch-fields">position, event_type, data, timestamp</div>
+      </div>
+      <div class="arch-arrow">↓</div>
+      <div class="arch-card">
+        <div class="arch-icon">🔑</div>
+        <div class="arch-title">event_keys</div>
+        <div class="arch-desc">Consistency index (auto-rebuilt)</div>
+        <div class="arch-fields">position, key_name, key_value</div>
+      </div>
+      <div class="arch-arrow">↓</div>
+      <div class="arch-card">
+        <div class="arch-icon">⚙️</div>
+        <div class="arch-title">metadata</div>
+        <div class="arch-desc">Config hash for auto-reindex</div>
+        <div class="arch-fields">SHA256(consistency_config)</div>
+      </div>
     </div>
   </div>
   
