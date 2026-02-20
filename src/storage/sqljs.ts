@@ -114,21 +114,26 @@ export class SqlJsStorage implements EventStorage {
         const eventKeys = keys[i];
 
         // Insert event
-        console.log('[SqlJsStorage] Inserting event:', { id: event.id, type: event.type });
-        if (!event.id) {
-          throw new Error(`[SqlJsStorage] event.id is ${event.id} (falsy)`);
+        const eventId = String(event.id);
+        const eventType = String(event.type);
+        const eventData = JSON.stringify(event.data);
+        const eventMeta = event.metadata ? JSON.stringify(event.metadata) : null;
+        const eventTime = event.timestamp.toISOString();
+        
+        console.log('[SqlJsStorage] Inserting:', { eventId, eventType, eventData });
+        
+        if (!eventId || eventId === 'undefined' || eventId === 'null') {
+          throw new Error(`[SqlJsStorage] Invalid event ID: "${eventId}"`);
         }
-        db.run(
+        
+        // Use prepared statement for reliable parameter binding
+        const stmt = db.prepare(
           `INSERT INTO events (event_id, event_type, data, metadata, timestamp)
-           VALUES (?, ?, ?, ?, ?)`,
-          [
-            event.id,
-            event.type,
-            JSON.stringify(event.data),
-            event.metadata ? JSON.stringify(event.metadata) : null,
-            event.timestamp.toISOString()
-          ]
+           VALUES (?, ?, ?, ?, ?)`
         );
+        stmt.bind([eventId, eventType, eventData, eventMeta, eventTime]);
+        stmt.step();
+        stmt.free();
 
         // Get the last inserted position
         const result = db.exec('SELECT last_insert_rowid() as position');
