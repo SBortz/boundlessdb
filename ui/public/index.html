@@ -187,28 +187,57 @@
       display: inline-block;
     }
     
-    .arch-cards {
+    .flow-section {
       display: flex;
       flex-direction: column;
-      align-items: center;
-      gap: 0.5rem;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
     }
     
-    .arch-card {
+    .flow-step {
+      display: flex;
+      gap: 1rem;
+      align-items: flex-start;
       background: #0a1628;
       border: 1px solid #0f3460;
       border-radius: 12px;
-      padding: 1rem 1.5rem;
-      text-align: center;
-      width: 100%;
-      max-width: 320px;
+      padding: 1rem;
     }
     
-    .arch-icon { font-size: 1.5rem; margin-bottom: 0.3rem; }
-    .arch-title { color: #ff9e64; font-weight: 600; font-size: 1.1rem; }
-    .arch-desc { color: #888; font-size: 0.85rem; margin-bottom: 0.3rem; }
-    .arch-fields { color: #0cf; font-family: monospace; font-size: 0.8rem; }
-    .arch-arrow { color: #0cf; font-size: 1.5rem; }
+    .flow-number {
+      background: linear-gradient(135deg, #0f4c75, #1e5f74);
+      color: white;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      flex-shrink: 0;
+    }
+    
+    .flow-content { flex: 1; }
+    .flow-title { color: #0cf; font-weight: 600; margin-bottom: 0.3rem; }
+    .flow-desc { color: #888; font-size: 0.9rem; margin-bottom: 0.5rem; }
+    .flow-code {
+      display: block;
+      background: #0d1929;
+      padding: 0.5rem;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      color: #98c379;
+      overflow-x: auto;
+    }
+    
+    .flow-note {
+      background: rgba(0, 204, 255, 0.1);
+      border: 1px solid #0cf;
+      border-radius: 8px;
+      padding: 1rem;
+      font-size: 0.9rem;
+      color: #ccc;
+    }
     
     footer {
       text-align: center;
@@ -394,28 +423,48 @@
   </div>
   
   <div class="architecture">
-    <h2>Architecture</h2>
-    <div class="arch-cards">
-      <div class="arch-card">
-        <div class="arch-icon">📋</div>
-        <div class="arch-title">events</div>
-        <div class="arch-desc">Append-only log</div>
-        <div class="arch-fields">position, event_type, data, timestamp</div>
+    <h2>How It Works</h2>
+    
+    <div class="flow-section">
+      <div class="flow-step">
+        <div class="flow-number">1</div>
+        <div class="flow-content">
+          <div class="flow-title">Event Appended</div>
+          <div class="flow-desc">You append an event with business data</div>
+          <code class="flow-code">{ type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } }</code>
+        </div>
       </div>
-      <div class="arch-arrow">↓</div>
-      <div class="arch-card">
-        <div class="arch-icon">🔑</div>
-        <div class="arch-title">event_keys</div>
-        <div class="arch-desc">Consistency index (auto-rebuilt)</div>
-        <div class="arch-fields">position, key_name, key_value</div>
+      
+      <div class="flow-step">
+        <div class="flow-number">2</div>
+        <div class="flow-content">
+          <div class="flow-title">Keys Extracted</div>
+          <div class="flow-desc">Config tells Boundless which fields are consistency keys</div>
+          <code class="flow-code">course → 'cs101', student → 'alice'</code>
+        </div>
       </div>
-      <div class="arch-arrow">↓</div>
-      <div class="arch-card">
-        <div class="arch-icon">⚙️</div>
-        <div class="arch-title">metadata</div>
-        <div class="arch-desc">Config hash for auto-reindex</div>
-        <div class="arch-fields">SHA256(consistency_config)</div>
+      
+      <div class="flow-step">
+        <div class="flow-number">3</div>
+        <div class="flow-content">
+          <div class="flow-title">Index Updated</div>
+          <div class="flow-desc">Keys are stored in a separate index table, linked to the event position</div>
+          <code class="flow-code">event_keys: [pos:1, course, cs101], [pos:1, student, alice]</code>
+        </div>
       </div>
+      
+      <div class="flow-step">
+        <div class="flow-number">4</div>
+        <div class="flow-content">
+          <div class="flow-title">Query by Keys</div>
+          <div class="flow-desc">Find all events matching any combination of key conditions</div>
+          <code class="flow-code">WHERE (type='StudentSubscribed' AND key='course' AND value='cs101')</code>
+        </div>
+      </div>
+    </div>
+    
+    <div class="flow-note">
+      💡 <strong>Config changed?</strong> Boundless compares the config hash on startup. If different, all keys are automatically re-extracted from existing events. No manual migration needed!
     </div>
   </div>
   
