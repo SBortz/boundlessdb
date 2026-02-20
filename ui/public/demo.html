@@ -794,7 +794,7 @@
       createEventStore, 
       SqlJsStorage, 
       isConflict 
-    } from './boundless.browser.js?v=22';
+    } from './boundless.browser.js?v=23';
 
     // Configuration for the demo
     const DEMO_SECRET = 'demo-secret-key-for-hmac-signing';
@@ -945,15 +945,15 @@
 
     // ==================== GUIDED DEMO SCENARIOS ====================
     
-    // Normal Flow Demo
+    // Normal Flow Demo (slower for observation)
     window.runNormalFlowDemo = async function() {
       if (!store) {
         showScenarioResult('❌ Store not initialized', 'conflict');
         return;
       }
       
-      showScenarioResult('🔄 Step 1/3: Reading CS101 current state...', 'info');
-      await sleep(600);
+      showScenarioResult('🔄 Step 1/3: Reading CS101 current state...\n\n→ store.read({ conditions: [...] })', 'info');
+      await sleep(8000);
       
       // Step 1: Read current state
       const readResult = await store.read({
@@ -964,8 +964,14 @@
       });
       const token = readResult.token;
       
-      showScenarioResult(`🔄 Step 2/3: Read ${readResult.events.length} events. Token erhalten. Appending...`, 'info');
-      await sleep(600);
+      showScenarioResult(`✅ Step 1 complete!\n\nRead ${readResult.events.length} events.\nToken received: ${token.substring(0, 30)}...\n\nThe token captures: "I read all events matching course=cs101 up to position ${readResult.events.length > 0 ? Math.max(...readResult.events.map(e => Number(e.position))) : 0}"`, 'info');
+      await sleep(10000);
+      
+      showScenarioResult(`🔄 Step 2/3: Deciding...\n\nBusiness logic: Check if course is full, validate student, etc.\n\n(In real app: this is where your domain logic runs)`, 'info');
+      await sleep(8000);
+      
+      showScenarioResult(`🔄 Step 3/3: Appending with token...\n\n→ store.append([event], token)\n\nThe token ensures no one wrote to course=cs101 since our read!`, 'info');
+      await sleep(8000);
       
       // Step 2: Append with valid token
       const appendResult = await store.append(
@@ -977,21 +983,21 @@
       await refreshLiveQuery();
       
       if (isConflict(appendResult)) {
-        showScenarioResult(`⚠️ Unerwarteter Conflict! Jemand anderes hat gleichzeitig geschrieben.`, 'conflict');
+        showScenarioResult(`⚠️ Unexpected Conflict! Someone else wrote concurrently.`, 'conflict');
       } else {
-        showScenarioResult(`✅ Event #${appendResult.position} erfolgreich gespeichert!\n\nNormaler Flow: Read → Token → Append → Success`, 'success');
+        showScenarioResult(`🎉 SUCCESS!\n\nEvent #${appendResult.position} stored!\n\n✅ Normal Flow complete:\n   1. READ → got token\n   2. DECIDE → business logic\n   3. APPEND with token → success!`, 'success');
       }
     };
     
-    // Show Conflict Demo
+    // Show Conflict Demo (slower for observation)
     window.runShowConflictDemo = async function() {
       if (!store) {
         showScenarioResult('❌ Store not initialized', 'conflict');
         return;
       }
       
-      showScenarioResult('🔄 Step 1/4: Du liest CS101...', 'info');
-      await sleep(600);
+      showScenarioResult('👤 ALICE: Step 1/4\n\nAlice reads CS101 enrollments...\n\n→ store.read({ conditions: [course=cs101] })', 'info');
+      await sleep(8000);
       
       // Step 1: Read current state
       const readResult = await store.read({
@@ -1002,25 +1008,31 @@
       });
       const oldToken = readResult.token;
       const posAtRead = readResult.events.length > 0 
-        ? Math.max(...readResult.events.map(e => e.position))
+        ? Math.max(...readResult.events.map(e => Number(e.position)))
         : 0;
       
-      showScenarioResult(`🔄 Step 2/4: Du hast ${readResult.events.length} Events gelesen (bis #${posAtRead}).\nWährend du nachdenkst, schreibt jemand anderes...`, 'info');
-      await sleep(1000);
+      showScenarioResult(`👤 ALICE: Step 1 complete!\n\nRead ${readResult.events.length} events (up to position #${posAtRead})\nToken saved: ${oldToken.substring(0, 25)}...\n\nAlice is now thinking about her decision...`, 'info');
+      await sleep(10000);
+      
+      showScenarioResult(`👤 ALICE is deciding...\n\n🔵 Meanwhile...\n\n👤 BOB also reads CS101 and decides to enroll!\nBob writes directly (no conflict check)...`, 'info');
+      await sleep(8000);
       
       // Step 2: Concurrent user writes
       const concurrentResult = await store.append(
-        [{ type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'concurrent-' + Date.now(), name: 'Concurrent User' } }],
+        [{ type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'bob-' + Date.now(), name: 'Bob (concurrent)' } }],
         null // No token - direct write
       );
       await refreshAll();
       
-      showScenarioResult(`🔄 Step 3/4: Event #${concurrentResult.position} kam dazwischen!\nDu versuchst jetzt mit altem Token zu schreiben...`, 'info');
-      await sleep(800);
+      showScenarioResult(`👤 BOB: Enrolled successfully at position #${concurrentResult.position}! ✅\n\n👤 ALICE doesn't know this yet...\nShe still has her old token from position #${posAtRead}\n\nNow Alice tries to enroll with her OLD token...`, 'info');
+      await sleep(10000);
+      
+      showScenarioResult(`👤 ALICE: Step 3/4\n\nTrying to append with token from position #${posAtRead}...\n\n→ store.append([StudentSubscribed], oldToken)\n\nBoundless checks: "Any events matching course=cs101 since #${posAtRead}?"`, 'info');
+      await sleep(8000);
       
       // Step 3: Try to append with old token
       const appendResult = await store.append(
-        [{ type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'you-' + Date.now(), name: 'Your Write' } }],
+        [{ type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice-' + Date.now(), name: 'Alice (conflict)' } }],
         oldToken
       );
       
@@ -1030,14 +1042,19 @@
       if (isConflict(appendResult)) {
         const conflictEvent = appendResult.conflictingEvents[0];
         showScenarioResult(
-          `⚠️ CONFLICT DETECTED!\n\n` +
-          `Event #${conflictEvent.position} (${conflictEvent.type}) kam dazwischen, während du gelesen hast.\n\n` +
-          `Dein Token war bei Position #${posAtRead}, aber jetzt gibt es Event #${conflictEvent.position}.\n\n` +
-          `➡️ DCB verhindert verlorene Updates. Du musst neu lesen und entscheiden.`,
+          `❌ CONFLICT DETECTED!\n\n` +
+          `👤 ALICE's append was REJECTED!\n\n` +
+          `Why? Bob's Event #${conflictEvent.position} (${conflictEvent.type}) was written AFTER Alice read at position #${posAtRead}.\n\n` +
+          `The token check found:\n` +
+          `  • Alice's token: pos=${posAtRead}\n` +
+          `  • New matching event: pos=${conflictEvent.position}\n` +
+          `  • Query: course=cs101 ✓ (matches!)\n\n` +
+          `🔄 Alice gets a NEW token and can retry with fresh data.\n\n` +
+          `This is DCB: No lost updates, precise conflict scope!`,
           'conflict'
         );
       } else {
-        showScenarioResult(`✅ Event #${appendResult.position} (kein Conflict - ungewöhnlich)`, 'success');
+        showScenarioResult(`✅ Event #${appendResult.position} stored (unexpectedly no conflict)`, 'success');
       }
     };
     
