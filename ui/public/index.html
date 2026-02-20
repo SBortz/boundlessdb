@@ -319,6 +319,61 @@
 <span class="comment">// Checks BOTH course boundary AND student boundary in one query!</span></code></pre>
   </div>
   
+  <div class="code-section">
+    <h2>Config-based Key Extraction</h2>
+    <pre><code><span class="comment">// Keys are extracted from event payloads via configuration</span>
+<span class="comment">// Events stay pure — no tags or metadata pollution!</span>
+
+<span class="keyword">const</span> consistency = {
+  eventTypes: {
+    <span class="const">CourseCreated</span>: {
+      keys: [
+        { name: <span class="string">'course'</span>, path: <span class="string">'data.courseId'</span> }
+      ]
+    },
+    <span class="const">StudentSubscribed</span>: {
+      keys: [
+        { name: <span class="string">'course'</span>, path: <span class="string">'data.courseId'</span> },
+        { name: <span class="string">'student'</span>, path: <span class="string">'data.studentId'</span> },
+        { name: <span class="string">'semester'</span>, path: <span class="string">'data.semester'</span>, transform: <span class="string">'UPPER'</span> }
+      ]
+    }
+  }
+};
+
+<span class="comment">// When an event is appended:</span>
+<span class="comment">// { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice', semester: 'ws24' } }</span>
+<span class="comment">//</span>
+<span class="comment">// Keys are automatically extracted and indexed:</span>
+<span class="comment">//   → course: 'cs101'</span>
+<span class="comment">//   → student: 'alice'</span>
+<span class="comment">//   → semester: 'WS24' (transformed to uppercase)</span></code></pre>
+  </div>
+  
+  <div class="code-section">
+    <h2>Auto-Reindex on Config Change</h2>
+    <pre><code><span class="comment">// The config is hashed and stored in the database</span>
+<span class="comment">// On startup, Boundless compares hashes:</span>
+
+<span class="comment">// stored_hash: "a1b2c3..."  (from last run)</span>
+<span class="comment">// current_hash: "x9y8z7..." (from your config)</span>
+
+<span class="keyword">if</span> (stored_hash !== current_hash) {
+  <span class="comment">// 🔄 Config changed! Rebuilding key index...</span>
+  <span class="comment">//    Old hash: a1b2c3...</span>
+  <span class="comment">//    New hash: x9y8z7...</span>
+  
+  <span class="comment">// All events are re-scanned</span>
+  <span class="comment">// Keys are re-extracted with new config</span>
+  <span class="comment">// Index is rebuilt automatically</span>
+  
+  <span class="comment">// ✅ Reindex complete: 1523 events, 4211 keys (847ms)</span>
+}
+
+<span class="comment">// No manual migration needed!</span>
+<span class="comment">// Just change your config and restart.</span></code></pre>
+  </div>
+  
   <div class="architecture">
     <h2>Architecture</h2>
     <div class="arch-diagram">
@@ -326,13 +381,13 @@
    │
    ├── position, event_type, data, timestamp
    │
-<span class="table">event_keys</span> <span class="desc">(consistency index)</span>
+<span class="table">event_keys</span> <span class="desc">(consistency index — rebuilt on config change)</span>
    │
    ├── position, key_name, key_value
    │
 <span class="table">metadata</span>
    │
-   └── config_hash <span class="arrow">→</span> <span class="desc">auto-reindex on config change</span>
+   └── config_hash <span class="arrow">→</span> <span class="desc">SHA256 of consistency config</span>
     </div>
   </div>
   
