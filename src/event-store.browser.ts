@@ -22,10 +22,23 @@ import type {
  * Generate UUID with fallback for environments without crypto.randomUUID
  */
 function generateUUID(): string {
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-    return crypto.randomUUID();
+  try {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+  } catch (e) {
+    // crypto.randomUUID might throw in insecure contexts
   }
-  // Fallback for older browsers
+  // Fallback using crypto.getRandomValues if available
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    const arr = new Uint8Array(16);
+    crypto.getRandomValues(arr);
+    arr[6] = (arr[6] & 0x0f) | 0x40; // Version 4
+    arr[8] = (arr[8] & 0x3f) | 0x80; // Variant
+    const hex = Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+  }
+  // Last resort fallback
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
     const r = (Math.random() * 16) | 0;
     const v = c === 'x' ? r : (r & 0x3) | 0x8;
@@ -246,13 +259,19 @@ export class EventStore {
 
     // No conflict — prepare events for storage
     const now = new Date();
-    const eventsToStore = events.map(event => ({
-      id: generateUUID(),
-      type: event.type,
-      data: event.data,
-      metadata: event.metadata,
-      timestamp: now,
-    }));
+    const eventsToStore = events.map(event => {
+      const id = generateUUID();
+      if (!id) {
+        throw new Error('Failed to generate event ID');
+      }
+      return {
+        id,
+        type: event.type,
+        data: event.data,
+        metadata: event.metadata,
+        timestamp: now,
+      };
+    });
 
     // Append atomically
     const position = await this.storage.append(eventsToStore, keysPerEvent);

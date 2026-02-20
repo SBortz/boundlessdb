@@ -2741,8 +2741,19 @@ async function validateToken(token, secret) {
 
 // src/event-store.browser.ts
 function generateUUID() {
-  if (typeof crypto !== "undefined" && crypto.randomUUID) {
-    return crypto.randomUUID();
+  try {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
+  } catch (e) {
+  }
+  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+    const arr = new Uint8Array(16);
+    crypto.getRandomValues(arr);
+    arr[6] = arr[6] & 15 | 64;
+    arr[8] = arr[8] & 63 | 128;
+    const hex = Array.from(arr, (b) => b.toString(16).padStart(2, "0")).join("");
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
   }
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
     const r = Math.random() * 16 | 0;
@@ -2897,13 +2908,19 @@ var EventStore = class {
       }
     }
     const now = /* @__PURE__ */ new Date();
-    const eventsToStore = events.map((event) => ({
-      id: generateUUID(),
-      type: event.type,
-      data: event.data,
-      metadata: event.metadata,
-      timestamp: now
-    }));
+    const eventsToStore = events.map((event) => {
+      const id = generateUUID();
+      if (!id) {
+        throw new Error("Failed to generate event ID");
+      }
+      return {
+        id,
+        type: event.type,
+        data: event.data,
+        metadata: event.metadata,
+        timestamp: now
+      };
+    });
     const position = await this.storage.append(eventsToStore, keysPerEvent);
     const newTokenQuery = await this.buildQueryFromEvents(events, token);
     const newToken = await createToken(newTokenQuery, position, this.secret);
