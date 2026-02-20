@@ -94,16 +94,17 @@ export class EventStore {
       return;
     }
 
-    // Ensure storage is fully initialized before accessing metadata
-    await this.storage.getAllEvents(); // This awaits the init promise
+    try {
+      // Ensure storage is fully initialized before accessing metadata
+      await this.storage.getAllEvents(); // This awaits the init promise
 
-    const currentHash = await hashConfig(this.config);
-    if (!currentHash) {
-      console.warn('[EventStore] Failed to compute config hash');
-      return;
-    }
-    
-    const storedHash = await this.storage.getConfigHash();
+      const currentHash = await hashConfig(this.config);
+      if (!currentHash) {
+        console.warn('[EventStore] Failed to compute config hash');
+        return;
+      }
+      
+      const storedHash = await this.storage.getConfigHash();
 
     if (storedHash === null) {
       // First run — just store the hash
@@ -136,6 +137,10 @@ export class EventStore {
       
       const duration = Date.now() - startTime;
       console.log(`[EventStore] ✅ Reindex complete: ${eventCount} events, ${keyCount} keys (${duration}ms)`);
+    }
+    } catch (error) {
+      console.warn('[EventStore] Config hash check failed (non-fatal):', error);
+      // Don't throw - config hash is nice-to-have, not required
     }
   }
 

@@ -2790,36 +2790,40 @@ var EventStore = class {
     if (!(this.storage instanceof SqlJsStorage)) {
       return;
     }
-    await this.storage.getAllEvents();
-    const currentHash = await hashConfig(this.config);
-    if (!currentHash) {
-      console.warn("[EventStore] Failed to compute config hash");
-      return;
-    }
-    const storedHash = await this.storage.getConfigHash();
-    if (storedHash === null) {
-      console.log("[EventStore] First run, storing config hash:", currentHash.substring(0, 16) + "...");
-      await this.storage.setConfigHash(currentHash);
-    } else if (storedHash !== currentHash) {
-      console.log("[EventStore] \u26A0\uFE0F  Config changed! Rebuilding key index...");
-      console.log(`[EventStore]    Old hash: ${storedHash.substring(0, 16)}...`);
-      console.log(`[EventStore]    New hash: ${currentHash.substring(0, 16)}...`);
-      const startTime = Date.now();
-      let eventCount = 0;
-      let keyCount = 0;
-      await this.storage.reindex((event) => {
-        eventCount++;
-        const keys = this.keyExtractor.extract({
-          type: event.type,
-          data: event.data,
-          metadata: event.metadata
+    try {
+      await this.storage.getAllEvents();
+      const currentHash = await hashConfig(this.config);
+      if (!currentHash) {
+        console.warn("[EventStore] Failed to compute config hash");
+        return;
+      }
+      const storedHash = await this.storage.getConfigHash();
+      if (storedHash === null) {
+        console.log("[EventStore] First run, storing config hash:", currentHash.substring(0, 16) + "...");
+        await this.storage.setConfigHash(currentHash);
+      } else if (storedHash !== currentHash) {
+        console.log("[EventStore] \u26A0\uFE0F  Config changed! Rebuilding key index...");
+        console.log(`[EventStore]    Old hash: ${storedHash.substring(0, 16)}...`);
+        console.log(`[EventStore]    New hash: ${currentHash.substring(0, 16)}...`);
+        const startTime = Date.now();
+        let eventCount = 0;
+        let keyCount = 0;
+        await this.storage.reindex((event) => {
+          eventCount++;
+          const keys = this.keyExtractor.extract({
+            type: event.type,
+            data: event.data,
+            metadata: event.metadata
+          });
+          keyCount += keys.length;
+          return keys;
         });
-        keyCount += keys.length;
-        return keys;
-      });
-      await this.storage.setConfigHash(currentHash);
-      const duration = Date.now() - startTime;
-      console.log(`[EventStore] \u2705 Reindex complete: ${eventCount} events, ${keyCount} keys (${duration}ms)`);
+        await this.storage.setConfigHash(currentHash);
+        const duration = Date.now() - startTime;
+        console.log(`[EventStore] \u2705 Reindex complete: ${eventCount} events, ${keyCount} keys (${duration}ms)`);
+      }
+    } catch (error) {
+      console.warn("[EventStore] Config hash check failed (non-fatal):", error);
     }
   }
   /**
