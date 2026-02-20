@@ -2583,6 +2583,10 @@ var SqlJsStorage = class {
    * Set config hash
    */
   async setConfigHash(hash) {
+    if (!hash) {
+      console.warn("[SqlJsStorage] setConfigHash called with empty hash, skipping");
+      return;
+    }
     const db = await this.ensureInitialized();
     db.run(
       "INSERT OR REPLACE INTO metadata (key, value) VALUES ('config_hash', ?)",
@@ -2786,7 +2790,12 @@ var EventStore = class {
     if (!(this.storage instanceof SqlJsStorage)) {
       return;
     }
+    await this.storage.getAllEvents();
     const currentHash = await hashConfig(this.config);
+    if (!currentHash) {
+      console.warn("[EventStore] Failed to compute config hash");
+      return;
+    }
     const storedHash = await this.storage.getConfigHash();
     if (storedHash === null) {
       console.log("[EventStore] First run, storing config hash:", currentHash.substring(0, 16) + "...");

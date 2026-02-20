@@ -313,6 +313,10 @@ export class SqlJsStorage implements EventStorage {
    * Set config hash
    */
   async setConfigHash(hash: string): Promise<void> {
+    if (!hash) {
+      console.warn('[SqlJsStorage] setConfigHash called with empty hash, skipping');
+      return;
+    }
     const db = await this.ensureInitialized();
     db.run(
       "INSERT OR REPLACE INTO metadata (key, value) VALUES ('config_hash', ?)",

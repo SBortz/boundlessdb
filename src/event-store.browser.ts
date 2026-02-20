@@ -94,7 +94,15 @@ export class EventStore {
       return;
     }
 
+    // Ensure storage is fully initialized before accessing metadata
+    await this.storage.getAllEvents(); // This awaits the init promise
+
     const currentHash = await hashConfig(this.config);
+    if (!currentHash) {
+      console.warn('[EventStore] Failed to compute config hash');
+      return;
+    }
+    
     const storedHash = await this.storage.getConfigHash();
 
     if (storedHash === null) {
