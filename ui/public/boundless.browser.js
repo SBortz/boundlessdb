@@ -2434,13 +2434,11 @@ var SqlJsStorage = class {
         if (!eventId || eventId === "undefined" || eventId === "null") {
           throw new Error(`[SqlJsStorage] Invalid event ID: "${eventId}"`);
         }
-        const stmt = db.prepare(
+        db.run(
           `INSERT INTO events (event_id, event_type, data, metadata, timestamp)
-           VALUES (?, ?, ?, ?, ?)`
+           VALUES (?, ?, ?, ?, ?)`,
+          [eventId, eventType, eventData, eventMeta, eventTime]
         );
-        stmt.bind([eventId, eventType, eventData, eventMeta, eventTime]);
-        stmt.step();
-        stmt.free();
         const result = db.exec("SELECT last_insert_rowid() as position");
         const position = BigInt(result[0].values[0][0]);
         lastPosition = position;

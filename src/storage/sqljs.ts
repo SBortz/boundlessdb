@@ -126,14 +126,13 @@ export class SqlJsStorage implements EventStorage {
           throw new Error(`[SqlJsStorage] Invalid event ID: "${eventId}"`);
         }
         
-        // Use prepared statement for reliable parameter binding
-        const stmt = db.prepare(
+        // Use db.run with array params for reliable binding
+        // Note: sql.js run() returns undefined, but accepts params
+        (db as any).run(
           `INSERT INTO events (event_id, event_type, data, metadata, timestamp)
-           VALUES (?, ?, ?, ?, ?)`
+           VALUES (?, ?, ?, ?, ?)`,
+          [eventId, eventType, eventData, eventMeta, eventTime]
         );
-        stmt.bind([eventId, eventType, eventData, eventMeta, eventTime]);
-        stmt.step();
-        stmt.free();
 
         // Get the last inserted position
         const result = db.exec('SELECT last_insert_rowid() as position');
