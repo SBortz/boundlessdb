@@ -143,9 +143,46 @@ const consistency = {
 |--------|-------------|
 | `name` | Key name for queries |
 | `path` | Dot-notation path in event (e.g., `data.customer.id`) |
-| `transform` | `LOWER`, `UPPER`, `MONTH`, `YEAR`, `DATE` |
+| `transform` | Transform the extracted value (see below) |
 | `nullHandling` | `error` (default), `skip`, `default` |
 | `defaultValue` | Value when `nullHandling: 'default'` |
+
+### Transforms
+
+Transforms modify the extracted value before indexing:
+
+| Transform | Input | Output | Use Case |
+|-----------|-------|--------|----------|
+| `LOWER` | `"Alice@Email.COM"` | `"alice@email.com"` | Case-insensitive matching |
+| `UPPER` | `"alice"` | `"ALICE"` | Normalized codes |
+| `MONTH` | `"2026-02-20T14:30:00Z"` | `"2026-02"` | Monthly partitioning |
+| `YEAR` | `"2026-02-20T14:30:00Z"` | `"2026"` | Yearly aggregation |
+| `DATE` | `"2026-02-20T14:30:00Z"` | `"2026-02-20"` | Daily partitioning |
+
+**Example: Time-based partitioning**
+
+```typescript
+const consistency = {
+  eventTypes: {
+    OrderPlaced: {
+      keys: [
+        { name: 'order', path: 'data.orderId' },
+        { name: 'month', path: 'data.placedAt', transform: 'MONTH' }
+      ]
+    }
+  }
+};
+
+// Event: { type: 'OrderPlaced', data: { orderId: 'ORD-123', placedAt: '2026-02-20T14:30:00Z' } }
+// Extracted keys: order="ORD-123", month="2026-02"
+
+// Query all orders from February 2026:
+const { events } = await store.read({
+  conditions: [{ type: 'OrderPlaced', key: 'month', value: '2026-02' }]
+});
+```
+
+This is great for **Close the Books** patterns — query all events in a time period efficiently!
 
 ## Auto-Reindex on Config Change
 
