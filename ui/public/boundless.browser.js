@@ -2530,12 +2530,17 @@ var SqlJsStorage = class {
    */
   async getAllEvents() {
     const db = await this.ensureInitialized();
+    console.log("[SqlJsStorage.getAllEvents] Querying...");
     const result = db.exec(`
       SELECT position, event_id, event_type, data, metadata, timestamp
       FROM events
       ORDER BY position ASC
     `);
-    if (result.length === 0) return [];
+    console.log("[SqlJsStorage.getAllEvents] Raw result:", JSON.stringify(result));
+    if (result.length === 0) {
+      console.log("[SqlJsStorage.getAllEvents] No results, returning []");
+      return [];
+    }
     const columns = result[0].columns || result[0].lc;
     const rows = result[0].values;
     console.log("[SqlJsStorage.getAllEvents] columns:", columns, "rowCount:", rows.length);

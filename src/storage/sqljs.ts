@@ -258,13 +258,18 @@ export class SqlJsStorage implements EventStorage {
    */
   async getAllEvents(): Promise<StoredEvent[]> {
     const db = await this.ensureInitialized();
+    console.log('[SqlJsStorage.getAllEvents] Querying...');
     const result = db.exec(`
       SELECT position, event_id, event_type, data, metadata, timestamp
       FROM events
       ORDER BY position ASC
     `);
+    console.log('[SqlJsStorage.getAllEvents] Raw result:', JSON.stringify(result));
 
-    if (result.length === 0) return [];
+    if (result.length === 0) {
+      console.log('[SqlJsStorage.getAllEvents] No results, returning []');
+      return [];
+    }
 
     // sql.js uses 'columns' or 'lc' depending on version
     const columns = (result[0] as any).columns || (result[0] as any).lc;
