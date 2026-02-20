@@ -1,0 +1,333 @@
+/**
+ * Tests for EventStore - Core functionality
+ */
+
+import { describe, it, expect, beforeEach } from 'vitest';
+import { EventStore, InMemoryStorage, SqliteStorage, isConflict } from '../src/index.js';
+import type { ConsistencyConfig, NewEvent, Query } from '../src/types.js';
+
+const TEST_CONFIG: ConsistencyConfig = {
+  eventTypes: {
+    CourseCreated: {
+      keys: [{ name: 'course', path: 'data.courseId' }],
+    },
+    StudentSubscribed: {
+      keys: [
+        { name: 'course', path: 'data.courseId' },
+        { name: 'student', path: 'data.studentId' },
+      ],
+    },
+    StudentUnsubscribed: {
+      keys: [
+        { name: 'course', path: 'data.courseId' },
+        { name: 'student', path: 'data.studentId' },
+      ],
+    },
+  },
+};
+
+const SECRET = 'test-secret-key';
+
+describe('EventStore', () => {
+  describe.each([
+    ['InMemoryStorage', () => new InMemoryStorage()],
+    ['SqliteStorage', () => new SqliteStorage(':memory:')],
+  ])('with %s', (_name, createStorage) => {
+    let store: EventStore;
+
+    beforeEach(() => {
+      store = new EventStore({
+        storage: createStorage(),
+        secret: SECRET,
+        consistency: TEST_CONFIG,
+      });
+    });
+
+    describe('read', () => {
+      it('returns empty result for empty store', async () => {
+        const result = await store.read({
+          conditions: [{ type: 'CourseCreated', key: 'course', value: 'cs101' }],
+        });
+
+        expect(result.events).toEqual([]);
+        expect(result.token).toBeDefined();
+      });
+
+      it('returns matching events', async () => {
+        // First, append some events
+        await store.append(
+          [
+            { type: 'CourseCreated', data: { courseId: 'cs101', name: 'Intro to CS' } },
+            { type: 'CourseCreated', data: { courseId: 'cs102', name: 'Advanced CS' } },
+          ],
+          null
+        );
+
+        const result = await store.read({
+          conditions: [{ type: 'CourseCreated', key: 'course', value: 'cs101' }],
+        });
+
+        expect(result.events).toHaveLength(1);
+        expect(result.events[0].data).toEqual({ courseId: 'cs101', name: 'Intro to CS' });
+      });
+
+      it('respects fromPosition', async () => {
+        await store.append(
+          [{ type: 'CourseCreated', data: { courseId: 'cs101', name: 'V1' } }],
+          null
+        );
+        const pos = (await store.getStorage().getLatestPosition());
+
+        await store.append(
+          [{ type: 'CourseCreated', data: { courseId: 'cs101', name: 'V2' } }],
+          null
+        );
+
+        const result = await store.read({
+          conditions: [{ type: 'CourseCreated', key: 'course', value: 'cs101' }],
+          fromPosition: pos,
+        });
+
+        expect(result.events).toHaveLength(1);
+        expect(result.events[0].data).toEqual({ courseId: 'cs101', name: 'V2' });
+      });
+
+      it('respects limit', async () => {
+        await store.append(
+          [
+            { type: 'CourseCreated', data: { courseId: 'cs101', name: 'V1' } },
+            { type: 'CourseCreated', data: { courseId: 'cs101', name: 'V2' } },
+            { type: 'CourseCreated', data: { courseId: 'cs101', name: 'V3' } },
+          ],
+          null
+        );
+
+        const result = await store.read({
+          conditions: [{ type: 'CourseCreated', key: 'course', value: 'cs101' }],
+          limit: 2,
+        });
+
+        expect(result.events).toHaveLength(2);
+      });
+    });
+
+    describe('append', () => {
+      it('appends events without token', async () => {
+        const result = await store.append(
+          [{ type: 'CourseCreated', data: { courseId: 'cs101', name: 'Intro to CS' } }],
+          null
+        );
+
+        expect(isConflict(result)).toBe(false);
+        if (!isConflict(result)) {
+          expect(result.position).toBe(1n);
+          expect(result.token).toBeDefined();
+        }
+      });
+
+      it('assigns unique IDs to events', async () => {
+        await store.append(
+          [
+            { type: 'CourseCreated', data: { courseId: 'cs101' } },
+            { type: 'CourseCreated', data: { courseId: 'cs102' } },
+          ],
+          null
+        );
+
+        const result = await store.read({
+          conditions: [
+            { type: 'CourseCreated', key: 'course', value: 'cs101' },
+            { type: 'CourseCreated', key: 'course', value: 'cs102' },
+          ],
+        });
+
+        expect(result.events[0].id).not.toBe(result.events[1].id);
+      });
+
+      it('assigns timestamps', async () => {
+        const before = new Date();
+
+        await store.append(
+          [{ type: 'CourseCreated', data: { courseId: 'cs101' } }],
+          null
+        );
+
+        const after = new Date();
+
+        const result = await store.read({
+          conditions: [{ type: 'CourseCreated', key: 'course', value: 'cs101' }],
+        });
+
+        expect(result.events[0].timestamp.getTime()).toBeGreaterThanOrEqual(before.getTime());
+        expect(result.events[0].timestamp.getTime()).toBeLessThanOrEqual(after.getTime());
+      });
+
+      it('stores metadata', async () => {
+        await store.append(
+          [
+            {
+              type: 'CourseCreated',
+              data: { courseId: 'cs101' },
+              metadata: { userId: 'admin', correlationId: '123' },
+            },
+          ],
+          null
+        );
+
+        const result = await store.read({
+          conditions: [{ type: 'CourseCreated', key: 'course', value: 'cs101' }],
+        });
+
+        expect(result.events[0].metadata).toEqual({ userId: 'admin', correlationId: '123' });
+      });
+    });
+
+    describe('consistency checks', () => {
+      it('succeeds when no conflict', async () => {
+        // Initial read
+        const readResult = await store.read({
+          conditions: [{ type: 'StudentSubscribed', key: 'course', value: 'cs101' }],
+        });
+
+        // Append with token from read
+        const appendResult = await store.append(
+          [{ type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } }],
+          readResult.token
+        );
+
+        expect(isConflict(appendResult)).toBe(false);
+      });
+
+      it('detects conflict when events added since read', async () => {
+        // Create course
+        await store.append(
+          [{ type: 'CourseCreated', data: { courseId: 'cs101', name: 'CS', capacity: 2 } }],
+          null
+        );
+
+        // Alice reads
+        const aliceRead = await store.read({
+          conditions: [
+            { type: 'CourseCreated', key: 'course', value: 'cs101' },
+            { type: 'StudentSubscribed', key: 'course', value: 'cs101' },
+          ],
+        });
+
+        // Bob subscribes (unknown to Alice)
+        await store.append(
+          [{ type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'bob' } }],
+          null
+        );
+
+        // Alice tries to subscribe with her stale token
+        const aliceAppend = await store.append(
+          [{ type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } }],
+          aliceRead.token
+        );
+
+        // Should be a conflict
+        expect(isConflict(aliceAppend)).toBe(true);
+        if (isConflict(aliceAppend)) {
+          expect(aliceAppend.conflictingEvents).toHaveLength(1);
+          expect(aliceAppend.conflictingEvents[0].data).toEqual({
+            courseId: 'cs101',
+            studentId: 'bob',
+          });
+          expect(aliceAppend.newToken).toBeDefined();
+        }
+      });
+
+      it('allows retry with new token', async () => {
+        // Create course
+        await store.append(
+          [{ type: 'CourseCreated', data: { courseId: 'cs101', capacity: 10 } }],
+          null
+        );
+
+        // Alice reads
+        const aliceRead = await store.read({
+          conditions: [
+            { type: 'CourseCreated', key: 'course', value: 'cs101' },
+            { type: 'StudentSubscribed', key: 'course', value: 'cs101' },
+          ],
+        });
+
+        // Bob subscribes
+        await store.append(
+          [{ type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'bob' } }],
+          null
+        );
+
+        // Alice gets conflict
+        const firstAttempt = await store.append(
+          [{ type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } }],
+          aliceRead.token
+        );
+
+        expect(isConflict(firstAttempt)).toBe(true);
+
+        if (isConflict(firstAttempt)) {
+          // Alice retries with new token
+          const secondAttempt = await store.append(
+            [{ type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } }],
+            firstAttempt.newToken
+          );
+
+          // Should succeed now
+          expect(isConflict(secondAttempt)).toBe(false);
+        }
+      });
+
+      it('no conflict when different keys', async () => {
+        // Alice reads cs101
+        const aliceRead = await store.read({
+          conditions: [{ type: 'StudentSubscribed', key: 'course', value: 'cs101' }],
+        });
+
+        // Bob subscribes to cs102 (different course)
+        await store.append(
+          [{ type: 'StudentSubscribed', data: { courseId: 'cs102', studentId: 'bob' } }],
+          null
+        );
+
+        // Alice subscribes to cs101 - should NOT conflict
+        const aliceAppend = await store.append(
+          [{ type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } }],
+          aliceRead.token
+        );
+
+        expect(isConflict(aliceAppend)).toBe(false);
+      });
+    });
+
+    describe('multiple event types in query', () => {
+      it('queries across event types', async () => {
+        await store.append(
+          [
+            { type: 'CourseCreated', data: { courseId: 'cs101', name: 'CS' } },
+            { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } },
+            { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'bob' } },
+            { type: 'StudentUnsubscribed', data: { courseId: 'cs101', studentId: 'bob' } },
+          ],
+          null
+        );
+
+        const result = await store.read({
+          conditions: [
+            { type: 'CourseCreated', key: 'course', value: 'cs101' },
+            { type: 'StudentSubscribed', key: 'course', value: 'cs101' },
+            { type: 'StudentUnsubscribed', key: 'course', value: 'cs101' },
+          ],
+        });
+
+        expect(result.events).toHaveLength(4);
+        expect(result.events.map(e => e.type)).toEqual([
+          'CourseCreated',
+          'StudentSubscribed',
+          'StudentSubscribed',
+          'StudentUnsubscribed',
+        ]);
+      });
+    });
+  });
+});

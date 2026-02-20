@@ -1,0 +1,26 @@
+{
+  "name": "event-store-ui",
+  "version": "1.0.0",
+  "description": "Test-UI für den DCB Event Store",
+  "type": "module",
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "dev": "tsx watch src/server.ts"
+  },
+  "keywords": ["event-store", "dcb", "test-ui"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@sbortz/event-store": "file:../event-store",
+    "express": "^4.18.2"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.9",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.11.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  }
+}

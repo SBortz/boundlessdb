@@ -1,0 +1,21 @@
+{
+  "eventTypes": {
+    "CourseCreated": {
+      "keys": [
+        { "name": "course", "path": "data.courseId" }
+      ]
+    },
+    "StudentSubscribed": {
+      "keys": [
+        { "name": "course", "path": "data.courseId" },
+        { "name": "student", "path": "data.studentId" }
+      ]
+    },
+    "StudentUnsubscribed": {
+      "keys": [
+        { "name": "course", "path": "data.courseId" },
+        { "name": "student", "path": "data.studentId" }
+      ]
+    }
+  }
+}
