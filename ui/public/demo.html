@@ -554,6 +554,33 @@
   </style>
 </head>
 <body>
+  <!-- Debug Panel (visible on page) -->
+  <div id="debug-panel" style="position:fixed;bottom:0;left:0;right:0;height:150px;background:#000;color:#0f0;font-family:monospace;font-size:11px;overflow-y:auto;z-index:9999;padding:5px;border-top:2px solid #0f0;">
+    <strong>🐛 Debug Log:</strong><br>
+    <div id="debug-log"></div>
+  </div>
+  <script>
+    // Intercept console.log to show in debug panel
+    const debugLog = document.getElementById('debug-log');
+    const origLog = console.log.bind(console);
+    const origError = console.error.bind(console);
+    const origWarn = console.warn.bind(console);
+    
+    function addDebug(prefix, color, args) {
+      const line = document.createElement('div');
+      line.style.color = color;
+      line.textContent = prefix + ' ' + Array.from(args).map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+      debugLog.appendChild(line);
+      debugLog.scrollTop = debugLog.scrollHeight;
+      // Keep only last 50 lines
+      while (debugLog.children.length > 50) debugLog.removeChild(debugLog.firstChild);
+    }
+    
+    console.log = (...args) => { origLog(...args); addDebug('LOG', '#0f0', args); };
+    console.error = (...args) => { origError(...args); addDebug('ERR', '#f00', args); };
+    console.warn = (...args) => { origWarn(...args); addDebug('WRN', '#ff0', args); };
+  </script>
+
   <!-- Mobile Header -->
   <div class="mobile-header">
     <h1>🗃️ Boundless Demo</h1>
@@ -567,7 +594,7 @@
     <button class="mobile-tab" onclick="showMobileTab('sidebar')">📊 Log</button>
   </div>
   
-  <div class="layout">
+  <div class="layout" style="height:calc(100vh - 150px);">
     <!-- Left: Controls -->
     <div class="controls mobile-active" id="section-controls">
       <a href="/" class="back-link">← Back to Home</a>
@@ -712,7 +739,7 @@
       createEventStore, 
       SqlJsStorage, 
       isConflict 
-    } from './boundless.browser.js?v=11';
+    } from './boundless.browser.js?v=12';
 
     // Configuration for the demo
     const DEMO_SECRET = 'demo-secret-key-for-hmac-signing';
