@@ -2604,9 +2604,9 @@ var SqlJsStorage = class {
       return;
     }
     const db = await this.ensureInitialized();
+    const escapedHash = hash.replace(/'/g, "''");
     db.run(
-      "INSERT OR REPLACE INTO metadata (key, value) VALUES ('config_hash', ?)",
-      [hash]
+      `INSERT OR REPLACE INTO metadata (key, value) VALUES ('config_hash', '${escapedHash}')`
     );
   }
   /**
@@ -2618,12 +2618,12 @@ var SqlJsStorage = class {
     db.run("BEGIN TRANSACTION");
     try {
       db.run("DELETE FROM event_keys");
+      const escapeSql = (s) => "'" + s.replace(/'/g, "''") + "'";
       for (const event of events) {
         const keys = extractKeys(event);
         for (const key of keys) {
           db.run(
-            "INSERT INTO event_keys (position, key_name, key_value) VALUES (?, ?, ?)",
-            [Number(event.position), key.name, key.value]
+            `INSERT INTO event_keys (position, key_name, key_value) VALUES (${Number(event.position)}, ${escapeSql(key.name)}, ${escapeSql(key.value)})`
           );
         }
       }

@@ -345,9 +345,10 @@ export class SqlJsStorage implements EventStorage {
       return;
     }
     const db = await this.ensureInitialized();
+    // sql.js ignores params - use escaped SQL
+    const escapedHash = hash.replace(/'/g, "''");
     db.run(
-      "INSERT OR REPLACE INTO metadata (key, value) VALUES ('config_hash', ?)",
-      [hash]
+      `INSERT OR REPLACE INTO metadata (key, value) VALUES ('config_hash', '${escapedHash}')`
     );
   }
 
@@ -365,12 +366,12 @@ export class SqlJsStorage implements EventStorage {
       db.run('DELETE FROM event_keys');
 
       // Re-extract and insert keys for all events
+      const escapeSql = (s: string): string => "'" + s.replace(/'/g, "''") + "'";
       for (const event of events) {
         const keys = extractKeys(event);
         for (const key of keys) {
           db.run(
-            'INSERT INTO event_keys (position, key_name, key_value) VALUES (?, ?, ?)',
-            [Number(event.position), key.name, key.value]
+            `INSERT INTO event_keys (position, key_name, key_value) VALUES (${Number(event.position)}, ${escapeSql(key.name)}, ${escapeSql(key.value)})`
           );
         }
       }
