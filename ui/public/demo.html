@@ -460,6 +460,16 @@
         min-height: 80vh;
       }
       
+      .debug-section {
+        display: none !important;
+      }
+      
+      .debug-section.mobile-active {
+        display: block !important;
+        min-height: 80vh;
+        height: auto;
+      }
+      
       /* Touch-friendly buttons */
       button {
         min-height: 44px;
@@ -771,7 +781,7 @@
       createEventStore, 
       SqlJsStorage, 
       isConflict 
-    } from './boundless.browser.js?v=15';
+    } from './boundless.browser.js?v=16';
 
     // Configuration for the demo
     const DEMO_SECRET = 'demo-secret-key-for-hmac-signing';
