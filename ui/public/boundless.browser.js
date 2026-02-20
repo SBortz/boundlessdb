@@ -2795,6 +2795,14 @@ var EventStore = class {
     this.secret = options.secret;
     this.config = options.consistency;
     this.keyExtractor = new KeyExtractor(this.config);
+    console.log("\u{1F680} INIT: Creating EventStore...");
+    console.log("\u2699\uFE0F CONFIG: Consistency configuration loaded");
+    const eventTypes = Object.keys(this.config.eventTypes);
+    console.log(`   Event types: ${eventTypes.join(", ")}`);
+    eventTypes.forEach((type) => {
+      const keys = this.config.eventTypes[type].keys;
+      console.log(`   ${type}: ${keys.map((k) => k.name + " \u2190 " + k.path).join(", ")}`);
+    });
     this.initPromise = this.checkAndReindexIfNeeded();
   }
   /**
@@ -2814,16 +2822,21 @@ var EventStore = class {
     }
     try {
       await this.storage.getAllEvents();
+      console.log("\u{1F510} HASH: Computing config hash...");
       const currentHash = await hashConfig(this.config);
       if (!currentHash) {
         console.warn("[EventStore] Failed to compute config hash");
         return;
       }
+      console.log(`   Current config hash: ${currentHash.substring(0, 16)}...`);
       const storedHash = await this.storage.getConfigHash();
+      console.log(`   Stored config hash: ${storedHash ? storedHash.substring(0, 16) + "..." : "(none - first run)"}`);
       if (storedHash === null) {
+        console.log("\u{1F4DD} HASH: First run, storing config hash in database");
         await this.storage.setConfigHash(currentHash);
       } else if (storedHash !== currentHash) {
-        console.log("\u{1F504} [EventStore] Config changed! Rebuilding key index...");
+        console.log("\u26A0\uFE0F HASH MISMATCH: Config changed since last run!");
+        console.log("\u{1F504} REINDEX: Rebuilding key index from all events...");
         const startTime = Date.now();
         let eventCount = 0;
         let keyCount = 0;
@@ -2839,10 +2852,14 @@ var EventStore = class {
         });
         await this.storage.setConfigHash(currentHash);
         const duration = Date.now() - startTime;
-        console.log(`[EventStore] \u2705 Reindex complete: ${eventCount} events, ${keyCount} keys (${duration}ms)`);
+        console.log(`\u2705 REINDEX: Complete! ${eventCount} events, ${keyCount} keys extracted (${duration}ms)`);
+      } else {
+        console.log("\u2705 HASH: Config unchanged, index is up to date");
       }
+      console.log("\u{1F7E2} READY: EventStore initialized");
     } catch (error) {
-      console.warn("[EventStore] Config hash check failed (non-fatal):", error);
+      console.warn("\u26A0\uFE0F INIT: Config hash check failed (non-fatal):", error);
+      console.log("\u{1F7E2} READY: EventStore initialized (without hash check)");
     }
   }
   /**
