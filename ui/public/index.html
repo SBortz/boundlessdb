@@ -1,864 +1,323 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>DCB Event Store - Test UI</title>
+  <title>Boundless — DCB Event Store</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      background: #1a1a2e;
-      color: #eee;
-      line-height: 1.4;
-      height: 100vh;
-      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      color: #e0e0e0;
+      min-height: 100vh;
+      line-height: 1.6;
     }
     
-    /* 3-Column Layout */
-    .layout {
-      display: grid;
-      grid-template-columns: 420px 1fr 340px;
-      height: 100vh;
+    .hero {
+      text-align: center;
+      padding: 4rem 2rem;
+      max-width: 900px;
+      margin: 0 auto;
     }
     
-    /* Left: Controls */
-    .controls {
-      padding: 0.75rem;
-      overflow-y: auto;
-      border-right: 1px solid #0f3460;
+    .logo {
+      font-size: 4rem;
+      margin-bottom: 1rem;
     }
     
-    /* Center: Live Query */
-    .live-query {
-      display: flex;
-      flex-direction: column;
-      border-right: 1px solid #0f3460;
+    h1 {
+      font-size: 3.5rem;
+      font-weight: 700;
+      background: linear-gradient(90deg, #0ff, #0cf);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 0.5rem;
     }
     
-    .live-query-header {
-      padding: 0.75rem;
-      background: #16213e;
-      border-bottom: 1px solid #0f3460;
-    }
-    
-    .live-query-content {
-      flex: 1;
-      overflow-y: auto;
-      padding: 0.5rem;
-    }
-    
-    /* Right: Event Log */
-    .sidebar {
-      background: #0d1929;
-      display: flex;
-      flex-direction: column;
-      height: 100vh;
-    }
-    
-    .sidebar-section {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      min-height: 0;
-      border-bottom: 1px solid #0f3460;
-    }
-    .sidebar-section:last-child { border-bottom: none; }
-    
-    .sidebar-header {
-      padding: 0.4rem 0.6rem;
-      background: #16213e;
-      font-size: 0.85rem;
-      font-weight: 600;
-      color: #0cf;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-    .sidebar-header button {
-      padding: 0.15rem 0.4rem;
-      font-size: 0.7rem;
-      margin: 0;
-    }
-    
-    .sidebar-content {
-      flex: 1;
-      overflow-y: auto;
-      font-size: 0.75rem;
-    }
-    
-    h1 { color: #0ff; margin-bottom: 0.75rem; font-size: 1.1rem; }
-    h2 { color: #0cf; margin-bottom: 0.4rem; font-size: 0.9rem; border-bottom: 1px solid #333; padding-bottom: 0.25rem; }
-    h3 { color: #0cf; font-size: 0.85rem; margin-bottom: 0.3rem; }
-    
-    .panel {
-      background: #16213e;
-      border-radius: 6px;
-      padding: 0.6rem;
-      border: 1px solid #0f3460;
-      margin-bottom: 0.6rem;
-    }
-    
-    label { display: block; margin-top: 0.3rem; color: #aaa; font-size: 0.75rem; }
-    input, textarea, select {
-      width: 100%;
-      padding: 0.35rem;
-      background: #0f3460;
-      border: 1px solid #1e5f74;
-      border-radius: 4px;
-      color: #fff;
-      font-family: 'Fira Code', monospace;
-      font-size: 0.8rem;
-    }
-    textarea { min-height: 100px; resize: vertical; }
-    button {
-      margin-top: 0.35rem;
-      padding: 0.35rem 0.7rem;
-      background: #0f4c75;
-      border: none;
-      border-radius: 4px;
-      color: #fff;
-      cursor: pointer;
-      font-size: 0.8rem;
-    }
-    button:hover { background: #1e5f74; }
-    button.success { background: #2a6; }
-    button.success:hover { background: #3b7; }
-    button.danger { background: #a44; }
-    button.danger:hover { background: #b55; }
-    button.query { background: #06a; }
-    button.query:hover { background: #17b; }
-    button.active { background: #0a8; box-shadow: 0 0 8px #0a8; }
-    
-    .toggle {
-      display: flex;
-      align-items: center;
-      gap: 0.4rem;
-      margin-top: 0.3rem;
-    }
-    .toggle input { width: auto; }
-    
-    .result {
-      margin-top: 0.4rem;
-      padding: 0.4rem;
-      background: #0a1628;
-      border-radius: 4px;
-      font-family: 'Fira Code', monospace;
-      font-size: 0.7rem;
-      overflow-x: auto;
-      white-space: pre-wrap;
-      word-break: break-all;
-      max-height: 120px;
-      overflow-y: auto;
-    }
-    .result.success { border-left: 3px solid #0f0; }
-    .result.error { border-left: 3px solid #f00; }
-    .result.conflict { border-left: 3px solid #fa0; }
-    
-    .condition-row {
-      display: grid;
-      grid-template-columns: 1fr 1fr 1fr auto;
-      gap: 0.25rem;
-      margin-bottom: 0.25rem;
-    }
-    .condition-row input { margin: 0; font-size: 0.75rem; padding: 0.3rem; }
-    .condition-row button { margin: 0; padding: 0.3rem; font-size: 0.75rem; }
-    
-    .keys-row {
-      display: grid;
-      grid-template-columns: 1fr 1fr auto;
-      gap: 0.25rem;
-      margin-bottom: 0.25rem;
-    }
-    .keys-row input { font-size: 0.75rem; padding: 0.3rem; }
-    
-    .token-display {
-      background: #0a1628;
-      padding: 0.25rem 0.4rem;
-      border-radius: 4px;
-      font-family: monospace;
-      font-size: 0.65rem;
-      cursor: pointer;
-      word-break: break-all;
-      max-height: 50px;
-      overflow-y: auto;
-    }
-    .token-display:hover { background: #1a2638; }
-    
-    .status {
-      padding: 0.15rem 0.4rem;
-      border-radius: 4px;
-      font-size: 0.7rem;
-    }
-    .status.connected { background: #0a4; color: #fff; }
-    .status.disconnected { background: #a00; color: #fff; }
-    
-    /* Event List Styles */
-    .event-item {
-      padding: 0.4rem 0.6rem;
-      border-bottom: 1px solid #1a2a4a;
-      animation: fadeIn 0.3s ease;
-    }
-    .event-item:hover { background: rgba(255,255,255,0.03); }
-    @keyframes fadeIn {
-      from { background: rgba(0,255,255,0.1); }
-      to { background: transparent; }
-    }
-    
-    .event-pos {
-      font-weight: bold;
-      color: #0cf;
-      font-size: 0.7rem;
-    }
-    .event-type {
-      color: #ff9e64;
-      font-weight: 500;
-    }
-    .event-time {
-      color: #666;
-      font-size: 0.65rem;
-      float: right;
-    }
-    .event-data {
+    .tagline {
+      font-size: 1.4rem;
       color: #888;
-      font-size: 0.65rem;
-      font-family: monospace;
-      margin-top: 0.15rem;
-      word-break: break-all;
+      margin-bottom: 2rem;
     }
     
-    .key-item {
-      padding: 0.25rem 0.6rem;
-      border-bottom: 1px solid #1a2a4a;
+    .highlight {
+      color: #0cf;
+    }
+    
+    .badges {
+      display: flex;
+      justify-content: center;
+      gap: 1rem;
+      margin-bottom: 3rem;
+      flex-wrap: wrap;
+    }
+    
+    .badge {
+      background: rgba(15, 52, 96, 0.8);
+      border: 1px solid #1e5f74;
+      padding: 0.5rem 1rem;
+      border-radius: 2rem;
+      font-size: 0.9rem;
+      color: #0cf;
+    }
+    
+    .cta-buttons {
+      display: flex;
+      justify-content: center;
+      gap: 1rem;
+      margin-bottom: 4rem;
+      flex-wrap: wrap;
+    }
+    
+    .btn {
+      padding: 1rem 2rem;
+      border-radius: 8px;
+      font-size: 1.1rem;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+    
+    .btn-primary {
+      background: linear-gradient(90deg, #0f4c75, #1e5f74);
+      color: white;
+      border: none;
+    }
+    
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(0, 255, 255, 0.2);
+    }
+    
+    .btn-secondary {
+      background: transparent;
+      color: #0cf;
+      border: 2px solid #0cf;
+    }
+    
+    .btn-secondary:hover {
+      background: rgba(0, 204, 255, 0.1);
+    }
+    
+    .features {
       display: grid;
-      grid-template-columns: 35px 1fr;
-      gap: 0.4rem;
-      font-size: 0.7rem;
-    }
-    .key-pos { color: #0cf; }
-    .key-name { color: #9ece6a; }
-    .key-value { color: #bb9af7; }
-    
-    /* Quick Actions */
-    .quick-buttons {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.3rem;
-      margin-top: 0.3rem;
-    }
-    .quick-buttons button {
-      margin: 0;
-      font-size: 0.7rem;
-      padding: 0.25rem 0.5rem;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1.5rem;
+      padding: 2rem;
+      max-width: 1200px;
+      margin: 0 auto;
     }
     
-    /* Live Query */
-    .query-presets {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.3rem;
-      margin-bottom: 0.5rem;
-    }
-    .query-presets button {
-      margin: 0;
-      font-size: 0.75rem;
-      padding: 0.3rem 0.6rem;
-    }
-    
-    .live-event-card {
-      background: #16213e;
+    .feature {
+      background: rgba(22, 33, 62, 0.8);
       border: 1px solid #0f3460;
-      border-radius: 6px;
-      padding: 0.6rem;
-      margin-bottom: 0.5rem;
-      animation: slideIn 0.3s ease;
+      border-radius: 12px;
+      padding: 1.5rem;
     }
-    @keyframes slideIn {
-      from { opacity: 0; transform: translateY(-10px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-    .live-event-card .pos { color: #0cf; font-weight: bold; }
-    .live-event-card .type { color: #ff9e64; font-size: 0.9rem; }
-    .live-event-card .time { color: #666; font-size: 0.7rem; float: right; }
-    .live-event-card .data { 
-      color: #aaa; 
-      font-size: 0.75rem; 
-      font-family: monospace;
-      margin-top: 0.3rem;
-      background: #0a1628;
-      padding: 0.4rem;
-      border-radius: 4px;
-      white-space: pre-wrap;
-    }
-    .live-event-card .keys {
-      margin-top: 0.3rem;
-      font-size: 0.7rem;
-    }
-    .live-event-card .keys span {
-      display: inline-block;
-      background: #0f3460;
-      padding: 0.15rem 0.4rem;
-      border-radius: 3px;
-      margin-right: 0.3rem;
-      margin-top: 0.2rem;
-    }
-    .live-event-card .keys .kn { color: #9ece6a; }
-    .live-event-card .keys .kv { color: #bb9af7; }
     
-    .live-query-stats {
-      background: #0f3460;
-      padding: 0.4rem 0.6rem;
-      border-radius: 4px;
+    .feature-icon {
+      font-size: 2rem;
       margin-bottom: 0.5rem;
-      font-size: 0.8rem;
-      display: flex;
-      justify-content: space-between;
     }
-    .live-query-stats .count { color: #0cf; font-weight: bold; }
-    .live-query-stats .token { color: #666; font-size: 0.65rem; cursor: pointer; }
-    .live-query-stats .token:hover { color: #aaa; }
+    
+    .feature h3 {
+      color: #0cf;
+      margin-bottom: 0.5rem;
+      font-size: 1.2rem;
+    }
+    
+    .feature p {
+      color: #888;
+      font-size: 0.95rem;
+    }
+    
+    .code-section {
+      max-width: 800px;
+      margin: 3rem auto;
+      padding: 0 2rem;
+    }
+    
+    .code-section h2 {
+      color: #0cf;
+      text-align: center;
+      margin-bottom: 1.5rem;
+      font-size: 1.8rem;
+    }
+    
+    pre {
+      background: #0a1628;
+      border: 1px solid #0f3460;
+      border-radius: 12px;
+      padding: 1.5rem;
+      overflow-x: auto;
+      font-family: 'Fira Code', 'Monaco', monospace;
+      font-size: 0.9rem;
+      line-height: 1.5;
+    }
+    
+    .keyword { color: #c678dd; }
+    .string { color: #98c379; }
+    .comment { color: #5c6370; }
+    .function { color: #61afef; }
+    .const { color: #e5c07b; }
+    
+    .architecture {
+      max-width: 900px;
+      margin: 4rem auto;
+      padding: 0 2rem;
+      text-align: center;
+    }
+    
+    .architecture h2 {
+      color: #0cf;
+      margin-bottom: 2rem;
+      font-size: 1.8rem;
+    }
+    
+    .arch-diagram {
+      background: #0a1628;
+      border: 1px solid #0f3460;
+      border-radius: 12px;
+      padding: 2rem;
+      font-family: monospace;
+      font-size: 0.95rem;
+      text-align: left;
+      display: inline-block;
+    }
+    
+    .arch-diagram .table { color: #ff9e64; }
+    .arch-diagram .arrow { color: #0cf; }
+    .arch-diagram .desc { color: #666; }
+    
+    footer {
+      text-align: center;
+      padding: 3rem 2rem;
+      color: #666;
+      border-top: 1px solid #0f3460;
+      margin-top: 4rem;
+    }
+    
+    footer a {
+      color: #0cf;
+      text-decoration: none;
+    }
+    
+    footer a:hover {
+      text-decoration: underline;
+    }
   </style>
 </head>
 <body>
-  <div class="layout">
-    <!-- Left: Controls -->
-    <div class="controls">
-      <h1>🗃️ DCB Event Store</h1>
-      
-      <!-- Quick Actions -->
-      <div class="panel">
-        <h2>🚀 Quick Actions</h2>
-        
-        <div class="quick-buttons">
-          <button class="success" onclick="quickAction('CourseCreated', {courseId:'cs101',name:'Intro to CS',capacity:30}, [{name:'course',value:'cs101'}])">📚 CS101</button>
-          <button class="success" onclick="quickAction('CourseCreated', {courseId:'math201',name:'Linear Algebra',capacity:25}, [{name:'course',value:'math201'}])">📚 MATH201</button>
-        </div>
-        
-        <div class="quick-buttons">
-          <button onclick="quickAction('StudentSubscribed', {courseId:'cs101',studentId:'alice',name:'Alice'}, [{name:'course',value:'cs101'},{name:'student',value:'alice'}])">👩‍🎓 Alice→CS</button>
-          <button onclick="quickAction('StudentSubscribed', {courseId:'cs101',studentId:'bob',name:'Bob'}, [{name:'course',value:'cs101'},{name:'student',value:'bob'}])">👨‍🎓 Bob→CS</button>
-          <button onclick="quickAction('StudentSubscribed', {courseId:'cs101',studentId:'carol',name:'Carol'}, [{name:'course',value:'cs101'},{name:'student',value:'carol'}])">👩‍🎓 Carol→CS</button>
-          <button onclick="quickAction('StudentSubscribed', {courseId:'math201',studentId:'alice',name:'Alice'}, [{name:'course',value:'math201'},{name:'student',value:'alice'}])">👩‍🎓 Alice→M</button>
-        </div>
-        
-        <div class="quick-buttons">
-          <button class="danger" onclick="quickAction('StudentUnsubscribed', {courseId:'cs101',studentId:'bob'}, [{name:'course',value:'cs101'},{name:'student',value:'bob'}])">❌ Bob</button>
-          <button class="danger" onclick="quickAction('StudentUnsubscribed', {courseId:'cs101',studentId:'alice'}, [{name:'course',value:'cs101'},{name:'student',value:'alice'}])">❌ Alice</button>
-        </div>
-        
-        <div id="quick-result" class="result" style="display:none"></div>
-      </div>
-      
-      <!-- Manual Append -->
-      <div class="panel">
-        <h2>📝 Append with Consistency Check</h2>
-        
-        <label>Type</label>
-        <input type="text" id="append-type" placeholder="StudentSubscribed">
-        
-        <label>Data</label>
-        <textarea id="append-data" style="min-height:120px" placeholder='{"courseId": "cs101", "studentId": "dave"}'></textarea>
-        
-        <div style="margin-top:0.5rem;padding:0.4rem;background:#0a1628;border-radius:4px;font-size:0.75rem">
-          <div style="color:#0cf;margin-bottom:0.3rem">🔐 Consistency Token (editierbar)</div>
-          <div id="token-editor">
-            <textarea id="token-payload" style="min-height:180px;font-size:0.75rem" placeholder="Klicke 'From Live Query' um Token zu laden"></textarea>
-            <div class="quick-buttons" style="margin-top:0.3rem">
-              <button class="query" onclick="loadFromLiveQuery()">📋 From Live Query</button>
-              <button class="success" onclick="applyTokenPayload()">✓ Apply</button>
-              <button onclick="clearAppendToken()">🗑️ Clear</button>
-            </div>
-            <div id="token-status" style="margin-top:0.3rem;color:#888"></div>
-          </div>
-        </div>
-        
-        <button onclick="appendEvent()" style="width:100%;margin-top:0.5rem">Append</button>
-        <div id="append-result" class="result" style="display:none"></div>
-      </div>
-      
-      <!-- Conflict Demo -->
-      <div class="panel">
-        <h2>⚡ Conflict Demo</h2>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.25rem">
-          <input type="text" id="demo-type" value="CourseCreated" placeholder="Type">
-          <input type="text" id="demo-key" value="course" placeholder="Key">
-          <input type="text" id="demo-value" value="demo" placeholder="Value">
-        </div>
-        <div class="quick-buttons" style="margin-top:0.4rem">
-          <button onclick="runConflictDemo()">🚀 Start</button>
-          <button class="danger" onclick="manualAppendForConflict()">⚠️ Inject</button>
-        </div>
-        <div id="conflict-demo-status" class="result" style="display:none"></div>
-      </div>
+  <div class="hero">
+    <div class="logo">🗃️</div>
+    <h1>Boundless</h1>
+    <p class="tagline">A <span class="highlight">DCB-native</span> Event Store for Node.js</p>
+    
+    <div class="badges">
+      <span class="badge">TypeScript</span>
+      <span class="badge">SQLite</span>
+      <span class="badge">Zero Dependencies*</span>
+      <span class="badge">106 Tests</span>
     </div>
     
-    <!-- Center: Live Query -->
-    <div class="live-query">
-      <div class="live-query-header">
-        <h3>🔍 Live Query</h3>
-        
-        <div class="query-presets">
-          <button class="query active" onclick="setLiveQuery([{type:'CourseCreated',key:'course',value:'cs101'},{type:'StudentSubscribed',key:'course',value:'cs101'},{type:'StudentUnsubscribed',key:'course',value:'cs101'}], this)">CS101</button>
-          <button class="query" onclick="setLiveQuery([{type:'CourseCreated',key:'course',value:'math201'},{type:'StudentSubscribed',key:'course',value:'math201'},{type:'StudentUnsubscribed',key:'course',value:'math201'}], this)">MATH201</button>
-          <button class="query" onclick="setLiveQuery([{type:'StudentSubscribed',key:'student',value:'alice'},{type:'StudentUnsubscribed',key:'student',value:'alice'}], this)">Alice</button>
-          <button class="query" onclick="setLiveQuery([{type:'StudentSubscribed',key:'student',value:'bob'},{type:'StudentUnsubscribed',key:'student',value:'bob'}], this)">Bob</button>
-        </div>
-        
-        <div id="live-conditions">
-          <div class="condition-row">
-            <input type="text" placeholder="Type" class="cond-type" value="CourseCreated">
-            <input type="text" placeholder="Key" class="cond-key" value="course">
-            <input type="text" placeholder="Value" class="cond-value" value="cs101">
-            <button onclick="addLiveConditionRow()">+</button>
-          </div>
-          <div class="condition-row">
-            <input type="text" placeholder="Type" class="cond-type" value="StudentSubscribed">
-            <input type="text" placeholder="Key" class="cond-key" value="course">
-            <input type="text" placeholder="Value" class="cond-value" value="cs101">
-            <button onclick="this.parentElement.remove(); refreshLiveQuery()">-</button>
-          </div>
-          <div class="condition-row">
-            <input type="text" placeholder="Type" class="cond-type" value="StudentUnsubscribed">
-            <input type="text" placeholder="Key" class="cond-key" value="course">
-            <input type="text" placeholder="Value" class="cond-value" value="cs101">
-            <button onclick="this.parentElement.remove(); refreshLiveQuery()">-</button>
-          </div>
-        </div>
-        <button onclick="refreshLiveQuery()" style="width:100%">🔄 Refresh Query</button>
-      </div>
-      
-      <div class="live-query-content" id="live-query-results">
-        <div class="live-query-stats">
-          <span><span class="count" id="live-count">0</span> events</span>
-          <span class="token" id="live-token" onclick="copyLiveToken()">Token: —</span>
-        </div>
-        <div id="live-events"></div>
-      </div>
-    </div>
-    
-    <!-- Right: Event Log -->
-    <div class="sidebar">
-      <div class="sidebar-section" style="flex:2">
-        <div class="sidebar-header">
-          📊 All Events
-          <div>
-            <span id="status" class="status disconnected">●</span>
-            <button onclick="clearStore()">Clear</button>
-          </div>
-        </div>
-        <div class="sidebar-content" id="events-list"></div>
-      </div>
-      
-      <div class="sidebar-section" style="flex:1">
-        <div class="sidebar-header">🔑 All Keys</div>
-        <div class="sidebar-content" id="keys-list"></div>
-      </div>
+    <div class="cta-buttons">
+      <a href="https://github.com/SBortz/boundless" class="btn btn-primary">View on GitHub</a>
+      <a href="https://github.com/SBortz/boundless#quick-start" class="btn btn-secondary">Documentation</a>
     </div>
   </div>
   
-  <script>
-    // Live Query State
-    let currentLiveToken = null;
-    let currentLiveConditions = [
-      {type:'CourseCreated',key:'course',value:'cs101'},
-      {type:'StudentSubscribed',key:'course',value:'cs101'},
-      {type:'StudentUnsubscribed',key:'course',value:'cs101'}
-    ];
-    
-    // SSE Connection
-    let eventSource;
-    function connectSSE() {
-      eventSource = new EventSource('/api/stream');
-      eventSource.onopen = () => {
-        document.getElementById('status').className = 'status connected';
-        document.getElementById('status').textContent = '●';
-      };
-      eventSource.onmessage = () => {
-        refreshAll();
-        refreshLiveQuery();
-      };
-      eventSource.onerror = () => {
-        document.getElementById('status').className = 'status disconnected';
-        document.getElementById('status').textContent = '●';
-        setTimeout(connectSSE, 3000);
-      };
-    }
-    
-    async function refreshAll() {
-      await Promise.all([refreshEvents(), refreshKeys()]);
-    }
-    
-    async function refreshEvents() {
-      try {
-        const res = await fetch('/api/events');
-        const data = await res.json();
-        const list = document.getElementById('events-list');
-        const events = data.events.reverse(); // newest first
-        list.innerHTML = events.map(e => `
-          <div class="event-item">
-            <span class="event-pos">#${e.position}</span>
-            <span class="event-type">${e.type}</span>
-            <span class="event-time">${new Date(e.timestamp).toLocaleTimeString()}</span>
-            <div class="event-data">${JSON.stringify(e.data)}</div>
-          </div>
-        `).join('');
-      } catch (err) {
-        console.error('Failed to refresh events:', err);
+  <div class="features">
+    <div class="feature">
+      <div class="feature-icon">🚫</div>
+      <h3>No Streams</h3>
+      <p>Events organized via configurable consistency keys, not rigid stream boundaries.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">⚙️</div>
+      <h3>Config-based Keys</h3>
+      <p>Extract consistency keys from event payloads. Events stay pure business data.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">🔐</div>
+      <h3>HMAC Tokens</h3>
+      <p>Tamper-proof consistency tokens with HMAC-SHA256 signatures.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">⚡</div>
+      <h3>Conflict Detection</h3>
+      <p>Get exactly what changed since your read — with the new token for retry.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">🔄</div>
+      <h3>Auto-Reindex</h3>
+      <p>Change your consistency config, restart, keys are automatically rebuilt.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">💾</div>
+      <h3>SQLite & Memory</h3>
+      <p>Production-ready SQLite storage or in-memory for testing.</p>
+    </div>
+  </div>
+  
+  <div class="code-section">
+    <h2>Quick Example</h2>
+    <pre><code><span class="keyword">const</span> store = <span class="function">createEventStore</span>({
+  storage: <span class="keyword">new</span> <span class="function">SqliteStorage</span>(<span class="string">'./events.db'</span>),
+  secret: <span class="string">'your-hmac-secret'</span>,
+  consistency: {
+    eventTypes: {
+      <span class="const">StudentSubscribed</span>: {
+        keys: [
+          { name: <span class="string">'course'</span>, path: <span class="string">'courseId'</span> },
+          { name: <span class="string">'student'</span>, path: <span class="string">'studentId'</span> }
+        ]
       }
     }
-    
-    async function refreshKeys() {
-      try {
-        const res = await fetch('/api/keys');
-        const data = await res.json();
-        const list = document.getElementById('keys-list');
-        const keys = data.keys.reverse(); // newest first
-        list.innerHTML = keys.map(k => `
-          <div class="key-item">
-            <span class="key-pos">#${k.position}</span>
-            <span><span class="key-name">${k.key_name}</span>: <span class="key-value">${k.key_value}</span></span>
-          </div>
-        `).join('');
-      } catch (err) {
-        console.error('Failed to refresh keys:', err);
-      }
-    }
-    
-    // Live Query
-    function setLiveQuery(conditions, btn) {
-      // Update conditions in UI
-      const container = document.getElementById('live-conditions');
-      container.innerHTML = conditions.map((c, i) => `
-        <div class="condition-row">
-          <input type="text" placeholder="Type" class="cond-type" value="${c.type}">
-          <input type="text" placeholder="Key" class="cond-key" value="${c.key}">
-          <input type="text" placeholder="Value" class="cond-value" value="${c.value}">
-          <button onclick="${i === 0 ? 'addLiveConditionRow()' : 'this.parentElement.remove(); refreshLiveQuery()'}">${i === 0 ? '+' : '-'}</button>
-        </div>
-      `).join('');
-      
-      // Update active button
-      document.querySelectorAll('.query-presets button').forEach(b => b.classList.remove('active'));
-      if (btn) btn.classList.add('active');
-      
-      currentLiveConditions = conditions;
-      refreshLiveQuery();
-    }
-    
-    function addLiveConditionRow() {
-      const container = document.getElementById('live-conditions');
-      const row = document.createElement('div');
-      row.className = 'condition-row';
-      row.innerHTML = `
-        <input type="text" placeholder="Type" class="cond-type">
-        <input type="text" placeholder="Key" class="cond-key">
-        <input type="text" placeholder="Value" class="cond-value">
-        <button onclick="this.parentElement.remove(); refreshLiveQuery()">-</button>
-      `;
-      container.appendChild(row);
-    }
-    
-    async function refreshLiveQuery() {
-      // Get conditions from UI
-      const rows = document.querySelectorAll('#live-conditions .condition-row');
-      const conditions = [];
-      for (const row of rows) {
-        const type = row.querySelector('.cond-type').value.trim();
-        const key = row.querySelector('.cond-key').value.trim();
-        const value = row.querySelector('.cond-value').value.trim();
-        if (type && key && value) conditions.push({ type, key, value });
-      }
-      
-      if (!conditions.length) {
-        document.getElementById('live-count').textContent = '0';
-        document.getElementById('live-token').textContent = 'Token: —';
-        document.getElementById('live-events').innerHTML = '<div style="color:#666;text-align:center;padding:2rem">No query conditions</div>';
-        return;
-      }
-      
-      currentLiveConditions = conditions;
-      
-      try {
-        const res = await fetch('/api/read', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ conditions })
-        });
-        const result = await res.json();
-        
-        if (result.error) {
-          document.getElementById('live-events').innerHTML = `<div style="color:#f66;padding:1rem">${result.error}</div>`;
-          return;
-        }
-        
-        currentLiveToken = result.token;
-        document.getElementById('live-count').textContent = result.events.length;
-        document.getElementById('live-token').textContent = `Token: ${result.token.substring(0, 20)}...`;
-        
-        // Get keys for each event
-        const keysRes = await fetch('/api/keys');
-        const keysData = await keysRes.json();
-        const keysByPos = {};
-        for (const k of keysData.keys) {
-          if (!keysByPos[k.position]) keysByPos[k.position] = [];
-          keysByPos[k.position].push(k);
-        }
-        
-        // Render events (newest first)
-        const events = result.events.reverse();
-        document.getElementById('live-events').innerHTML = events.map(e => {
-          const eventKeys = keysByPos[e.position] || [];
-          return `
-            <div class="live-event-card">
-              <span class="pos">#${e.position}</span>
-              <span class="type">${e.type}</span>
-              <span class="time">${new Date(e.timestamp).toLocaleTimeString()}</span>
-              <div class="data">${JSON.stringify(e.data, null, 2)}</div>
-              <div class="keys">
-                ${eventKeys.map(k => `<span><span class="kn">${k.key_name}</span>: <span class="kv">${k.key_value}</span></span>`).join('')}
-              </div>
-            </div>
-          `;
-        }).join('') || '<div style="color:#666;text-align:center;padding:2rem">No events match query</div>';
-        
-      } catch (err) {
-        document.getElementById('live-events').innerHTML = `<div style="color:#f66;padding:1rem">${err.message}</div>`;
-      }
-    }
-    
-    function copyLiveToken() {
-      if (currentLiveToken) {
-        navigator.clipboard.writeText(currentLiveToken);
-        document.getElementById('live-token').textContent = '✅ Copied!';
-        setTimeout(() => {
-          document.getElementById('live-token').textContent = `Token: ${currentLiveToken.substring(0, 20)}...`;
-        }, 1000);
-      }
-    }
-    
-    async function clearStore() {
-      if (!confirm('Alle Events löschen?')) return;
-      await fetch('/api/clear', { method: 'POST' });
-      refreshAll();
-      refreshLiveQuery();
-    }
-    
-    // Append Token State
-    let appendToken = null;
-    
-    // Token state  
-    function loadFromLiveQuery() {
-      if (!currentLiveToken) {
-        setTokenStatus('❌ Keine Live Query aktiv', 'error');
-        return;
-      }
-      
-      // Decode token payload
-      try {
-        const [payloadB64] = currentLiveToken.split('.');
-        const payload = JSON.parse(atob(payloadB64.replace(/-/g,'+').replace(/_/g,'/')));
-        document.getElementById('token-payload').value = JSON.stringify(payload, null, 2);
-        setTokenStatus('📋 Payload aus Live Query geladen. Editieren und "Apply" klicken.', 'info');
-        appendToken = null; // Clear until applied
-      } catch (e) {
-        setTokenStatus('❌ Token decode error: ' + e.message, 'error');
-      }
-    }
-    
-    async function applyTokenPayload() {
-      const payloadText = document.getElementById('token-payload').value.trim();
-      if (!payloadText) {
-        setTokenStatus('❌ Kein Payload', 'error');
-        return;
-      }
-      
-      let payload;
-      try {
-        payload = JSON.parse(payloadText);
-      } catch (e) {
-        setTokenStatus('❌ Invalid JSON: ' + e.message, 'error');
-        return;
-      }
-      
-      // Validate required fields
-      if (payload.pos === undefined || !payload.q) {
-        setTokenStatus('❌ Payload braucht "pos" und "q" Felder', 'error');
-        return;
-      }
-      
-      // Request signed token from server
-      try {
-        const res = await fetch('/api/create-token', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            position: parseInt(payload.pos, 10),
-            conditions: payload.q
-          })
-        });
-        const result = await res.json();
-        if (result.error) {
-          setTokenStatus('❌ ' + result.error, 'error');
-        } else if (result.token) {
-          appendToken = result.token;
-          setTokenStatus('✅ Token signiert und bereit (pos=' + payload.pos + ')', 'success');
-        }
-      } catch (err) {
-        setTokenStatus('❌ Server error: ' + err.message, 'error');
-      }
-    }
-    
-    function clearAppendToken() {
-      appendToken = null;
-      document.getElementById('token-payload').value = '';
-      setTokenStatus('Token gelöscht', 'info');
-    }
-    
-    function setTokenStatus(msg, type) {
-      const el = document.getElementById('token-status');
-      el.textContent = msg;
-      el.style.color = type === 'error' ? '#f66' : type === 'success' ? '#6f6' : '#888';
-    }
-    
-    function updateAppendTokenInfo() {
-      if (appendToken) {
-        try {
-          const [payloadB64] = appendToken.split('.');
-          const payload = JSON.parse(atob(payloadB64.replace(/-/g,'+').replace(/_/g,'/')));
-          document.getElementById('token-payload').value = JSON.stringify(payload, null, 2);
-          setTokenStatus(`✅ Token aktualisiert (pos=${payload.pos})`, 'success');
-        } catch (e) {
-          setTokenStatus('Token vorhanden', 'info');
-        }
-      } else {
-        document.getElementById('token-payload').value = '';
-        setTokenStatus('Token gelöscht (nächster Append ohne Check)', 'info');
-      }
-    }
-    
-    async function appendEvent() {
-      const type = document.getElementById('append-type').value.trim();
-      const dataStr = document.getElementById('append-data').value.trim();
-      
-      if (!type) {
-        showResult('append-result', 'Type required', 'error');
-        return;
-      }
-      
-      let data;
-      try { data = JSON.parse(dataStr || '{}'); }
-      catch { return showResult('append-result', 'Invalid JSON', 'error'); }
-      
-      try {
-        const res = await fetch('/api/append', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type, data, token: appendToken })
-        });
-        const result = await res.json();
-        
-        if (result.error) {
-          showResult('append-result', `Error: ${result.error}`, 'error');
-        } else if (result.conflict) {
-          const conflictInfo = result.conflictingEvents.map(e => `#${e.position} ${e.type}`).join(', ');
-          showResult('append-result', `⚠️ CONFLICT!\nNeue Events seit Token:\n${conflictInfo}`, 'conflict');
-          // Update token to new one for retry
-          appendToken = result.newToken;
-          updateAppendTokenInfo();
-        } else {
-          showResult('append-result', `✅ Appended at #${result.position}`, 'success');
-          // Clear token after successful append
-          appendToken = null;
-          updateAppendTokenInfo();
-        }
-      } catch (err) {
-        showResult('append-result', `Error: ${err.message}`, 'error');
-      }
-    }
-    
-    function showResult(id, text, type) {
-      const el = document.getElementById(id);
-      el.style.display = 'block';
-      el.textContent = text;
-      el.className = `result ${type}`;
-    }
-    
-    // Quick Actions - populate manual append form instead of executing
-    function quickAction(type, data, keys) {
-      // Fill the manual append form
-      document.getElementById('append-type').value = type;
-      document.getElementById('append-data').value = JSON.stringify(data, null, 2);
-      
-      // Scroll to the append panel
-      document.querySelector('.panel:nth-child(2)').scrollIntoView({ behavior: 'smooth' });
-      
-      // Show hint
-      showResult('quick-result', `📝 "${type}" in Append-Formular geladen`, 'success');
-    }
-    
-    // Conflict Demo
-    let demoToken = null;
-    
-    async function runConflictDemo() {
-      const status = document.getElementById('conflict-demo-status');
-      status.style.display = 'block';
-      
-      const type = document.getElementById('demo-type').value.trim();
-      const key = document.getElementById('demo-key').value.trim();
-      const value = document.getElementById('demo-value').value.trim();
-      
-      status.textContent = '🔍 Reading...';
-      status.className = 'result';
-      
-      const readRes = await fetch('/api/read', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ conditions: [{ type, key, value }] })
-      });
-      const readResult = await readRes.json();
-      demoToken = readResult.token;
-      
-      status.textContent = `✅ ${readResult.events.length} events\n⏳ 3s... Click Inject!`;
-      
-      await new Promise(r => setTimeout(r, 3000));
-      
-      const appendRes = await fetch('/api/append', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type, data: { id: value }, keys: [{ name: key, value }], token: demoToken })
-      });
-      const appendResult = await appendRes.json();
-      
-      if (appendResult.conflict) {
-        status.textContent = `⚠️ CONFLICT! ${appendResult.conflictingEvents.length} new`;
-        status.className = 'result conflict';
-      } else {
-        status.textContent = `✅ No conflict #${appendResult.position}`;
-        status.className = 'result success';
-      }
-    }
-    
-    async function manualAppendForConflict() {
-      const type = document.getElementById('demo-type').value.trim();
-      const key = document.getElementById('demo-key').value.trim();
-      const value = document.getElementById('demo-value').value.trim();
-      
-      await fetch('/api/append', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type,
-          data: { id: value, injected: true },
-          keys: [{ name: key, value }]
-        })
-      });
-    }
-    
-    // Init
-    connectSSE();
-    refreshAll();
-    refreshLiveQuery();
-    setInterval(refreshAll, 5000);
-  </script>
+  }
+});
+
+<span class="comment">// Read with DCB query</span>
+<span class="keyword">const</span> { events, token } = <span class="keyword">await</span> store.<span class="function">read</span>({
+  conditions: [
+    { type: <span class="string">'StudentSubscribed'</span>, key: <span class="string">'course'</span>, value: <span class="string">'cs101'</span> }
+  ]
+});
+
+<span class="comment">// Append with consistency check</span>
+<span class="keyword">const</span> result = <span class="keyword">await</span> store.<span class="function">append</span>([
+  { type: <span class="string">'StudentSubscribed'</span>, data: { courseId: <span class="string">'cs101'</span>, studentId: <span class="string">'alice'</span> } }
+], token);
+
+<span class="keyword">if</span> (<span class="function">isConflict</span>(result)) {
+  <span class="comment">// result.conflictingEvents shows what changed</span>
+  <span class="comment">// result.newToken for retry</span>
+}</code></pre>
+  </div>
+  
+  <div class="architecture">
+    <h2>Architecture</h2>
+    <div class="arch-diagram">
+<span class="table">events</span> <span class="desc">(append-only log)</span>
+   │
+   ├── position, event_type, data, timestamp
+   │
+<span class="table">event_keys</span> <span class="desc">(consistency index)</span>
+   │
+   ├── position, key_name, key_value
+   │
+<span class="table">metadata</span>
+   │
+   └── config_hash <span class="arrow">→</span> <span class="desc">auto-reindex on config change</span>
+    </div>
+  </div>
+  
+  <footer>
+    <p>Built with ❤️ for <a href="https://eventmodeling.org">Event Modeling</a></p>
+    <p style="margin-top: 0.5rem; font-size: 0.85rem;">
+      * Runtime dependency: better-sqlite3
+    </p>
+  </footer>
 </body>
 </html>
