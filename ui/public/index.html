@@ -263,38 +263,58 @@
   </div>
   
   <div class="code-section">
-    <h2>Quick Example</h2>
-    <pre><code><span class="keyword">const</span> store = <span class="function">createEventStore</span>({
-  storage: <span class="keyword">new</span> <span class="function">SqliteStorage</span>(<span class="string">'./events.db'</span>),
-  secret: <span class="string">'your-hmac-secret'</span>,
-  consistency: {
-    eventTypes: {
-      <span class="const">StudentSubscribed</span>: {
-        keys: [
-          { name: <span class="string">'course'</span>, path: <span class="string">'courseId'</span> },
-          { name: <span class="string">'student'</span>, path: <span class="string">'studentId'</span> }
-        ]
-      }
-    }
-  }
-});
-
-<span class="comment">// Read with DCB query</span>
+    <h2>The DCB Pattern: Read → Decide → Write</h2>
+    <pre><code><span class="comment">// 1️⃣ READ — Query events by consistency keys</span>
 <span class="keyword">const</span> { events, token } = <span class="keyword">await</span> store.<span class="function">read</span>({
   conditions: [
-    { type: <span class="string">'StudentSubscribed'</span>, key: <span class="string">'course'</span>, value: <span class="string">'cs101'</span> }
+    { type: <span class="string">'CourseCreated'</span>, key: <span class="string">'course'</span>, value: <span class="string">'cs101'</span> },
+    { type: <span class="string">'StudentSubscribed'</span>, key: <span class="string">'course'</span>, value: <span class="string">'cs101'</span> },
   ]
 });
+<span class="comment">// token captures: "I read all events matching these conditions up to position X"</span>
 
-<span class="comment">// Append with consistency check</span>
+<span class="comment">// 2️⃣ DECIDE — Project state and check business rules</span>
+<span class="keyword">const</span> course = events.<span class="function">find</span>(e => e.type === <span class="string">'CourseCreated'</span>);
+<span class="keyword">const</span> enrolled = events.<span class="function">filter</span>(e => e.type === <span class="string">'StudentSubscribed'</span>).length;
+
+<span class="keyword">if</span> (enrolled >= course.data.capacity) {
+  <span class="keyword">throw new</span> <span class="function">Error</span>(<span class="string">'Course is full!'</span>);
+}
+
+<span class="comment">// 3️⃣ WRITE — Append with the token from your read</span>
 <span class="keyword">const</span> result = <span class="keyword">await</span> store.<span class="function">append</span>([
   { type: <span class="string">'StudentSubscribed'</span>, data: { courseId: <span class="string">'cs101'</span>, studentId: <span class="string">'alice'</span> } }
-], token);
-
-<span class="keyword">if</span> (<span class="function">isConflict</span>(result)) {
-  <span class="comment">// result.conflictingEvents shows what changed</span>
-  <span class="comment">// result.newToken for retry</span>
+], token);  <span class="comment">// ← Token ensures no one else wrote since your read!</span></code></pre>
+  </div>
+  
+  <div class="code-section">
+    <h2>Conflict? No Problem!</h2>
+    <pre><code><span class="keyword">if</span> (<span class="function">isConflict</span>(result)) {
+  <span class="comment">// Someone else enrolled while you were deciding!</span>
+  console.<span class="function">log</span>(<span class="string">'Conflict! Events since your read:'</span>, result.conflictingEvents);
+  
+  <span class="comment">// You get a fresh token to retry with</span>
+  <span class="keyword">const</span> freshToken = result.newToken;
+  
+  <span class="comment">// Re-read, re-decide, re-write...</span>
+} <span class="keyword">else</span> {
+  console.<span class="function">log</span>(<span class="string">'Success! Enrolled at position'</span>, result.position);
 }</code></pre>
+  </div>
+  
+  <div class="code-section">
+    <h2>Query Across Multiple Dimensions</h2>
+    <pre><code><span class="comment">// Traditional streams: ONE boundary (e.g., per course)</span>
+<span class="comment">// DCB: Query ANY combination of keys!</span>
+
+<span class="comment">// "Has Alice already enrolled in CS101?"</span>
+<span class="keyword">const</span> { events, token } = <span class="keyword">await</span> store.<span class="function">read</span>({
+  conditions: [
+    { type: <span class="string">'StudentSubscribed'</span>, key: <span class="string">'course'</span>, value: <span class="string">'cs101'</span> },
+    { type: <span class="string">'StudentSubscribed'</span>, key: <span class="string">'student'</span>, value: <span class="string">'alice'</span> },
+  ]
+});
+<span class="comment">// Checks BOTH course boundary AND student boundary in one query!</span></code></pre>
   </div>
   
   <div class="architecture">
