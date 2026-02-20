@@ -167,6 +167,57 @@ const storage = new SqliteStorage('./events.db');
 
 Production-ready with WAL mode enabled.
 
+### SqlJsStorage (Browser)
+
+```typescript
+import { SqlJsStorage } from '@sbortz/event-store';
+
+const storage = new SqlJsStorage({
+  wasmUrl: 'https://sql.js.org/dist/sql-wasm.wasm', // optional, defaults to CDN
+});
+```
+
+Works in browsers using [sql.js](https://github.com/sql-js/sql.js/) (WebAssembly SQLite).
+
+## Browser Usage
+
+Boundless works entirely in the browser with no server required!
+
+### Quick Start (Browser)
+
+```html
+<script type="module">
+  import { createEventStore, SqlJsStorage, isConflict } from './boundless.browser.js';
+
+  const storage = new SqlJsStorage();
+  const store = createEventStore({
+    storage,
+    secret: 'your-secret',
+    consistency: {
+      eventTypes: {
+        MyEvent: { keys: [{ name: 'id', path: 'entityId' }] }
+      }
+    }
+  });
+
+  // Read, append, detect conflicts — all client-side!
+  const { events, token } = await store.read({
+    conditions: [{ type: 'MyEvent', key: 'id', value: '123' }]
+  });
+</script>
+```
+
+### Build the Browser Bundle
+
+```bash
+npm run build:browser
+# Output: ui/public/boundless.browser.js
+```
+
+### Try the Demo
+
+Visit the [live demo](/demo.html) to interact with Boundless entirely in your browser.
+
 ## Development
 
 ```bash
