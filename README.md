@@ -247,10 +247,6 @@ npm run build
 npm run build:browser
 ```
 
-## License
-
-MIT
-
 ---
 
 Built with ❤️ for [Event Sourcing](https://www.eventstore.com/event-sourcing)
