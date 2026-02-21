@@ -1419,45 +1419,19 @@
     }
 
     // Quick Actions - directly append
-    window.quickAction = async function(type, data) {
-      if (!store) {
-        showFeedback('quick-result', 'Store not initialized', 'conflict');
-        return;
-      }
-
-      // Debug: Show what we're sending
-      const eventToAppend = [{ type, data }];
-      showFeedback('quick-result', `DEBUG: Sending ${JSON.stringify(eventToAppend).substring(0, 100)}...`, 'info');
+    window.quickAction = function(type, data) {
+      // Populate the Manual Append form
+      document.getElementById('append-type').value = type;
+      document.getElementById('append-data').value = JSON.stringify(data, null, 2);
       
-      try {
-        const result = await store.append(eventToAppend, null);
-        
-        if (isConflict(result)) {
-          const conflictData = {
-            conflict: result.conflict,
-            conflictingEvents: result.conflictingEvents.map(e => ({
-              position: Number(e.position),
-              type: e.type,
-              data: e.data
-            }))
-          };
-          console.warn('⚠️ CONFLICT DETECTED:', conflictData);
-          showFeedback('quick-result', `⚠️ CONFLICT!\n\n${JSON.stringify(conflictData, null, 2)}`, 'conflict');
-        } else {
-          const description = type === 'CourseCreated' 
-            ? `Kurs ${data.courseId} erstellt`
-            : type === 'StudentSubscribed'
-            ? `${data.name} zu ${data.courseId} hinzugefügt`
-            : `${data.studentId} von ${data.courseId} entfernt`;
-          showFeedback('quick-result', `✅ Event #${result.position}: ${description}`, 'success');
-        }
-
-        await refreshAll();
-        await refreshLiveQuery();
-      } catch (err) {
-        // Show full error with stack
-        showFeedback('quick-result', `Error: ${err.message}\n\nStack: ${err.stack?.substring(0, 200) || 'no stack'}`, 'conflict');
+      // Open Advanced section if closed
+      const content = document.getElementById('advanced-content');
+      if (!content.classList.contains('open')) {
+        content.classList.add('open');
+        document.getElementById('advanced-toggle').textContent = 'Hide ▲';
       }
+      
+      showFeedback('quick-result', `📝 "${type}" in Append-Form geladen. Klicke "Append" zum Ausführen.`, 'info');
     };
 
     // Initialize on load
