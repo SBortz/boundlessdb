@@ -164,6 +164,21 @@
     .result.error { border-left: 3px solid #f00; }
     .result.conflict { border-left: 3px solid #fa0; }
     
+    .json-result {
+      margin-top: 0.5rem;
+      padding: 0.6rem;
+      background: #0a1628;
+      border: 1px solid #0f3460;
+      border-radius: 4px;
+      font-family: 'Fira Code', 'Consolas', monospace;
+      font-size: 0.75rem;
+      color: #9ece6a;
+      overflow-x: auto;
+      white-space: pre;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+    
     /* Feedback Messages */
     .feedback {
       padding: 0.5rem;
@@ -728,6 +743,7 @@
           
           <button onclick="appendEvent()" style="width:100%;margin-top:0.5rem">Append</button>
           <div id="append-result" class="feedback" style="display:none"></div>
+          <pre id="append-json" class="json-result" style="display:none"></pre>
         </div>
       </div>
     </div>
@@ -1360,10 +1376,10 @@
           showFeedback('append-result', 
             `⚠️ CONFLICT!\n` +
             `Event #${conflictEvent.position} (${conflictEvent.type}) kam dazwischen während du gelesen hast.\n` +
-            `Token wurde aktualisiert - retry möglich.\n\n` +
-            `Result:\n${JSON.stringify(conflictData, null, 2)}`, 
+            `Token wurde aktualisiert - retry möglich.`, 
             'conflict'
           );
+          showJsonResult('append-json', conflictData);
           // Update token to new one for retry
           appendToken = result.newToken;
           try {
@@ -1392,6 +1408,16 @@
       el.style.display = 'block';
       el.textContent = text;
       el.className = 'feedback ' + type;
+      // Hide any associated JSON result
+      const jsonEl = document.getElementById(id.replace('-result', '-json'));
+      if (jsonEl) jsonEl.style.display = 'none';
+    }
+    
+    function showJsonResult(id, data) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.style.display = 'block';
+      el.textContent = JSON.stringify(data, null, 2);
     }
 
     // Quick Actions - directly append
