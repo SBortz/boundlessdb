@@ -925,7 +925,7 @@
     }
 
     async function refreshAll() {
-      await Promise.all([refreshEvents(), refreshKeys()]);
+      await Promise.all([refreshEvents(), refreshKeys(), refreshLiveQuery()]);
     }
 
     async function refreshEvents() {
