@@ -1385,8 +1385,9 @@
           console.warn('⚠️ CONFLICT DETECTED:', conflictData);
           showFeedback('append-result', 
             `⚠️ CONFLICT!\n` +
-            `Event #${conflictEvent.position} (${conflictEvent.type}) kam dazwischen während du gelesen hast.\n` +
-            `Token wurde aktualisiert - retry möglich.`, 
+            `Event #${conflictEvent.position} (${conflictEvent.type}) kam dazwischen während du gelesen hast.\n\n` +
+            `→ Token wurde durch "newToken" aus dem Result ersetzt.\n` +
+            `→ Mit neuem Token ist Retry möglich.`, 
             'conflict'
           );
           showJsonResult('append-json', conflictData);
