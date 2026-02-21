@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Boundless DCB Event Store - Interactive Demo</title>
+  <title>BoundlessDB DCB Event Store - Interactive Demo</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -653,7 +653,7 @@
 
   <!-- Mobile Header -->
   <div class="mobile-header">
-    <h1>🗃️ Boundless Demo</h1>
+    <h1>🗃️ BoundlessDB Demo</h1>
     <span id="mobile-status" class="status loading">⏳</span>
   </div>
   
@@ -670,7 +670,7 @@
     <!-- Left: Controls -->
     <div class="controls mobile-active" id="section-controls">
       <a href="/" class="back-link">← Back to Home</a>
-      <h1>🗃️ Boundless Demo <span class="browser-badge">100% Client-Side</span></h1>
+      <h1>🗃️ BoundlessDB Demo <span class="browser-badge">100% Client-Side</span></h1>
       
       <!-- Guided Demo Scenarios -->
       <div class="panel">
@@ -827,7 +827,7 @@
   </div>
   
   <script type="module">
-    // Import Boundless browser bundle
+    // Import BoundlessDB browser bundle
     import { 
       createEventStore, 
       SqlJsStorage, 
@@ -897,7 +897,7 @@
 
     // Initialize the store
     async function initStore() {
-      console.log('🚀 Initializing Boundless with sql.js...');
+      console.log('🚀 Initializing BoundlessDB with sql.js...');
       updateStatus('⏳ Loading sql.js...', 'loading');
 
       try {
@@ -917,7 +917,7 @@
         await store.read({ conditions: [] });
 
         updateStatus('✓ Ready', 'connected');
-        console.log('✅ Boundless ready!');
+        console.log('✅ BoundlessDB ready!');
 
         // Initial refresh
         await refreshAll();

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Boundless — DCB Event Store</title>
+  <title>BoundlessDB — DCB Event Store</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -312,7 +312,7 @@
 <body>
   <div class="hero">
     <div class="logo">🗃️</div>
-    <h1>Boundless</h1>
+    <h1>BoundlessDB</h1>
     <p class="tagline">A <span class="highlight">DCB-inspired</span> Event Store for TypeScript</p>
     
     <div class="badges">
@@ -371,7 +371,7 @@
     <div class="comparison-box">
       <p style="color: #888; margin-bottom: 1.5rem;">
         <strong style="color: #0cf;">Dynamic Consistency Boundaries (DCB)</strong> solves optimistic concurrency 
-        by attaching consistency keys (tags) to events. Boundless takes this further:
+        by attaching consistency keys (tags) to events. BoundlessDB takes this further:
       </p>
       
       <div class="comparison-grid">
@@ -383,7 +383,7 @@
           </div>
         </div>
         <div class="comparison-item highlight">
-          <div class="comparison-label">Boundless Approach</div>
+          <div class="comparison-label">BoundlessDB Approach</div>
           <div class="comparison-content">
             Keys are <strong>extracted from payloads via config</strong>.<br>
             Events stay pure. Config can change anytime.
@@ -451,7 +451,7 @@ token = {
   pos: <span class="const">5</span>  <span class="comment">// Position at time of read</span>
 }
 
-<span class="comment">// On append, Boundless checks:</span>
+<span class="comment">// On append, BoundlessDB checks:</span>
 <span class="comment">// "Are there NEW events (pos > 5) that MATCH these conditions?"</span>
 
 <span class="comment">// ✅ NO conflict if someone wrote:</span>
@@ -515,7 +515,7 @@ token = {
   <div class="code-section">
     <h2>Auto-Reindex on Config Change</h2>
     <pre><code><span class="comment">// The config is hashed and stored in the database</span>
-<span class="comment">// On startup, Boundless compares hashes:</span>
+<span class="comment">// On startup, BoundlessDB compares hashes:</span>
 
 <span class="comment">// stored_hash: "a1b2c3..."  (from last run)</span>
 <span class="comment">// current_hash: "x9y8z7..." (from your config)</span>
@@ -553,7 +553,7 @@ token = {
         <div class="flow-number">2</div>
         <div class="flow-content">
           <div class="flow-title">Keys Extracted</div>
-          <div class="flow-desc">Config tells Boundless which fields are consistency keys</div>
+          <div class="flow-desc">Config tells BoundlessDB which fields are consistency keys</div>
           <code class="flow-code">course → 'cs101', student → 'alice'</code>
         </div>
       </div>
@@ -578,7 +578,7 @@ token = {
     </div>
     
     <div class="flow-note">
-      💡 <strong>Config changed?</strong> Boundless compares the config hash on startup. If different, all keys are automatically re-extracted from existing events. No manual migration needed!
+      💡 <strong>Config changed?</strong> BoundlessDB compares the config hash on startup. If different, all keys are automatically re-extracted from existing events. No manual migration needed!
     </div>
   </div>
   

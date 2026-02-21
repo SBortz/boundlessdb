@@ -1,7 +1,7 @@
 {
-  "name": "boundless",
+  "name": "boundlessdb",
   "version": "0.1.0",
-  "description": "DCB-native Event Store for Node.js",
+  "description": "DCB-native Event Store for Node.js and Browser",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

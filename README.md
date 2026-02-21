@@ -1,8 +1,8 @@
-# Boundless
+# BoundlessDBDB
 
-A **DCB-inspired** Event Store with config-based consistency keys.
+A **DCB-native** Event Store with config-based consistency keys.
 
-> *Boundless* — because consistency boundaries should be dynamic, not fixed.
+> *BoundlessDBDB* — because consistency boundaries should be dynamic, not fixed.
 
 ## 🎉 Try it Live!
 
@@ -39,7 +39,7 @@ await store.append([{
 ```
 
 ### 2️⃣ Keys Extracted
-Your config tells Boundless which fields are consistency keys:
+Your config tells BoundlessDB which fields are consistency keys:
 ```typescript
 consistency: {
   eventTypes: {
@@ -222,7 +222,7 @@ current_hash: "x9y8z7..."  (from your config)
 
 ## Browser Usage
 
-Boundless works **entirely in the browser** with no server required:
+BoundlessDB works **entirely in the browser** with no server required:
 
 ```html
 <script type="module">
