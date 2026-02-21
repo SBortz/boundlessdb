@@ -19,7 +19,8 @@ The entire event store runs client-side in your browser using WebAssembly SQLite
 - ⚡ **Conflict Detection with Delta** — Get exactly what changed since your read
 - 🔄 **Auto-Reindex** — Change your config, keys are automatically rebuilt
 - 💾 **SQLite & In-Memory Storage** — Persistent or in-memory for testing
-- 📦 **Embedded Library** — No separate server, runs in your process (no gRPC/HTTP API yet)
+- 📦 **Embedded Library** — No separate server, runs in your process
+- ☁️ **Supabase Edge Functions** — Deploy as serverless REST API (see [supabase/](./supabase/))
 
 ## Installation
 
@@ -333,6 +334,51 @@ if (result.conflict) {
   result.token;              // Token for next operation
 }
 ```
+
+## Supabase Edge Functions
+
+Deploy BoundlessDB as a **serverless REST API** on Supabase's global edge network:
+
+```bash
+cd supabase
+
+# Deploy the schema
+supabase db push
+
+# Set secrets
+supabase secrets set BOUNDLESS_SECRET=$(openssl rand -hex 32)
+
+# Deploy functions
+supabase functions deploy boundless-read
+supabase functions deploy boundless-append
+supabase functions deploy boundless-head
+supabase functions deploy boundless-health
+```
+
+Then use from any client:
+
+```typescript
+// Read events
+const response = await fetch(
+  'https://your-project.supabase.co/functions/v1/boundless-read',
+  {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${supabaseAnonKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      conditions: [
+        { type: 'OrderPlaced', key: 'customer', value: 'cust-123' }
+      ]
+    }),
+  }
+);
+
+const { events, token } = await response.json();
+```
+
+See [`supabase/README.md`](./supabase/README.md) for full documentation.
 
 ## Development
 
