@@ -26,8 +26,6 @@ const TEST_CONFIG: ConsistencyConfig = {
   },
 };
 
-const SECRET = 'test-secret-key';
-
 describe('EventStore', () => {
   describe.each([
     ['InMemoryStorage', () => new InMemoryStorage()],
@@ -38,7 +36,6 @@ describe('EventStore', () => {
     beforeEach(() => {
       store = new EventStore({
         storage: createStorage(),
-        secret: SECRET,
         consistency: TEST_CONFIG,
       });
     });
@@ -327,6 +324,93 @@ describe('EventStore', () => {
           'StudentSubscribed',
           'StudentUnsubscribed',
         ]);
+      });
+    });
+
+    describe('direct AppendCondition (without token)', () => {
+      it('accepts AppendCondition object instead of token', async () => {
+        // Create course
+        await store.append(
+          [{ type: 'CourseCreated', data: { courseId: 'cs101', name: 'CS', capacity: 2 } }],
+          null
+        );
+
+        // Read to get current position
+        const readResult = await store.read({
+          conditions: [{ type: 'StudentSubscribed', key: 'course', value: 'cs101' }],
+        });
+
+        // Get the position from the read
+        const latestPosition = readResult.events.length > 0 
+          ? readResult.events[readResult.events.length - 1].position
+          : 0n;
+
+        // Append using direct AppendCondition instead of token
+        const appendResult = await store.append(
+          [{ type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } }],
+          {
+            position: latestPosition,
+            conditions: [{ type: 'StudentSubscribed', key: 'course', value: 'cs101' }],
+          }
+        );
+
+        expect(isConflict(appendResult)).toBe(false);
+      });
+
+      it('detects conflict with AppendCondition object', async () => {
+        // Create course and first subscription
+        await store.append(
+          [{ type: 'CourseCreated', data: { courseId: 'cs101', name: 'CS' } }],
+          null
+        );
+
+        // Alice reads at position 0 (before any subscriptions)
+        const aliceCondition = {
+          position: 1n, // After CourseCreated
+          conditions: [{ type: 'StudentSubscribed', key: 'course', value: 'cs101' }],
+        };
+
+        // Bob subscribes
+        await store.append(
+          [{ type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'bob' } }],
+          null
+        );
+
+        // Alice tries with her stale condition
+        const aliceAppend = await store.append(
+          [{ type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } }],
+          aliceCondition
+        );
+
+        // Should be a conflict
+        expect(isConflict(aliceAppend)).toBe(true);
+        if (isConflict(aliceAppend)) {
+          expect(aliceAppend.conflictingEvents).toHaveLength(1);
+        }
+      });
+
+      it('allows manual condition creation for uniqueness checks', async () => {
+        // Scenario: Check if username is taken (without reading first)
+        
+        // Manually create a condition from position 0
+        const condition = {
+          position: 0n,
+          conditions: [{ type: 'CourseCreated', key: 'course', value: 'cs101' }],
+        };
+
+        // First create should succeed
+        const firstCreate = await store.append(
+          [{ type: 'CourseCreated', data: { courseId: 'cs101', name: 'CS' } }],
+          condition
+        );
+        expect(isConflict(firstCreate)).toBe(false);
+
+        // Second create with same condition should detect conflict
+        const secondCreate = await store.append(
+          [{ type: 'CourseCreated', data: { courseId: 'cs101', name: 'CS Duplicate' } }],
+          condition  // Still using position 0
+        );
+        expect(isConflict(secondCreate)).toBe(true);
       });
     });
   });

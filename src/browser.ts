@@ -2,7 +2,7 @@
  * DCB Event Store - Browser Bundle Entry Point
  * 
  * This file exports everything needed for browser usage with sql.js storage.
- * Uses Web Crypto API for HMAC operations (async).
+ * No cryptographic signing - tokens are Base64 encoded for convenience.
  */
 
 // Core types
@@ -19,13 +19,14 @@ export type {
   AppendResult,
   ConflictResult,
   ConsistencyToken,
+  AppendCondition,
   TokenPayload,
   EventStoreOptions,
 } from './types.js';
 
 export { isConflict } from './types.js';
 
-// Event Store (browser version with async crypto)
+// Event Store (browser version)
 export { EventStore, createEventStore, type EventStoreConfig } from './event-store.browser.js';
 
 // Storage - Only sql.js and InMemory for browser (not better-sqlite3)
@@ -37,5 +38,14 @@ export { SqlJsStorage, type SqlJsStorageOptions } from './storage/sqljs.js';
 export { KeyExtractor, KeyExtractionError } from './config/extractor.js';
 export { validateConfig, ConfigValidationError } from './config/validator.js';
 
-// Token (browser version with async crypto)
-export { createToken, validateToken, createTokenFromPayload, TokenValidationError } from './token.browser.js';
+// Token utilities
+export { 
+  createToken, 
+  decodeToken,
+  encodeAppendCondition,
+  decodeAppendCondition,
+  TokenDecodeError,
+  // Backwards compatibility aliases
+  validateToken, 
+  TokenValidationError,
+} from './token.browser.js';

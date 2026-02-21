@@ -7,8 +7,9 @@ import { KeyExtractor } from './config/extractor.js';
 import { validateConfig } from './config/validator.js';
 import type { EventStorage } from './storage/interface.js';
 import { SqliteStorage } from './storage/sqlite.js';
-import { createToken, validateToken, TokenValidationError } from './token.js';
+import { createToken, decodeToken, TokenDecodeError } from './token.js';
 import type {
+  AppendCondition,
   AppendResult,
   ConflictResult,
   ConsistencyConfig,
@@ -50,10 +51,12 @@ export interface EventStoreConfig extends EventStoreOptions {
 
 /**
  * DCB-native Event Store
+ * 
+ * Implements Dynamic Consistency Boundaries for event sourcing.
+ * No cryptographic signing - tokens are Base64 encoded for convenience.
  */
 export class EventStore {
   private readonly storage: EventStorage;
-  private readonly secret: string;
   private readonly keyExtractor: KeyExtractor;
   private readonly config: ConsistencyConfig;
 
@@ -62,7 +65,6 @@ export class EventStore {
     validateConfig(options.consistency);
 
     this.storage = options.storage;
-    this.secret = options.secret;
     this.config = options.consistency;
     this.keyExtractor = new KeyExtractor(this.config);
 
@@ -134,20 +136,24 @@ export class EventStore {
       ? events[events.length - 1].position
       : await this.storage.getLatestPosition();
 
-    const token = createToken(query, position, this.secret);
+    const token = createToken(query, position);
 
     return { events, token };
   }
 
   /**
-   * Append events with consistency check
+   * Append events with optional consistency check
+   * 
    * @param events Events to append
-   * @param token Consistency token from previous read (null to skip check)
+   * @param condition Consistency check - can be:
+   *   - null: Skip consistency check (optimistic first write)
+   *   - ConsistencyToken: Token from previous read() call
+   *   - AppendCondition: Direct { position, conditions } object
    * @returns AppendResult on success, ConflictResult on conflict
    */
   async append(
     events: NewEvent[],
-    token: ConsistencyToken | null
+    condition: ConsistencyToken | AppendCondition | null
   ): Promise<AppendResult | ConflictResult> {
     if (events.length === 0) {
       // Nothing to append
@@ -155,38 +161,50 @@ export class EventStore {
       return {
         conflict: false,
         position,
-        token: token ?? createToken({ conditions: [] }, position, this.secret),
+        token: condition 
+          ? (typeof condition === 'string' ? condition : createToken({ conditions: condition.conditions }, position))
+          : createToken({ conditions: [] }, position),
       };
     }
 
     // Extract keys from all events
     const keysPerEvent = events.map(event => this.keyExtractor.extract(event));
 
-    // If token provided, validate and check for conflicts
-    if (token !== null) {
-      let tokenPayload;
-      try {
-        tokenPayload = validateToken(token, this.secret);
-      } catch (e) {
-        if (e instanceof TokenValidationError) {
+    // Parse condition (token string or direct object)
+    let appendCondition: AppendCondition | null = null;
+    
+    if (condition !== null) {
+      if (typeof condition === 'string') {
+        // It's a token - decode it
+        try {
+          const payload = decodeToken(condition);
+          appendCondition = {
+            position: payload.pos,
+            conditions: payload.q,
+          };
+        } catch (e) {
+          if (e instanceof TokenDecodeError) {
+            throw e;
+          }
           throw e;
         }
-        throw e;
+      } else {
+        // It's a direct AppendCondition object
+        appendCondition = condition;
       }
 
-      // Check for conflicts: any events since token position that match the query?
+      // Check for conflicts: any events since position that match the conditions?
       const conflictingEvents = await this.storage.getEventsSince(
-        tokenPayload.q,
-        tokenPayload.pos
+        appendCondition.conditions,
+        appendCondition.position
       );
 
       if (conflictingEvents.length > 0) {
         // Conflict detected — return delta
         const latestPosition = conflictingEvents[conflictingEvents.length - 1].position;
         const newToken = createToken(
-          { conditions: tokenPayload.q },
-          latestPosition,
-          this.secret
+          { conditions: appendCondition.conditions },
+          latestPosition
         );
 
         return {
@@ -211,10 +229,8 @@ export class EventStore {
     const position = await this.storage.append(eventsToStore, keysPerEvent);
 
     // Build new token
-    // The new token should include the query conditions that were checked
-    // plus any new conditions from the appended events
-    const newTokenQuery = this.buildQueryFromEvents(events, token);
-    const newToken = createToken(newTokenQuery, position, this.secret);
+    const newTokenQuery = this.buildQueryFromEvents(events, appendCondition);
+    const newToken = createToken(newTokenQuery, position);
 
     return {
       conflict: false,
@@ -227,19 +243,14 @@ export class EventStore {
    * Build a query that covers the appended events
    * Used to create the token returned after append
    */
-  private buildQueryFromEvents(events: NewEvent[], originalToken: ConsistencyToken | null): Query {
-    // Start with original query conditions if token was provided
+  private buildQueryFromEvents(events: NewEvent[], originalCondition: AppendCondition | null): Query {
+    // Start with original conditions if provided
     const conditions = new Map<string, { type: string; key: string; value: string }>();
 
-    if (originalToken !== null) {
-      try {
-        const payload = validateToken(originalToken, this.secret);
-        for (const cond of payload.q) {
-          const key = `${cond.type}:${cond.key}:${cond.value}`;
-          conditions.set(key, cond);
-        }
-      } catch {
-        // Ignore invalid token for query building
+    if (originalCondition !== null) {
+      for (const cond of originalCondition.conditions) {
+        const key = `${cond.type}:${cond.key}:${cond.value}`;
+        conditions.set(key, cond);
       }
     }
 
