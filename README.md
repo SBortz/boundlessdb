@@ -6,7 +6,7 @@ An **embedded, DCB-inspired** Event Store with config-based consistency keys.
 
 ## 🎉 Try it Live!
 
-**[Interactive Browser Demo](https://boundless-seven.vercel.app/demo.html)** — No installation required!
+**[Interactive Browser Demo](https://boundlessdb.dev/demo.html)** — No installation required!
 
 The entire event store runs client-side in your browser using WebAssembly SQLite.
 
