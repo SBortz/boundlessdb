@@ -1338,9 +1338,12 @@
       
       // Check if user edited the token payload - if so, create new signed token
       const tokenPayloadStr = document.getElementById('token-payload').value.trim();
-      let tokenToUse = appendToken;
+      let tokenToUse = null;
       
-      if (tokenPayloadStr) {
+      if (!tokenPayloadStr) {
+        // Empty textarea = no token
+        appendToken = null;
+      } else {
         try {
           const editedPayload = JSON.parse(tokenPayloadStr);
           // Convert to TokenPayload format (pos as bigint)
