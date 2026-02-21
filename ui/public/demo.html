@@ -1346,7 +1346,7 @@
         const result = await store.append([{ type, data }], tokenToUse);
         
         if (isConflict(result)) {
-          // Show full conflict result JSON
+          const conflictEvent = result.conflictingEvents[0];
           const conflictData = {
             conflict: result.conflict,
             conflictingEvents: result.conflictingEvents.map(e => ({
@@ -1358,7 +1358,10 @@
           };
           console.warn('⚠️ CONFLICT DETECTED:', conflictData);
           showFeedback('append-result', 
-            `⚠️ CONFLICT!\n\n${JSON.stringify(conflictData, null, 2)}`, 
+            `⚠️ CONFLICT!\n` +
+            `Event #${conflictEvent.position} (${conflictEvent.type}) kam dazwischen während du gelesen hast.\n` +
+            `Token wurde aktualisiert - retry möglich.\n\n` +
+            `Result:\n${JSON.stringify(conflictData, null, 2)}`, 
             'conflict'
           );
           // Update token to new one for retry
