@@ -684,8 +684,8 @@
         <div id="supabaseConfig" style="display: none;">
           <label style="font-size: 0.7rem;">Supabase Functions URL</label>
           <input type="text" id="supabaseUrl" placeholder="https://xxx.supabase.co/functions/v1" style="font-size: 0.7rem; margin-bottom: 0.3rem;">
-          <label style="font-size: 0.7rem;">API Key</label>
-          <input type="password" id="apiKey" placeholder="your-api-key" style="font-size: 0.7rem; margin-bottom: 0.3rem;">
+          <label style="font-size: 0.7rem;">API Key (optional)</label>
+          <input type="password" id="apiKey" placeholder="leave empty for public access" style="font-size: 0.7rem; margin-bottom: 0.3rem;">
           <button onclick="connectSupabase()" class="query" style="width: 100%; margin-top: 0.25rem;">🔗 Connect</button>
         </div>
       </div>
@@ -887,17 +887,16 @@
       supabaseUrl = document.getElementById('supabaseUrl').value.replace(/\/$/, '');
       apiKey = document.getElementById('apiKey').value;
       
-      if (!supabaseUrl || !apiKey) {
-        alert('Please enter Supabase URL and API Key');
+      if (!supabaseUrl) {
+        alert('Please enter Supabase URL');
         return;
       }
       
       updateStatus('⏳ Connecting to Supabase...', 'loading');
       
       try {
-        const res = await fetch(`${supabaseUrl}/boundless-health`, {
-          headers: { 'X-API-Key': apiKey }
-        });
+        const headers = apiKey ? { 'X-API-Key': apiKey } : {};
+        const res = await fetch(`${supabaseUrl}/boundless-health`, { headers });
         const data = await res.json();
         
         if (data.status === 'ok') {
@@ -914,11 +913,16 @@
     
     // Create a Supabase-backed store interface
     function createSupabaseStore() {
+      const baseHeaders = { 'Content-Type': 'application/json' };
+      const headers = apiKey 
+        ? { ...baseHeaders, 'X-API-Key': apiKey }
+        : baseHeaders;
+      
       return {
         async read({ conditions }) {
           const res = await fetch(`${supabaseUrl}/boundless-read`, {
             method: 'POST',
-            headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
+            headers,
             body: JSON.stringify({ conditions })
           });
           const data = await res.json();
@@ -928,7 +932,7 @@
         async append(events, token) {
           const res = await fetch(`${supabaseUrl}/boundless-append`, {
             method: 'POST',
-            headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
+            headers,
             body: JSON.stringify({ events, token })
           });
           const data = await res.json();
@@ -1050,9 +1054,8 @@
       try {
         let events;
         if (serverMode === 'supabase') {
-          const res = await fetch(`${supabaseUrl}/boundless-events`, {
-            headers: { 'X-API-Key': apiKey }
-          });
+          const headers = apiKey ? { 'X-API-Key': apiKey } : {};
+          const res = await fetch(`${supabaseUrl}/boundless-events`, { headers });
           const data = await res.json();
           events = data.events || [];
         } else {

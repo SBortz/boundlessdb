@@ -41,8 +41,20 @@ enable_signup = true
 double_confirm_changes = true
 enable_confirmations = false
 
-[functions]
-verify_jwt = true
+[functions.boundless-health]
+verify_jwt = false
+
+[functions.boundless-head]
+verify_jwt = false
+
+[functions.boundless-read]
+verify_jwt = false
+
+[functions.boundless-append]
+verify_jwt = false
+
+[functions.boundless-events]
+verify_jwt = false
 
 [analytics]
 enabled = false
