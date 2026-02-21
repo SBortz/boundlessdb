@@ -1,6 +1,6 @@
 # BoundlessDBDB
 
-An **embedded, DCB-native** Event Store with config-based consistency keys.
+An **embedded, DCB-inspired** Event Store with config-based consistency keys.
 
 > *BoundlessDBDB* — because consistency boundaries should be dynamic, not fixed.
 
