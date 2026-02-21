@@ -1351,12 +1351,14 @@
         document.getElementById('live-count').textContent = result.events.length;
         document.getElementById('live-token').textContent = `Token: ${result.token.substring(0, 20)}...`;
         
-        // Get keys for each event
-        const allKeys = await storage.getAllKeys();
-        const keysByPos = {};
-        for (const k of allKeys) {
-          if (!keysByPos[k.position]) keysByPos[k.position] = [];
-          keysByPos[k.position].push(k);
+        // Get keys for each event (local mode only)
+        let keysByPos = {};
+        if (serverMode === 'local' && storage) {
+          const allKeys = await storage.getAllKeys();
+          for (const k of allKeys) {
+            if (!keysByPos[k.position]) keysByPos[k.position] = [];
+            keysByPos[k.position].push(k);
+          }
         }
         
         // Render events (newest first)
@@ -1456,6 +1458,10 @@
       if (!tokenPayloadStr) {
         // Empty textarea = no token
         appendToken = null;
+      } else if (serverMode === 'supabase') {
+        // In Supabase mode, use token as-is (server signed)
+        tokenToUse = appendToken;
+        console.log('☁️ Using server-signed token for Supabase');
       } else {
         try {
           const editedPayload = JSON.parse(tokenPayloadStr);
