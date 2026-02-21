@@ -674,21 +674,27 @@
       <div class="panel">
         <h2>🚀 Quick Actions</h2>
         
+        <label style="color:#9ece6a">📚 Create Course</label>
         <div class="quick-buttons">
-          <button class="success" onclick="quickAction('CourseCreated', {courseId:'cs101',name:'Intro to CS',capacity:30})">📚 CS101</button>
-          <button class="success" onclick="quickAction('CourseCreated', {courseId:'math201',name:'Linear Algebra',capacity:25})">📚 MATH201</button>
+          <button class="success" onclick="quickAction('CourseCreated', {courseId:'cs101',name:'Intro to CS',capacity:30})">CS101 (cap: 30)</button>
+          <button class="success" onclick="quickAction('CourseCreated', {courseId:'math201',name:'Linear Algebra',capacity:25})">MATH201 (cap: 25)</button>
         </div>
         
+        <label style="color:#7aa2f7">👩‍🎓 Enroll Student</label>
         <div class="quick-buttons">
-          <button onclick="quickAction('StudentSubscribed', {courseId:'cs101',studentId:'alice',name:'Alice'})">👩‍🎓 Alice→CS</button>
-          <button onclick="quickAction('StudentSubscribed', {courseId:'cs101',studentId:'bob',name:'Bob'})">👨‍🎓 Bob→CS</button>
-          <button onclick="quickAction('StudentSubscribed', {courseId:'cs101',studentId:'carol',name:'Carol'})">👩‍🎓 Carol→CS</button>
-          <button onclick="quickAction('StudentSubscribed', {courseId:'math201',studentId:'alice',name:'Alice'})">👩‍🎓 Alice→M</button>
+          <button onclick="quickAction('StudentSubscribed', {courseId:'cs101',studentId:'alice',name:'Alice'})">Alice → CS101</button>
+          <button onclick="quickAction('StudentSubscribed', {courseId:'cs101',studentId:'bob',name:'Bob'})">Bob → CS101</button>
+          <button onclick="quickAction('StudentSubscribed', {courseId:'cs101',studentId:'carol',name:'Carol'})">Carol → CS101</button>
+        </div>
+        <div class="quick-buttons">
+          <button onclick="quickAction('StudentSubscribed', {courseId:'math201',studentId:'alice',name:'Alice'})">Alice → MATH</button>
+          <button onclick="quickAction('StudentSubscribed', {courseId:'math201',studentId:'bob',name:'Bob'})">Bob → MATH</button>
         </div>
         
+        <label style="color:#f7768e">❌ Unenroll Student</label>
         <div class="quick-buttons">
-          <button class="danger" onclick="quickAction('StudentUnsubscribed', {courseId:'cs101',studentId:'bob'})">❌ Bob</button>
-          <button class="danger" onclick="quickAction('StudentUnsubscribed', {courseId:'cs101',studentId:'alice'})">❌ Alice</button>
+          <button class="danger" onclick="quickAction('StudentUnsubscribed', {courseId:'cs101',studentId:'bob'})">Bob ✗ CS101</button>
+          <button class="danger" onclick="quickAction('StudentUnsubscribed', {courseId:'cs101',studentId:'alice'})">Alice ✗ CS101</button>
         </div>
         
         <div id="quick-result" class="feedback" style="display:none"></div>
