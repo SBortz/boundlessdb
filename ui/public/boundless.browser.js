@@ -2764,6 +2764,17 @@ async function validateToken(token, secret) {
     q: raw.q
   };
 }
+async function createTokenFromPayload(payload, secret) {
+  const jsonPayload = {
+    v: payload.v,
+    pos: payload.pos.toString(),
+    ts: payload.ts,
+    q: normalizeQuery(payload.q)
+  };
+  const payloadJson = JSON.stringify(jsonPayload);
+  const sig = await hmacSha256(secret, payloadJson);
+  return base64urlEncode(payloadJson) + "." + base64urlEncode(sig);
+}
 
 // src/event-store.browser.ts
 function generateUUID() {
@@ -3137,6 +3148,7 @@ export {
   TokenValidationError,
   createEventStore,
   createToken,
+  createTokenFromPayload,
   isConflict,
   validateConfig,
   validateToken

@@ -38,4 +38,4 @@ export { KeyExtractor, KeyExtractionError } from './config/extractor.js';
 export { validateConfig, ConfigValidationError } from './config/validator.js';
 
 // Token (browser version with async crypto)
-export { createToken, validateToken, TokenValidationError } from './token.browser.js';
+export { createToken, validateToken, createTokenFromPayload, TokenValidationError } from './token.browser.js';

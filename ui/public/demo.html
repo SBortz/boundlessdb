@@ -815,8 +815,9 @@
     import { 
       createEventStore, 
       SqlJsStorage, 
-      isConflict 
-    } from './boundless.browser.js?v=30';
+      isConflict,
+      createTokenFromPayload
+    } from './boundless.browser.js?v=31';
 
     // Configuration for the demo
     const DEMO_SECRET = 'demo-secret-key-for-hmac-signing';
@@ -1319,8 +1320,30 @@
       try { data = JSON.parse(dataStr || '{}'); }
       catch { return showFeedback('append-result', 'Invalid JSON', 'conflict'); }
       
+      // Check if user edited the token payload - if so, create new signed token
+      const tokenPayloadStr = document.getElementById('token-payload').value.trim();
+      let tokenToUse = appendToken;
+      
+      if (tokenPayloadStr) {
+        try {
+          const editedPayload = JSON.parse(tokenPayloadStr);
+          // Convert to TokenPayload format (pos as bigint)
+          const payload = {
+            v: editedPayload.v || 1,
+            pos: BigInt(editedPayload.pos || '0'),
+            ts: editedPayload.ts || Math.floor(Date.now() / 1000),
+            q: editedPayload.q || []
+          };
+          // Create new signed token from edited payload
+          tokenToUse = await createTokenFromPayload(payload, DEMO_SECRET);
+          console.log('📝 Created token from edited payload, pos=' + payload.pos);
+        } catch (e) {
+          console.warn('Could not parse edited token payload:', e);
+        }
+      }
+      
       try {
-        const result = await store.append([{ type, data }], appendToken);
+        const result = await store.append([{ type, data }], tokenToUse);
         
         if (isConflict(result)) {
           const conflictEvent = result.conflictingEvents[0];
