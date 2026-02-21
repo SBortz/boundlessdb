@@ -18,7 +18,7 @@ The entire event store runs client-side in your browser using WebAssembly SQLite
 - 🔐 **HMAC-signed Consistency Tokens** — Tamper-proof optimistic concurrency
 - ⚡ **Conflict Detection with Delta** — Get exactly what changed since your read
 - 🔄 **Auto-Reindex** — Change your config, keys are automatically rebuilt
-- 💾 **SQLite & In-Memory Storage** — Production-ready and test-friendly
+- 💾 **SQLite & In-Memory Storage** — Persistent or in-memory for testing
 
 ## Installation
 
