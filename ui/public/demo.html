@@ -1346,9 +1346,18 @@
         const result = await store.append([{ type, data }], tokenToUse);
         
         if (isConflict(result)) {
-          const conflictEvent = result.conflictingEvents[0];
+          // Show full conflict result JSON
+          const conflictJson = JSON.stringify({
+            conflict: result.conflict,
+            conflictingEvents: result.conflictingEvents.map(e => ({
+              position: Number(e.position),
+              type: e.type,
+              data: e.data
+            })),
+            newToken: result.newToken?.substring(0, 50) + '...'
+          }, null, 2);
           showFeedback('append-result', 
-            `⚠️ CONFLICT!\nEvent #${conflictEvent.position} (${conflictEvent.type}) kam dazwischen während du gelesen hast.\n\nToken wurde aktualisiert - retry möglich.`, 
+            `⚠️ CONFLICT!\n\n${conflictJson}`, 
             'conflict'
           );
           // Update token to new one for retry
@@ -1396,7 +1405,15 @@
         const result = await store.append(eventToAppend, null);
         
         if (isConflict(result)) {
-          showFeedback('quick-result', `⚠️ Conflict!`, 'conflict');
+          const conflictJson = JSON.stringify({
+            conflict: result.conflict,
+            conflictingEvents: result.conflictingEvents.map(e => ({
+              position: Number(e.position),
+              type: e.type,
+              data: e.data
+            }))
+          }, null, 2);
+          showFeedback('quick-result', `⚠️ CONFLICT!\n\n${conflictJson}`, 'conflict');
         } else {
           const description = type === 'CourseCreated' 
             ? `Kurs ${data.courseId} erstellt`
