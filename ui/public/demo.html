@@ -1390,17 +1390,8 @@
           } catch {}
         } else {
           showFeedback('append-result', `✅ Event #${result.position} erfolgreich gespeichert!`, 'success');
-          // Update to new token from result (for next append)
-          appendToken = result.token;
-          try {
-            const [payloadB64] = result.token.split('.');
-            const payload = JSON.parse(atob(payloadB64.replace(/-/g,'+').replace(/_/g,'/')));
-            document.getElementById('token-payload').value = JSON.stringify(payload, null, 2);
-            setTokenStatus(`✅ Neuer Token (pos=${payload.pos})`, 'success');
-          } catch {
-            document.getElementById('token-payload').value = '';
-            setTokenStatus('Token aktualisiert', 'info');
-          }
+          // Keep old token - user should learn they need a fresh one!
+          setTokenStatus(`⚠️ Token ist jetzt veraltet (pos < ${result.position})`, 'warning');
         }
 
         await refreshAll();
