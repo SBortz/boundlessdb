@@ -1358,8 +1358,18 @@
         }
       }
       
+      // Warn if no token
+      if (!tokenToUse) {
+        console.warn('⚠️ APPEND WITHOUT TOKEN - no consistency check!');
+      }
+      
       try {
         const result = await store.append([{ type, data }], tokenToUse);
+        
+        // Show different message based on whether token was used
+        const noTokenWarning = !tokenToUse 
+          ? '\n\n⚠️ Ohne Consistency Token = keine Konsistenzprüfung!' 
+          : '';
         
         if (isConflict(result)) {
           const conflictEvent = result.conflictingEvents[0];
@@ -1389,9 +1399,11 @@
             setTokenStatus(`⚠️ Neuer Token (pos=${payload.pos}) - retry möglich`, 'error');
           } catch {}
         } else {
-          showFeedback('append-result', `✅ Event #${result.position} erfolgreich gespeichert!`, 'success');
+          showFeedback('append-result', `✅ Event #${result.position} erfolgreich gespeichert!${noTokenWarning}`, 'success');
           // Keep old token - user should learn they need a fresh one!
-          setTokenStatus(`⚠️ Token ist jetzt veraltet (pos < ${result.position})`, 'warning');
+          if (tokenToUse) {
+            setTokenStatus(`⚠️ Token ist jetzt veraltet (pos < ${result.position})`, 'warning');
+          }
         }
 
         await refreshAll();
