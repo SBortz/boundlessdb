@@ -6,7 +6,7 @@ An **embedded, DCB-inspired** Event Store with config-based consistency keys.
 
 ## 🎉 Try it Live!
 
-**[Interactive Browser Demo](https://boundless-seven.vercel.app/demo.html)** — No installation required!
+**[Interactive Browser Demo](https://boundlessdb.dev/demo.html)** — No installation required!
 
 The entire event store runs client-side in your browser using WebAssembly SQLite.
 
@@ -255,7 +255,45 @@ npm run build:browser
 |---------|-------------|-------------|
 | `SqliteStorage` | Node.js | File or `:memory:` |
 | `SqlJsStorage` | Browser | In-memory (WASM) |
+| `PostgresStorage` | Node.js | PostgreSQL database |
 | `InMemoryStorage` | Any | None (testing) |
+
+### PostgreSQL Storage (Optional)
+
+For production deployments with PostgreSQL:
+
+```typescript
+import { createEventStore, PostgresStorage } from 'boundlessdb';
+
+// Using connection string
+const storage = new PostgresStorage('postgresql://user:pass@localhost/mydb');
+await storage.init();  // Required: creates tables if they don't exist
+
+const store = createEventStore({
+  storage,
+  secret: 'your-secret',
+  consistency: { /* ... */ }
+});
+
+// Using pool configuration (for advanced settings)
+const storage = new PostgresStorage({
+  host: 'localhost',
+  port: 5432,
+  database: 'mydb',
+  user: 'myuser',
+  password: 'mypass',
+  max: 20,  // max pool connections
+});
+await storage.init();
+```
+
+**Note:** PostgreSQL support requires the `pg` package. Install it separately if needed:
+
+```bash
+npm install pg
+```
+
+SQLite remains the default and recommended backend for single-process deployments.
 
 ## API Reference
 
