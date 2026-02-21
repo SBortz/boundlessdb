@@ -15,10 +15,10 @@
       overflow: hidden;
     }
     
-    /* 3-Column Layout */
+    /* 5-Column Layout - all tabs equal width */
     .layout {
       display: grid;
-      grid-template-columns: 420px 1fr 340px;
+      grid-template-columns: repeat(5, 1fr);
       height: 100vh;
     }
     
@@ -34,11 +34,12 @@
       border-right: 1px solid #0f3460;
     }
     
-    /* Center: Live Query */
+    /* Live Query Panel */
     .live-query {
       display: flex;
       flex-direction: column;
       border-right: 1px solid #0f3460;
+      overflow: hidden;
     }
     
     .live-query-header {
@@ -53,12 +54,13 @@
       padding: 0.5rem;
     }
     
-    /* Right: Event Log */
+    /* Sidebar panels (Events, Keys) */
     .sidebar {
       background: #0d1929;
       display: flex;
       flex-direction: column;
       height: 100vh;
+      border-right: 1px solid #0f3460;
     }
     
     .sidebar-section {
@@ -564,10 +566,22 @@
       }
     }
     
-    /* Desktop: hide mobile header */
+    /* Desktop: hide mobile header, show all columns */
     @media (min-width: 769px) {
       .mobile-header {
         display: none;
+      }
+      
+      /* Show all sections on desktop */
+      .keys-section {
+        display: flex !important;
+      }
+      
+      .debug-section {
+        display: flex !important;
+        flex-direction: column;
+        background: #0a0a0a;
+        border-right: none;
       }
     }
   </style>
@@ -637,7 +651,7 @@
     <button class="mobile-tab" onclick="showMobileTab('debug')">🐛 Debug</button>
   </div>
   
-  <div class="layout" style="height:calc(100vh - 150px);">
+  <div class="layout">
     <!-- Left: Controls -->
     <div class="controls mobile-active" id="section-controls">
       <a href="/" class="back-link">← Back to Home</a>
@@ -778,13 +792,15 @@
       </div>
     </div>
     
-    <!-- Debug Tab (hidden on desktop, visible on mobile when selected) -->
-    <div class="debug-section" id="section-debug" style="display:none;background:#000;color:#0f0;font-family:monospace;font-size:11px;padding:10px;overflow-y:auto;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-        <strong>🐛 Debug Log</strong>
-        <button onclick="copyDebugLog()" style="background:#0f0;color:#000;border:none;padding:4px 12px;font-size:12px;cursor:pointer;border-radius:4px;">📋 Copy</button>
+    <!-- Debug Tab -->
+    <div class="sidebar debug-section" id="section-debug" style="display:none;">
+      <div class="sidebar-section" style="flex:1">
+        <div class="sidebar-header">
+          🐛 Debug Log
+          <button onclick="copyDebugLog()">📋 Copy</button>
+        </div>
+        <div class="sidebar-content" id="debug-log" style="background:#0a0a0a;color:#0f0;font-family:monospace;font-size:11px;padding:0.5rem;"></div>
       </div>
-      <div id="debug-log"></div>
     </div>
   </div>
   
