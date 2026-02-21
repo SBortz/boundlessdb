@@ -30,6 +30,7 @@ export type { EventStorage, EventToStore } from './storage/interface.js';
 export { InMemoryStorage } from './storage/memory.js';
 export { SqliteStorage } from './storage/sqlite.js';
 export { SqlJsStorage, type SqlJsStorageOptions } from './storage/sqljs.js';
+export { PostgresStorage } from './storage/postgres.js';
 
 // Config
 export { KeyExtractor, KeyExtractionError } from './config/extractor.js';
