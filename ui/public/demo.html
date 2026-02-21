@@ -670,7 +670,25 @@
     <!-- Left: Controls -->
     <div class="controls mobile-active" id="section-controls">
       <a href="/" class="back-link">← Back to Home</a>
-      <h1>🗃️ BoundlessDB Demo <span class="browser-badge">100% Client-Side</span></h1>
+      <h1>🗃️ BoundlessDB Demo <span class="browser-badge" id="modeBadge">100% Client-Side</span></h1>
+      
+      <!-- Server Mode Toggle -->
+      <div class="panel" style="background: #0d1929; margin-bottom: 0.6rem;">
+        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+          <label style="margin: 0; color: #0cf; font-weight: 600;">⚙️ Mode:</label>
+          <select id="serverMode" onchange="switchMode()" style="width: auto; padding: 0.25rem 0.5rem;">
+            <option value="local">🖥️ Local (sql.js)</option>
+            <option value="supabase">☁️ Supabase (PostgreSQL)</option>
+          </select>
+        </div>
+        <div id="supabaseConfig" style="display: none;">
+          <label style="font-size: 0.7rem;">Supabase Functions URL</label>
+          <input type="text" id="supabaseUrl" placeholder="https://xxx.supabase.co/functions/v1" style="font-size: 0.7rem; margin-bottom: 0.3rem;">
+          <label style="font-size: 0.7rem;">API Key</label>
+          <input type="password" id="apiKey" placeholder="your-api-key" style="font-size: 0.7rem; margin-bottom: 0.3rem;">
+          <button onclick="connectSupabase()" class="query" style="width: 100%; margin-top: 0.25rem;">🔗 Connect</button>
+        </div>
+      </div>
       
       <!-- Guided Demo Scenarios -->
       <div class="panel">
@@ -837,6 +855,88 @@
 
     // Configuration for the demo
     const DEMO_SECRET = 'demo-secret-key-for-hmac-signing';
+    
+    // Server mode state
+    let serverMode = 'local';
+    let supabaseUrl = '';
+    let apiKey = '';
+    
+    // Switch between local and Supabase mode
+    window.switchMode = function() {
+      const mode = document.getElementById('serverMode').value;
+      const configDiv = document.getElementById('supabaseConfig');
+      const badge = document.getElementById('modeBadge');
+      
+      serverMode = mode;
+      
+      if (mode === 'supabase') {
+        configDiv.style.display = 'block';
+        badge.textContent = '☁️ Supabase PostgreSQL';
+        badge.style.background = '#0a5c36';
+      } else {
+        configDiv.style.display = 'none';
+        badge.textContent = '100% Client-Side';
+        badge.style.background = '';
+        // Re-init local store
+        initStore();
+      }
+    };
+    
+    // Connect to Supabase
+    window.connectSupabase = async function() {
+      supabaseUrl = document.getElementById('supabaseUrl').value.replace(/\/$/, '');
+      apiKey = document.getElementById('apiKey').value;
+      
+      if (!supabaseUrl || !apiKey) {
+        alert('Please enter Supabase URL and API Key');
+        return;
+      }
+      
+      updateStatus('⏳ Connecting to Supabase...', 'loading');
+      
+      try {
+        const res = await fetch(`${supabaseUrl}/boundless-health`, {
+          headers: { 'X-API-Key': apiKey }
+        });
+        const data = await res.json();
+        
+        if (data.status === 'ok') {
+          updateStatus('✓ Connected to Supabase', 'connected');
+          store = createSupabaseStore();
+          await refreshAll();
+        } else {
+          throw new Error(data.error?.message || 'Connection failed');
+        }
+      } catch (e) {
+        updateStatus('✗ ' + e.message, 'error');
+      }
+    };
+    
+    // Create a Supabase-backed store interface
+    function createSupabaseStore() {
+      return {
+        async read({ conditions }) {
+          const res = await fetch(`${supabaseUrl}/boundless-read`, {
+            method: 'POST',
+            headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ conditions })
+          });
+          const data = await res.json();
+          if (data.error) throw new Error(data.error.message);
+          return { events: data.events, token: data.token };
+        },
+        async append(events, token) {
+          const res = await fetch(`${supabaseUrl}/boundless-append`, {
+            method: 'POST',
+            headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ events, token })
+          });
+          const data = await res.json();
+          if (data.error) throw new Error(data.error.message);
+          return data;
+        }
+      };
+    }
     const CONSISTENCY_CONFIG = {
       eventTypes: {
         CourseCreated: {
@@ -945,10 +1045,19 @@
     }
 
     async function refreshEvents() {
-      if (!storage) return;
+      if (!storage && serverMode === 'local') return;
       
       try {
-        const events = await storage.getAllEvents();
+        let events;
+        if (serverMode === 'supabase') {
+          const res = await fetch(`${supabaseUrl}/boundless-events`, {
+            headers: { 'X-API-Key': apiKey }
+          });
+          const data = await res.json();
+          events = data.events || [];
+        } else {
+          events = await storage.getAllEvents();
+        }
         const list = document.getElementById('events-list');
         const reversed = [...events].reverse(); // newest first
         list.innerHTML = reversed.map(e => `
@@ -965,6 +1074,10 @@
     }
 
     async function refreshKeys() {
+      if (serverMode === 'supabase') {
+        document.getElementById('keys-list').innerHTML = '<div style="padding:1rem;color:#666">Keys not exposed in Supabase mode</div>';
+        return;
+      }
       if (!storage) return;
       
       try {
