@@ -34,9 +34,52 @@ function base64urlDecode(data: string): Uint8Array {
 }
 
 /**
- * Compute HMAC-SHA256 (async)
+ * Check if Web Crypto API is available (requires HTTPS or localhost)
+ */
+const hasWebCrypto = typeof crypto !== 'undefined' && 
+                     typeof crypto.subtle !== 'undefined' &&
+                     typeof crypto.subtle.importKey === 'function';
+
+/**
+ * Simple hash fallback for non-HTTPS environments (NOT cryptographically secure!)
+ * Uses a combination of FNV-1a and string mixing
+ */
+function simpleHashFallback(secret: string, data: string): Uint8Array {
+  const combined = secret + ':' + data;
+  
+  // FNV-1a 32-bit hash, run multiple times with different seeds for more bytes
+  const fnv1a = (str: string, seed: number): number => {
+    let hash = 2166136261 ^ seed;
+    for (let i = 0; i < str.length; i++) {
+      hash ^= str.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
+  };
+  
+  // Generate 32 bytes (256 bits) by running hash with different seeds
+  const result = new Uint8Array(32);
+  for (let i = 0; i < 8; i++) {
+    const h = fnv1a(combined, i * 12345);
+    result[i * 4] = (h >>> 24) & 0xff;
+    result[i * 4 + 1] = (h >>> 16) & 0xff;
+    result[i * 4 + 2] = (h >>> 8) & 0xff;
+    result[i * 4 + 3] = h & 0xff;
+  }
+  
+  return result;
+}
+
+/**
+ * Compute HMAC-SHA256 (async) - with fallback for non-HTTPS
  */
 async function hmacSha256(secret: string, data: string): Promise<Uint8Array> {
+  if (!hasWebCrypto) {
+    // Fallback for HTTP environments
+    console.warn('⚠️ Web Crypto API not available (requires HTTPS). Using insecure fallback hash.');
+    return simpleHashFallback(secret, data);
+  }
+  
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey(
     'raw',

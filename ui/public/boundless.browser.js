@@ -2641,7 +2641,32 @@ function base64urlDecode(data) {
   const binary = atob(padded);
   return new Uint8Array([...binary].map((c) => c.charCodeAt(0)));
 }
+var hasWebCrypto = typeof crypto !== "undefined" && typeof crypto.subtle !== "undefined" && typeof crypto.subtle.importKey === "function";
+function simpleHashFallback(secret, data) {
+  const combined = secret + ":" + data;
+  const fnv1a = (str, seed) => {
+    let hash = 2166136261 ^ seed;
+    for (let i = 0; i < str.length; i++) {
+      hash ^= str.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
+  };
+  const result = new Uint8Array(32);
+  for (let i = 0; i < 8; i++) {
+    const h = fnv1a(combined, i * 12345);
+    result[i * 4] = h >>> 24 & 255;
+    result[i * 4 + 1] = h >>> 16 & 255;
+    result[i * 4 + 2] = h >>> 8 & 255;
+    result[i * 4 + 3] = h & 255;
+  }
+  return result;
+}
 async function hmacSha256(secret, data) {
+  if (!hasWebCrypto) {
+    console.warn("\u26A0\uFE0F Web Crypto API not available (requires HTTPS). Using insecure fallback hash.");
+    return simpleHashFallback(secret, data);
+  }
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey(
     "raw",
