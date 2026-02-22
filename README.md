@@ -109,7 +109,7 @@ const evolve = (state, event) => {
 };
 
 // 1️⃣ READ — Query events and get an appendCondition
-const result = await store.read({
+const { events, appendCondition } = await store.read({
   conditions: [
     { type: 'CourseCreated', key: 'course', value: 'cs101' },
     { type: 'StudentSubscribed', key: 'course', value: 'cs101' },
@@ -117,16 +117,16 @@ const result = await store.read({
 });
 
 // 2️⃣ DECIDE — Build state with standard reduce
-const state = result.events.reduce(evolve, initialState);
+const state = events.reduce(evolve, initialState);
 
 if (state.enrolled >= state.capacity) {
   throw new Error('Course is full!');
 }
 
 // 3️⃣ WRITE — Append with the appendCondition from your read
-const appendResult = await store.append([
+const result = await store.append([
   { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } }
-], result.appendCondition);  // ← Ensures no one else wrote since your read!
+], appendCondition);  // ← Ensures no one else wrote since your read!
 
 // Handle result
 if (appendResult.conflict) {
