@@ -97,36 +97,20 @@ const result = await store.read({
 ## The DCB Pattern: Read → Decide → Write
 
 ```typescript
-// Define your own functions — pure JavaScript, no framework needed
-const initialState = { enrolled: 0, capacity: 30 };
-
-const evolve = (state, event) => {
-  switch (event.type) {
-    case 'CourseCreated': return { ...state, capacity: event.data.capacity };
-    case 'StudentSubscribed': return { ...state, enrolled: state.enrolled + 1 };
-    default: return state;
-  }
-};
-
 // 1️⃣ READ — Query events and get an appendCondition
-const result = await store.read({
+const { events, appendCondition } = await store.read({
   conditions: [
     { type: 'CourseCreated', key: 'course', value: 'cs101' },
     { type: 'StudentSubscribed', key: 'course', value: 'cs101' },
   ]
 });
 
-// 2️⃣ DECIDE — Build state with standard reduce
-const state = result.events.reduce(evolve, initialState);
+// 2️⃣ DECIDE
+const state = events.reduce(evolve, initialState);
+const newEvents = decide(command, state);
 
-if (state.enrolled >= state.capacity) {
-  throw new Error('Course is full!');
-}
-
-// 3️⃣ WRITE — Append with the appendCondition from your read
-const appendResult = await store.append([
-  { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } }
-], result.appendCondition);  // ← Ensures no one else wrote since your read!
+// 3️⃣ WRITE
+const result = await store.append(newEvents, appendCondition);
 
 // Handle result
 if (appendResult.conflict) {
