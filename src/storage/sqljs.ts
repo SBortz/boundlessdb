@@ -163,30 +163,91 @@ export class SqlJsStorage implements EventStorage {
   ): Promise<StoredEvent[]> {
     const db = await this.ensureInitialized();
 
-    if (conditions.length === 0) {
-      return [];
-    }
-
     // sql.js doesn't support params properly - use escaped SQL
     const escapeSql = (s: string): string => "'" + s.replace(/'/g, "''") + "'";
 
-    // Build dynamic OR clause for conditions with escaped values
-    const whereClauses = conditions.map(
-      c => `(e.event_type = ${escapeSql(c.type)} AND k.key_name = ${escapeSql(c.key)} AND k.key_value = ${escapeSql(c.value)})`
-    );
+    if (conditions.length === 0) {
+      // No conditions = return all events
+      let sql = `
+        SELECT position, event_id, event_type, data, metadata, timestamp
+        FROM events
+      `;
 
-    let sql = `
-      SELECT DISTINCT
-        e.position,
-        e.event_id,
-        e.event_type,
-        e.data,
-        e.metadata,
-        e.timestamp
-      FROM events e
-      JOIN event_keys k ON e.position = k.position
-      WHERE (${whereClauses.join(' OR ')})
-    `;
+      if (fromPosition !== undefined) {
+        sql += ` WHERE position > ${Number(fromPosition)}`;
+      }
+
+      sql += ' ORDER BY position';
+
+      if (limit !== undefined) {
+        sql += ` LIMIT ${Number(limit)}`;
+      }
+
+      const result = db.exec(sql);
+      if (result.length === 0) return [];
+
+      const columns = (result[0] as any).columns || (result[0] as any).lc;
+      const rows = result[0].values;
+
+      return rows.map((row: SqlValue[]) => {
+        const obj: Record<string, unknown> = {};
+        columns.forEach((col: string, i: number) => {
+          obj[col] = row[i];
+        });
+        return this.rowToEvent(obj as unknown as EventRow);
+      });
+    }
+
+    // Separate conditions: constrained (with key/value) vs unconstrained (type only)
+    const constrained = conditions.filter(c => c.key !== undefined && c.value !== undefined);
+    const unconstrained = conditions.filter(c => c.key === undefined || c.value === undefined);
+
+    const whereClauses: string[] = [];
+
+    // Unconstrained: match by type only
+    if (unconstrained.length > 0) {
+      const typeList = unconstrained.map(c => escapeSql(c.type)).join(', ');
+      whereClauses.push(`e.event_type IN (${typeList})`);
+    }
+
+    // Constrained: match by type + key + value
+    if (constrained.length > 0) {
+      const constrainedClauses = constrained.map(
+        c => `(e.event_type = ${escapeSql(c.type)} AND k.key_name = ${escapeSql(c.key!)} AND k.key_value = ${escapeSql(c.value!)})`
+      );
+      whereClauses.push(`(${constrainedClauses.join(' OR ')})`);
+    }
+
+    // Build SQL
+    let sql: string;
+    if (constrained.length > 0) {
+      // Need JOIN for constrained conditions
+      sql = `
+        SELECT DISTINCT
+          e.position,
+          e.event_id,
+          e.event_type,
+          e.data,
+          e.metadata,
+          e.timestamp
+        FROM events e
+        LEFT JOIN event_keys k ON e.position = k.position
+        WHERE (${whereClauses.join(' OR ')})
+      `;
+    } else {
+      // No constrained conditions, no JOIN needed
+      sql = `
+        SELECT
+          position,
+          event_id,
+          event_type,
+          data,
+          metadata,
+          timestamp
+        FROM events e
+        WHERE (${whereClauses.join(' OR ')})
+      `;
+    }
 
     if (fromPosition !== undefined) {
       sql += ` AND e.position > ${Number(fromPosition)}`;

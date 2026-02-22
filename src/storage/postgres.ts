@@ -170,35 +170,91 @@ export class PostgresStorage implements EventStorage {
   ): Promise<StoredEvent[]> {
     this.ensureInitialized();
 
-    if (conditions.length === 0) {
-      return [];
-    }
-
-    // Build dynamic OR clause for conditions
-    const whereClauses: string[] = [];
     const params: (string | number)[] = [];
     let paramIndex = 1;
 
-    for (const condition of conditions) {
-      whereClauses.push(
-        `(e.event_type = $${paramIndex} AND k.key_name = $${paramIndex + 1} AND k.key_value = $${paramIndex + 2})`
-      );
-      params.push(condition.type, condition.key, condition.value);
-      paramIndex += 3;
+    if (conditions.length === 0) {
+      // No conditions = return all events
+      let sql = `
+        SELECT position, event_id, event_type, data, metadata, timestamp
+        FROM events
+      `;
+
+      if (fromPosition !== undefined) {
+        sql += ` WHERE position > $${paramIndex}`;
+        params.push(fromPosition.toString());
+        paramIndex++;
+      }
+
+      sql += ' ORDER BY position';
+
+      if (limit !== undefined) {
+        sql += ` LIMIT $${paramIndex}`;
+        params.push(limit);
+      }
+
+      const result = await this.pool.query<EventRow>(sql, params);
+      return result.rows.map(row => this.rowToEvent(row));
     }
 
-    let sql = `
-      SELECT DISTINCT ON (e.position)
-        e.position,
-        e.event_id,
-        e.event_type,
-        e.data,
-        e.metadata,
-        e.timestamp
-      FROM events e
-      JOIN event_keys k ON e.position = k.position
-      WHERE (${whereClauses.join(' OR ')})
-    `;
+    // Separate conditions: constrained (with key/value) vs unconstrained (type only)
+    const constrained = conditions.filter(c => c.key !== undefined && c.value !== undefined);
+    const unconstrained = conditions.filter(c => c.key === undefined || c.value === undefined);
+
+    const whereClauses: string[] = [];
+
+    // Unconstrained: match by type only
+    if (unconstrained.length > 0) {
+      const typePlaceholders = unconstrained.map(() => {
+        const ph = `$${paramIndex}`;
+        paramIndex++;
+        return ph;
+      });
+      whereClauses.push(`e.event_type IN (${typePlaceholders.join(', ')})`);
+      params.push(...unconstrained.map(c => c.type));
+    }
+
+    // Constrained: match by type + key + value
+    if (constrained.length > 0) {
+      const constrainedClauses = constrained.map(c => {
+        const clause = `(e.event_type = $${paramIndex} AND k.key_name = $${paramIndex + 1} AND k.key_value = $${paramIndex + 2})`;
+        params.push(c.type, c.key!, c.value!);
+        paramIndex += 3;
+        return clause;
+      });
+      whereClauses.push(`(${constrainedClauses.join(' OR ')})`);
+    }
+
+    // Build SQL
+    let sql: string;
+    if (constrained.length > 0) {
+      // Need JOIN for constrained conditions
+      sql = `
+        SELECT DISTINCT ON (e.position)
+          e.position,
+          e.event_id,
+          e.event_type,
+          e.data,
+          e.metadata,
+          e.timestamp
+        FROM events e
+        LEFT JOIN event_keys k ON e.position = k.position
+        WHERE (${whereClauses.join(' OR ')})
+      `;
+    } else {
+      // No constrained conditions, no JOIN needed
+      sql = `
+        SELECT
+          position,
+          event_id,
+          event_type,
+          data,
+          metadata,
+          timestamp
+        FROM events e
+        WHERE (${whereClauses.join(' OR ')})
+      `;
+    }
 
     if (fromPosition !== undefined) {
       sql += ` AND e.position > $${paramIndex}`;
@@ -361,7 +417,7 @@ export class PostgresStorage implements EventStorage {
     return {
       id: row.event_id,
       type: row.event_type,
-      data: row.data,
+      data: row.data as Record<string, unknown>,
       metadata: row.metadata as Record<string, unknown> | undefined,
       timestamp: new Date(row.timestamp),
       position: BigInt(row.position),

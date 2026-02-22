@@ -46,8 +46,13 @@ function normalizeQuery(conditions: QueryCondition[]): QueryCondition[] {
     .map(c => ({ type: c.type, key: c.key, value: c.value }))
     .sort((a, b) => {
       if (a.type !== b.type) return a.type.localeCompare(b.type);
-      if (a.key !== b.key) return a.key.localeCompare(b.key);
-      return a.value.localeCompare(b.value);
+      // Handle optional key/value - sort undefined to the end
+      const aKey = a.key ?? '';
+      const bKey = b.key ?? '';
+      if (aKey !== bKey) return aKey.localeCompare(bKey);
+      const aValue = a.value ?? '';
+      const bValue = b.value ?? '';
+      return aValue.localeCompare(bValue);
     });
 }
 

@@ -7,14 +7,19 @@
 
 // Core types
 export type {
-  NewEvent,
+  // Event types
+  Event,
+  EventWithMetadata,
   StoredEvent,
+  // Query types
   Query,
   QueryCondition,
+  // Config types
   ConsistencyConfig,
   ConsistencyKeyDef,
   EventTypeConfig,
   ExtractedKey,
+  // Result types
   ReadResult,
   AppendResult,
   ConflictResult,
@@ -22,9 +27,11 @@ export type {
   AppendCondition,
   TokenPayload,
   EventStoreOptions,
+  // Legacy alias
+  NewEvent,
 } from './types.js';
 
-export { isConflict } from './types.js';
+export { QueryResult, isConflict } from './types.js';
 
 // Event Store (browser version)
 export { EventStore, createEventStore, type EventStoreConfig } from './event-store.browser.js';

@@ -7,37 +7,66 @@
 // ============================================================
 
 /**
- * Event as submitted by the client (before storage)
+ * Base Event type - marker interface for domain events.
+ * 
+ * @example
+ * ```typescript
+ * type ProductItemAdded = Event<'ProductItemAdded', {
+ *   cartId: string;
+ *   productId: string;
+ *   quantity: number;
+ * }>;
+ * 
+ * type CartEvents = ProductItemAdded | ProductItemRemoved;
+ * ```
  */
-export interface NewEvent<T = unknown> {
-  type: string;
-  data: T;
+export type Event<
+  EventType extends string = string,
+  EventPayload extends Record<string, unknown> = Record<string, unknown>
+> = Readonly<{
+  type: EventType;
+  data: EventPayload;
+}>;
+
+/**
+ * Event with optional metadata (for append operations)
+ */
+export type EventWithMetadata<E extends Event = Event> = E & {
   metadata?: Record<string, unknown>;
-}
+};
 
 /**
  * Event as returned by the store (after storage)
  */
-export interface StoredEvent<T = unknown> {
+export type StoredEvent<E extends Event = Event> = E & Readonly<{
   id: string;
-  type: string;
-  data: T;
   metadata?: Record<string, unknown>;
   timestamp: Date;
   position: bigint;
-}
+}>;
 
 // ============================================================
 // Query
 // ============================================================
 
 /**
- * A single query condition: event type + key-value match
+ * A single query condition: event type + optional key-value match.
+ * 
+ * If key/value are omitted, matches all events of the given type.
+ * 
+ * @example
+ * ```typescript
+ * // Match specific key-value
+ * { type: 'ProductItemAdded', key: 'cart', value: 'cart-123' }
+ * 
+ * // Match all events of type (unconstrained)
+ * { type: 'ProductItemAdded' }
+ * ```
  */
 export interface QueryCondition {
   type: string;
-  key: string;
-  value: string;
+  key?: string;
+  value?: string;
 }
 
 /**
@@ -47,6 +76,52 @@ export interface Query {
   conditions: QueryCondition[];
   fromPosition?: bigint;
   limit?: number;
+}
+
+// ============================================================
+// Query Result
+// ============================================================
+
+/**
+ * Result of a read operation - provides typed access to events and metadata.
+ */
+export class QueryResult<E extends Event = Event> {
+  readonly events: StoredEvent<E>[];
+  readonly token: ConsistencyToken;
+  readonly position: bigint;
+  readonly conditions: QueryCondition[];
+
+  constructor(
+    events: StoredEvent<E>[],
+    token: ConsistencyToken,
+    position: bigint,
+    conditions: QueryCondition[]
+  ) {
+    this.events = events;
+    this.token = token;
+    this.position = position;
+    this.conditions = conditions;
+  }
+
+  /** Number of events in the result */
+  get count(): number {
+    return this.events.length;
+  }
+
+  /** Whether the result contains no events */
+  isEmpty(): boolean {
+    return this.events.length === 0;
+  }
+
+  /** Get the first event, or undefined if empty */
+  first(): StoredEvent<E> | undefined {
+    return this.events[0];
+  }
+
+  /** Get the last event, or undefined if empty */
+  last(): StoredEvent<E> | undefined {
+    return this.events[this.events.length - 1];
+  }
 }
 
 // ============================================================
@@ -100,10 +175,11 @@ export interface ExtractedKey {
 // ============================================================
 
 /**
- * Result of a successful read operation
+ * Result of a successful read operation (legacy - use QueryResult instead)
+ * @deprecated Use QueryResult<E> for typed results
  */
-export interface ReadResult {
-  events: StoredEvent[];
+export interface ReadResult<E extends Event = Event> {
+  events: StoredEvent<E>[];
   token: ConsistencyToken;
 }
 
@@ -119,16 +195,18 @@ export interface AppendResult {
 /**
  * Result when a conflict is detected
  */
-export interface ConflictResult {
+export interface ConflictResult<E extends Event = Event> {
   conflict: true;
-  conflictingEvents: StoredEvent[];
+  conflictingEvents: StoredEvent<E>[];
   newToken: ConsistencyToken;
 }
 
 /**
  * Type guard for conflict detection
  */
-export function isConflict(result: AppendResult | ConflictResult): result is ConflictResult {
+export function isConflict<E extends Event = Event>(
+  result: AppendResult | ConflictResult<E>
+): result is ConflictResult<E> {
   return result.conflict;
 }
 
@@ -175,3 +253,16 @@ export interface EventStoreOptions {
   /** Consistency configuration */
   consistency: ConsistencyConfig;
 }
+
+// ============================================================
+// Legacy Aliases (for backwards compatibility)
+// ============================================================
+
+/**
+ * @deprecated Use Event<EventType, EventPayload> instead
+ */
+export type NewEvent<T = unknown> = {
+  type: string;
+  data: T;
+  metadata?: Record<string, unknown>;
+};

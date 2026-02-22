@@ -9,16 +9,18 @@ import { validateConfig } from './config/validator.js';
 import type { EventStorage } from './storage/interface.js';
 import { SqlJsStorage } from './storage/sqljs.js';
 import { createToken, decodeToken, TokenDecodeError } from './token.browser.js';
-import type {
-  AppendCondition,
-  AppendResult,
-  ConflictResult,
-  ConsistencyConfig,
-  ConsistencyToken,
-  EventStoreOptions,
-  NewEvent,
-  Query,
-  ReadResult,
+import {
+  QueryResult,
+  type AppendCondition,
+  type AppendResult,
+  type ConflictResult,
+  type ConsistencyConfig,
+  type ConsistencyToken,
+  type Event,
+  type EventStoreOptions,
+  type EventWithMetadata,
+  type Query,
+  type StoredEvent,
 } from './types.js';
 
 /**
@@ -164,7 +166,7 @@ export class EventStore {
       
       await this.storage.reindex((event) => {
         eventCount++;
-        // Convert StoredEvent to NewEvent format for KeyExtractor
+        // Convert StoredEvent to Event format for KeyExtractor
         const keys = this.keyExtractor.extract({
           type: event.type,
           data: event.data,
@@ -193,13 +195,30 @@ export class EventStore {
 
   /**
    * Read events matching a query
-   * @returns Events and a consistency token for subsequent appends
+   * 
+   * @typeParam E - Event union type for typed results
+   * @returns QueryResult with typed events and consistency token
+   * 
+   * @example
+   * ```typescript
+   * // Typed read
+   * const result = await store.read<CartEvents>({
+   *   conditions: [{ type: 'ProductItemAdded', key: 'cart', value: 'cart-123' }]
+   * });
+   * 
+   * // Untyped read (all events of type)
+   * const result = await store.read({
+   *   conditions: [{ type: 'ProductItemAdded' }]
+   * });
+   * ```
    */
-  async read(query: Query): Promise<ReadResult> {
+  async read<E extends Event = Event>(query: Query): Promise<QueryResult<E>> {
     await this.ensureInitialized();
     
     console.log('📖 READ: Querying events...');
-    console.log('   Conditions:', query.conditions.map(c => `${c.type}[${c.key}=${c.value}]`).join(', ') || '(none)');
+    console.log('   Conditions:', query.conditions.map(c => 
+      c.key && c.value ? `${c.type}[${c.key}=${c.value}]` : `${c.type}[*]`
+    ).join(', ') || '(none)');
     
     const events = await this.storage.query(
       query.conditions,
@@ -219,23 +238,41 @@ export class EventStore {
     console.log(`🎟️ TOKEN: Generated at position #${position}`);
     console.log(`   Scope: ${query.conditions.length} condition(s)`);
 
-    return { events, token };
+    return new QueryResult<E>(
+      events as StoredEvent<E>[],
+      token,
+      position,
+      query.conditions
+    );
   }
 
   /**
    * Append events with optional consistency check
    * 
+   * @typeParam E - Event type for type checking
    * @param events Events to append
    * @param condition Consistency check - can be:
    *   - null: Skip consistency check (optimistic first write)
    *   - ConsistencyToken: Token from previous read() call
    *   - AppendCondition: Direct { position, conditions } object
    * @returns AppendResult on success, ConflictResult on conflict
+   * 
+   * @example
+   * ```typescript
+   * // With token from read
+   * const result = await store.append<CartEvents>([newEvent], queryResult.token);
+   * 
+   * // With direct condition
+   * const result = await store.append<CartEvents>([newEvent], {
+   *   position: queryResult.position,
+   *   conditions: queryResult.conditions
+   * });
+   * ```
    */
-  async append(
-    events: NewEvent[],
+  async append<E extends Event = Event>(
+    events: EventWithMetadata<E>[],
     condition: ConsistencyToken | AppendCondition | null
-  ): Promise<AppendResult | ConflictResult> {
+  ): Promise<AppendResult | ConflictResult<E>> {
     await this.ensureInitialized();
     
     console.log(`✏️ APPEND: ${events.length} event(s)`);
@@ -284,8 +321,11 @@ export class EventStore {
       }
 
       // Check for conflicts
+      const conditionsStr = appendCondition.conditions.map(c => 
+        c.key && c.value ? `${c.type}[${c.key}=${c.value}]` : `${c.type}[*]`
+      ).join(', ');
       console.log(`🔍 CONFLICT CHECK: Looking for events since position #${appendCondition.position}`);
-      console.log(`   Checking conditions: ${appendCondition.conditions.map(c => `${c.type}[${c.key}=${c.value}]`).join(', ') || '(none)'}`);
+      console.log(`   Checking conditions: ${conditionsStr || '(none)'}`);
       
       const conflictingEvents = await this.storage.getEventsSince(
         appendCondition.conditions,
@@ -305,7 +345,11 @@ export class EventStore {
         console.log('');
         console.log('🔍 Query conditions you checked:');
         appendCondition.conditions.forEach(c => {
-          console.log(`   • ${c.type} where ${c.key}="${c.value}"`);
+          if (c.key && c.value) {
+            console.log(`   • ${c.type} where ${c.key}="${c.value}"`);
+          } else {
+            console.log(`   • ${c.type} (all)`);
+          }
         });
         console.log('');
         console.log('⚡ Events written SINCE your read (that match your query):');
@@ -330,7 +374,7 @@ export class EventStore {
 
         return {
           conflict: true,
-          conflictingEvents,
+          conflictingEvents: conflictingEvents as StoredEvent<E>[],
           newToken,
         };
       }
@@ -374,13 +418,18 @@ export class EventStore {
   /**
    * Build a query that covers the appended events
    */
-  private buildQueryFromEvents(events: NewEvent[], originalCondition: AppendCondition | null): Query {
+  private buildQueryFromEvents<E extends Event>(
+    events: EventWithMetadata<E>[],
+    originalCondition: AppendCondition | null
+  ): Query {
     const conditions = new Map<string, { type: string; key: string; value: string }>();
 
     if (originalCondition !== null) {
       for (const cond of originalCondition.conditions) {
-        const key = `${cond.type}:${cond.key}:${cond.value}`;
-        conditions.set(key, cond);
+        if (cond.key && cond.value) {
+          const key = `${cond.type}:${cond.key}:${cond.value}`;
+          conditions.set(key, { type: cond.type, key: cond.key, value: cond.value });
+        }
       }
     }
 
