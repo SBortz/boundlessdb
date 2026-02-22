@@ -22,6 +22,7 @@ import {
   type QueryCondition,
   type StoredEvent,
 } from './types.js';
+import { QueryBuilder, type QueryExecutor } from './query-builder.js';
 
 /**
  * Recursively sort object keys for deterministic JSON
@@ -119,6 +120,26 @@ export class EventStore {
       const duration = Date.now() - startTime;
       console.log(`[EventStore] ✅ Reindex complete: ${eventCount} events, ${keyCount} keys (${duration}ms)`);
     }
+  }
+
+  /**
+   * Create a fluent query builder.
+   * 
+   * @typeParam E - Event union type for typed results
+   * @returns QueryBuilder for chaining
+   * 
+   * @example
+   * ```typescript
+   * const result = await store.query<CourseEvent>()
+   *   .matchType('CourseCreated')
+   *   .matchKey('StudentSubscribed', 'course', 'cs101')
+   *   .fromPosition(100n)
+   *   .limit(50)
+   *   .read();
+   * ```
+   */
+  query<E extends Event = Event>(): QueryBuilder<E> {
+    return new QueryBuilder<E>(this as unknown as QueryExecutor<E>);
   }
 
   /**

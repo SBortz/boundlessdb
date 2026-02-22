@@ -40,3 +40,6 @@ export { PostgresStorage } from './storage/postgres.js';
 // Config
 export { KeyExtractor, KeyExtractionError } from './config/extractor.js';
 export { validateConfig, ConfigValidationError } from './config/validator.js';
+
+// Query Builder
+export { QueryBuilder } from './query-builder.js';
