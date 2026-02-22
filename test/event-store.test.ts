@@ -445,14 +445,14 @@ describe('EventStore', () => {
         ]);
       });
 
-      it('works with fluent API matchAnyType', async () => {
+      it('works with fluent API matchKey', async () => {
         await store.append([
           { type: 'CourseCreated', data: { courseId: 'cs101', name: 'Intro' } },
           { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } },
         ], null);
 
         const result = await store.query()
-          .matchAnyType('course', 'cs101')
+          .matchKey('course', 'cs101')
           .read();
 
         expect(result.events).toHaveLength(2);

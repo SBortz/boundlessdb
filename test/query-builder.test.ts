@@ -49,7 +49,7 @@ describe('QueryBuilder (Fluent API)', () => {
 
   it('should query with match (constrained)', async () => {
     const result = await store.query<TestEvent>()
-      .matchKey('StudentSubscribed', 'course', 'cs101')
+      .matchTypeAndKey('StudentSubscribed', 'course', 'cs101')
       .read();
 
     expect(result.count).toBe(2);
@@ -59,7 +59,7 @@ describe('QueryBuilder (Fluent API)', () => {
   it('should combine matchType and match', async () => {
     const result = await store.query<TestEvent>()
       .matchType('CourseCreated')
-      .matchKey('StudentSubscribed', 'course', 'cs101')
+      .matchTypeAndKey('StudentSubscribed', 'course', 'cs101')
       .read();
 
     // Should get: CourseCreated (all) + StudentSubscribed for cs101
@@ -95,7 +95,7 @@ describe('QueryBuilder (Fluent API)', () => {
 
   it('should chain multiple conditions', async () => {
     const result = await store.query<TestEvent>()
-      .matchKey('StudentSubscribed', 'student', 'alice')
+      .matchTypeAndKey('StudentSubscribed', 'student', 'alice')
       .read();
 
     // Alice is subscribed to both courses
@@ -104,7 +104,7 @@ describe('QueryBuilder (Fluent API)', () => {
 
   it('should return appendCondition for consistency', async () => {
     const result = await store.query<TestEvent>()
-      .matchKey('StudentSubscribed', 'course', 'cs101')
+      .matchTypeAndKey('StudentSubscribed', 'course', 'cs101')
       .read();
 
     expect(result.appendCondition).toBeDefined();
@@ -118,7 +118,7 @@ describe('QueryBuilder (Fluent API)', () => {
 
   it('should work with empty results', async () => {
     const result = await store.query<TestEvent>()
-      .matchKey('StudentSubscribed', 'course', 'nonexistent')
+      .matchTypeAndKey('StudentSubscribed', 'course', 'nonexistent')
       .read();
 
     expect(result.isEmpty()).toBe(true);

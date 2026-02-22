@@ -46,14 +46,14 @@ export class QueryBuilder<E extends Event> {
   }
 
   /**
-   * Add a constrained condition (match events where key equals value).
+   * Add a constrained condition (match events of type where key equals value).
    * 
    * @example
    * ```typescript
-   * .matchKey('StudentSubscribed', 'course', 'cs101')
+   * .matchTypeAndKey('StudentSubscribed', 'course', 'cs101')
    * ```
    */
-  matchKey(type: string, key: string, value: string): this {
+  matchTypeAndKey(type: string, key: string, value: string): this {
     this.conditions.push({ type, key, value });
     return this;
   }
@@ -64,10 +64,10 @@ export class QueryBuilder<E extends Event> {
    * 
    * @example
    * ```typescript
-   * .matchAnyType('course', 'cs101')  // matches ALL events where course=cs101
+   * .matchKey('course', 'cs101')  // matches ALL events where course=cs101
    * ```
    */
-  matchAnyType(key: string, value: string): this {
+  matchKey(key: string, value: string): this {
     this.conditions.push({ key, value });
     return this;
   }
