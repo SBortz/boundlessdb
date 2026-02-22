@@ -730,9 +730,9 @@
           <textarea id="append-data" style="min-height:120px" placeholder='{"courseId": "cs101", "studentId": "dave"}'></textarea>
           
           <div style="margin-top:0.5rem;padding:0.4rem;background:#0a1628;border-radius:4px;font-size:0.75rem">
-            <div style="color:#0cf;margin-bottom:0.3rem">🔐 Consistency Token (editierbar)</div>
+            <div style="color:#0cf;margin-bottom:0.3rem">🔐 AppendCondition (editierbar)</div>
             <div id="token-editor">
-              <textarea id="token-payload" style="min-height:180px;font-size:0.75rem" placeholder="Klicke 'From Live Query' um Token zu laden"></textarea>
+              <textarea id="token-payload" style="min-height:180px;font-size:0.75rem" placeholder="Klicke 'From Live Query' um Condition zu laden"></textarea>
               <div class="quick-buttons" style="margin-top:0.3rem">
                 <button class="query" onclick="loadFromLiveQuery()">📋 From Live Query</button>
                 <button onclick="clearAppendToken()">🗑️ Clear</button>
@@ -831,9 +831,8 @@
     import { 
       createEventStore, 
       SqlJsStorage, 
-      isConflict,
-      encodeAppendCondition
-    } from './boundless.browser.js?v=32';
+      isConflict
+    } from './boundless.browser.js?v=33';
 
     // Configuration for the demo
     const CONSISTENCY_CONFIG = {
@@ -1281,31 +1280,25 @@
       await refreshLiveQuery();
     };
 
-    // Token handling
-    let appendToken = null;
-
+    // Condition handling
     window.loadFromLiveQuery = function() {
-      if (!currentLiveToken) {
+      if (!currentLiveCondition) {
         setTokenStatus('❌ Keine Live Query aktiv', 'error');
         return;
       }
       
-      // Decode token payload
-      try {
-        const [payloadB64] = currentLiveToken.split('.');
-        const payload = JSON.parse(atob(payloadB64.replace(/-/g,'+').replace(/_/g,'/')));
-        document.getElementById('token-payload').value = JSON.stringify(payload, null, 2);
-        appendToken = currentLiveToken;
-        setTokenStatus(`✅ Token geladen (pos=${payload.pos})`, 'success');
-      } catch (e) {
-        setTokenStatus('❌ Token decode error: ' + e.message, 'error');
-      }
+      // Load condition from live query
+      const payload = {
+        position: currentLiveCondition.position.toString(),
+        conditions: currentLiveCondition.conditions
+      };
+      document.getElementById('token-payload').value = JSON.stringify(payload, null, 2);
+      setTokenStatus(`✅ Condition geladen (pos=${currentLiveCondition.position})`, 'success');
     };
 
     window.clearAppendToken = function() {
-      appendToken = null;
       document.getElementById('token-payload').value = '';
-      setTokenStatus('Token gelöscht (nächster Append ohne Check)', 'info');
+      setTokenStatus('Condition gelöscht (nächster Append ohne Check)', 'info');
     };
 
     function setTokenStatus(msg, type) {
@@ -1332,41 +1325,38 @@
       try { data = JSON.parse(dataStr || '{}'); }
       catch { return showFeedback('append-result', 'Invalid JSON', 'conflict'); }
       
-      // Check if user edited the token payload - if so, create new signed token
-      const tokenPayloadStr = document.getElementById('token-payload').value.trim();
-      let tokenToUse = null;
+      // Check if user edited the condition payload
+      const conditionPayloadStr = document.getElementById('token-payload').value.trim();
+      let conditionToUse = null;
       
-      if (!tokenPayloadStr) {
-        // Empty textarea = no token
-        appendToken = null;
+      if (!conditionPayloadStr) {
+        // Empty textarea = no condition
+        conditionToUse = null;
       } else {
         try {
-          const editedPayload = JSON.parse(tokenPayloadStr);
-          // Convert to TokenPayload format (pos as bigint)
-          const payload = {
-            v: editedPayload.v || 1,
-            position: BigInt(editedPayload.pos || '0'),
-            conditions: editedPayload.q || []
+          const editedPayload = JSON.parse(conditionPayloadStr);
+          // Convert to AppendCondition format (position as bigint)
+          conditionToUse = {
+            position: BigInt(editedPayload.position || editedPayload.pos || '0'),
+            conditions: editedPayload.conditions || editedPayload.q || []
           };
-          // Create token from edited payload
-          tokenToUse = encodeAppendCondition(payload);
-          console.log('📝 Created token from edited payload, pos=' + payload.position);
+          console.log('📝 Created condition from edited payload, pos=' + conditionToUse.position);
         } catch (e) {
-          console.warn('Could not parse edited token payload:', e);
+          console.warn('Could not parse edited condition payload:', e);
         }
       }
       
-      // Warn if no token
-      if (!tokenToUse) {
-        console.warn('⚠️ APPEND WITHOUT TOKEN - no consistency check!');
+      // Warn if no condition
+      if (!conditionToUse) {
+        console.warn('⚠️ APPEND WITHOUT CONDITION - no consistency check!');
       }
       
       try {
-        const result = await store.append([{ type, data }], tokenToUse);
+        const result = await store.append([{ type, data }], conditionToUse);
         
-        // Show different message based on whether token was used
-        const noTokenWarning = !tokenToUse 
-          ? '\n\n⚠️ Ohne Consistency Token = keine Konsistenzprüfung!' 
+        // Show different message based on whether condition was used
+        const noConditionWarning = !conditionToUse 
+          ? '\n\n⚠️ Ohne AppendCondition = keine Konsistenzprüfung!' 
           : '';
         
         if (isConflict(result)) {
@@ -1378,30 +1368,29 @@
               type: e.type,
               data: e.data
             })),
-            newToken: result.newToken?.substring(0, 50) + '...'
+            appendCondition: result.appendCondition
           };
           console.warn('⚠️ CONFLICT DETECTED:', conflictData);
           showFeedback('append-result', 
             `⚠️ CONFLICT!\n` +
             `Event #${conflictEvent.position} (${conflictEvent.type}) kam dazwischen während du gelesen hast.\n\n` +
-            `→ Token wurde durch "newToken" aus dem Result ersetzt.\n` +
-            `→ Mit neuem Token ist Retry möglich.`, 
+            `→ appendCondition wurde aktualisiert.\n` +
+            `→ Mit neuer Condition ist Retry möglich.`, 
             'conflict'
           );
           showJsonResult('append-json', conflictData);
-          // Update token to new one for retry
-          appendToken = result.newToken;
-          try {
-            const [payloadB64] = result.newToken.split('.');
-            const payload = JSON.parse(atob(payloadB64.replace(/-/g,'+').replace(/_/g,'/')));
-            document.getElementById('token-payload').value = JSON.stringify(payload, null, 2);
-            setTokenStatus(`⚠️ Neuer Token (pos=${payload.pos}) - retry möglich`, 'error');
-          } catch {}
+          // Update condition for retry
+          const newCondition = {
+            position: result.appendCondition.position.toString(),
+            conditions: result.appendCondition.conditions
+          };
+          document.getElementById('token-payload').value = JSON.stringify(newCondition, null, 2);
+          setTokenStatus(`⚠️ Neue Condition (pos=${result.appendCondition.position}) - retry möglich`, 'error');
         } else {
-          showFeedback('append-result', `✅ Event #${result.position} erfolgreich gespeichert!${noTokenWarning}`, 'success');
-          // Keep old token - user should learn they need a fresh one!
-          if (tokenToUse) {
-            setTokenStatus(`⚠️ Token ist jetzt veraltet (pos < ${result.position})`, 'warning');
+          showFeedback('append-result', `✅ Event #${result.position} erfolgreich gespeichert!${noConditionWarning}`, 'success');
+          // Keep old condition - user should learn they need a fresh one!
+          if (conditionToUse) {
+            setTokenStatus(`⚠️ Condition ist jetzt veraltet (pos < ${result.position})`, 'warning');
           }
         }
 
