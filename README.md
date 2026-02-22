@@ -422,7 +422,7 @@ const result = await store.read({ conditions: [] });
 BoundlessDB includes helpers for the Decider pattern (inspired by [Emmett](https://github.com/event-driven-io/emmett)):
 
 ```typescript
-import { Decider, buildState, executeCommand } from 'boundlessdb';
+import { Decider, evolve, decide } from 'boundlessdb';
 
 // Define your decider
 const cartDecider: Decider<CartState, CartCommand, CartEvent> = {
@@ -459,10 +459,10 @@ const result = await store.read<CartEvent>({
 });
 
 // 2. Build state from events
-const state = buildState(result.events, cartDecider.evolve, cartDecider.initialState());
+const state = evolve(result.events, cartDecider);
 
-// 3. Execute command to get new events
-const newEvents = executeCommand(result.events, command, cartDecider);
+// 3. Decide: command + state → new events
+const newEvents = decide(command, result.events, cartDecider);
 
 // 4. Append with consistency check
 await store.append(newEvents, result.token);
@@ -472,9 +472,8 @@ await store.append(newEvents, result.token);
 
 | Function | Description |
 |----------|-------------|
-| `buildState(events, evolve, initial)` | Fold events into state |
-| `buildStateWithDecider(events, decider)` | Same, using decider's initialState |
-| `executeCommand(events, command, decider)` | Build state + decide in one call |
+| `evolve(events, decider)` | Fold events into state |
+| `decide(command, events, decider)` | Build state + decide → new events |
 
 ## API Reference
 

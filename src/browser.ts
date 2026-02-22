@@ -59,4 +59,4 @@ export {
 
 // Decider pattern
 export type { Decider } from './decider.js';
-export { buildState, buildStateWithDecider, executeCommand } from './decider.js';
+export { evolve, decide } from './decider.js';

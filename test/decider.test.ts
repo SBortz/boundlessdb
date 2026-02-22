@@ -1,10 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { 
-  Decider, 
-  buildState, 
-  buildStateWithDecider, 
-  executeCommand 
-} from '../src/decider.js';
+import { Decider, evolve, decide } from '../src/decider.js';
 import type { Event } from '../src/types.js';
 
 // Test event types
@@ -74,13 +69,9 @@ const cartDecider: Decider<CartState, CartCommand, CartEvent> = {
 };
 
 describe('Decider', () => {
-  describe('buildState', () => {
+  describe('evolve', () => {
     it('returns initial state for empty events', () => {
-      const state = buildState<CartState, CartEvent>(
-        [],
-        cartDecider.evolve,
-        cartDecider.initialState()
-      );
+      const state = evolve([], cartDecider);
       
       expect(state.items.size).toBe(0);
       expect(state.checkedOut).toBe(false);
@@ -93,7 +84,7 @@ describe('Decider', () => {
         { type: 'ItemAdded', data: { productId: 'apple', quantity: 1 } }, // Add more apples
       ];
 
-      const state = buildState(events, cartDecider.evolve, cartDecider.initialState());
+      const state = evolve(events, cartDecider);
       
       expect(state.items.get('apple')).toBe(4);
       expect(state.items.get('banana')).toBe(2);
@@ -106,30 +97,18 @@ describe('Decider', () => {
         { type: 'CartCheckedOut', data: { itemCount: 1 } },
       ];
 
-      const state = buildState(events, cartDecider.evolve, cartDecider.initialState());
+      const state = evolve(events, cartDecider);
       
       expect(state.checkedOut).toBe(true);
     });
   });
 
-  describe('buildStateWithDecider', () => {
-    it('uses decider initialState and evolve', () => {
-      const events: CartEvent[] = [
-        { type: 'ItemAdded', data: { productId: 'apple', quantity: 5 } },
-      ];
-
-      const state = buildStateWithDecider(events, cartDecider);
-      
-      expect(state.items.get('apple')).toBe(5);
-    });
-  });
-
-  describe('executeCommand', () => {
+  describe('decide', () => {
     it('produces events from command', () => {
       const events: CartEvent[] = [];
       const command: CartCommand = { type: 'AddItem', productId: 'apple', quantity: 3 };
 
-      const newEvents = executeCommand(events, command, cartDecider);
+      const newEvents = decide(command, events, cartDecider);
       
       expect(newEvents).toHaveLength(1);
       expect(newEvents[0].type).toBe('ItemAdded');
@@ -142,7 +121,7 @@ describe('Decider', () => {
       ];
       const command: CartCommand = { type: 'Checkout' };
 
-      const newEvents = executeCommand(events, command, cartDecider);
+      const newEvents = decide(command, events, cartDecider);
       
       expect(newEvents).toHaveLength(1);
       expect(newEvents[0].type).toBe('CartCheckedOut');
@@ -156,7 +135,7 @@ describe('Decider', () => {
       ];
       const command: CartCommand = { type: 'AddItem', productId: 'banana', quantity: 1 };
 
-      expect(() => executeCommand(events, command, cartDecider))
+      expect(() => decide(command, events, cartDecider))
         .toThrow('Cart already checked out');
     });
 
@@ -164,7 +143,7 @@ describe('Decider', () => {
       const events: CartEvent[] = [];
       const command: CartCommand = { type: 'Checkout' };
 
-      expect(() => executeCommand(events, command, cartDecider))
+      expect(() => decide(command, events, cartDecider))
         .toThrow('Cart is empty');
     });
 
@@ -172,7 +151,7 @@ describe('Decider', () => {
       const events: CartEvent[] = [];
       const command: CartCommand = { type: 'RemoveItem', productId: 'ghost' };
 
-      expect(() => executeCommand(events, command, cartDecider))
+      expect(() => decide(command, events, cartDecider))
         .toThrow('Item not in cart');
     });
   });

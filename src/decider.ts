@@ -80,59 +80,42 @@ export interface Decider<State, Command, E extends Event> {
 }
 
 /**
- * Build state by folding events through an evolve function.
+ * Build state by folding events through a decider's evolve function.
  * 
  * @example
  * ```typescript
  * const result = await store.read<CartEvent>({ conditions });
- * const state = buildState(result.events, cartDecider.evolve, cartDecider.initialState());
+ * const state = evolve(result.events, cartDecider);
  * ```
  */
-export function buildState<State, E extends Event>(
+export function evolve<State, Command, E extends Event>(
   events: readonly (E | StoredEvent<E>)[],
-  evolve: (state: State, event: E) => State,
-  initialState: State
+  decider: Decider<State, Command, E>
 ): State {
   return events.reduce(
-    (state, event) => evolve(state, event as E),
-    initialState
+    (state, event) => decider.evolve(state, event as E),
+    decider.initialState()
   );
 }
 
 /**
- * Build state using a decider definition.
- * Convenience wrapper around buildState.
- * 
- * @example
- * ```typescript
- * const result = await store.read<CartEvent>({ conditions });
- * const state = buildStateWithDecider(result.events, cartDecider);
- * ```
- */
-export function buildStateWithDecider<State, Command, E extends Event>(
-  events: readonly (E | StoredEvent<E>)[],
-  decider: Decider<State, Command, E>
-): State {
-  return buildState(events, decider.evolve, decider.initialState());
-}
-
-/**
  * Execute a command against a decider, given the current events.
+ * Builds state from events, then calls decider.decide().
  * Returns the new events that should be appended.
  * 
  * @example
  * ```typescript
  * const result = await store.read<CartEvent>({ conditions });
- * const newEvents = executeCommand(result.events, command, cartDecider);
+ * const newEvents = decide(command, result.events, cartDecider);
  * await store.append(newEvents, result.token);
  * ```
  */
-export function executeCommand<State, Command, E extends Event>(
-  events: readonly (E | StoredEvent<E>)[],
+export function decide<State, Command, E extends Event>(
   command: Command,
+  events: readonly (E | StoredEvent<E>)[],
   decider: Decider<State, Command, E>
 ): E[] {
-  const state = buildStateWithDecider(events, decider);
+  const state = evolve(events, decider);
   const result = decider.decide(command, state);
   return Array.isArray(result) ? result : [result];
 }
