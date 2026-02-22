@@ -3,7 +3,7 @@
  */
 
 import Database from 'better-sqlite3';
-import { isConstrainedCondition, type ExtractedKey, type QueryCondition, type StoredEvent } from '../types.js';
+import { isConstrainedCondition, isKeyOnlyCondition, type ExtractedKey, type QueryCondition, type StoredEvent } from '../types.js';
 import type { EventStorage, EventToStore } from './interface.js';
 
 const SCHEMA = `
@@ -140,9 +140,10 @@ export class SqliteStorage implements EventStorage {
       return rows.map(row => this.rowToEvent(row));
     }
 
-    // Separate conditions: constrained (with key/value) vs unconstrained (type only)
+    // Separate conditions by type
     const constrained = conditions.filter(isConstrainedCondition);
-    const unconstrained = conditions.filter(c => !isConstrainedCondition(c));
+    const keyOnly = conditions.filter(isKeyOnlyCondition);
+    const unconstrained = conditions.filter(c => !isConstrainedCondition(c) && !isKeyOnlyCondition(c)) as Array<{ type: string }>;
 
     const whereClauses: string[] = [];
     const whereParams: (string | number)[] = [];
@@ -163,10 +164,19 @@ export class SqliteStorage implements EventStorage {
       whereParams.push(...constrained.flatMap(c => [c.type, c.key, c.value]));
     }
 
-    // Build SQL
+    // Key-only: match by key + value only (any event type)
+    if (keyOnly.length > 0) {
+      const keyOnlyClauses = keyOnly.map(
+        () => '(k.key_name = ? AND k.key_value = ?)'
+      );
+      whereClauses.push(`(${keyOnlyClauses.join(' OR ')})`);
+      whereParams.push(...keyOnly.flatMap(c => [c.key, c.value]));
+    }
+
+    // Build SQL - need JOIN if we have constrained or key-only conditions
+    const needsJoin = constrained.length > 0 || keyOnly.length > 0;
     let sql: string;
-    if (constrained.length > 0) {
-      // Need JOIN for constrained conditions
+    if (needsJoin) {
       sql = `
         SELECT DISTINCT
           e.position,
@@ -180,7 +190,7 @@ export class SqliteStorage implements EventStorage {
         WHERE (${whereClauses.join(' OR ')})
       `;
     } else {
-      // No constrained conditions, no JOIN needed
+      // No constrained or key-only conditions, no JOIN needed
       sql = `
         SELECT
           position,

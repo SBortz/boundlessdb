@@ -3,7 +3,7 @@
  */
 
 import initSqlJs, { type Database as SqlJsDatabase, type SqlValue } from 'sql.js';
-import { isConstrainedCondition, type ExtractedKey, type QueryCondition, type StoredEvent } from '../types.js';
+import { isConstrainedCondition, isKeyOnlyCondition, type ExtractedKey, type QueryCondition, type StoredEvent } from '../types.js';
 import type { EventStorage, EventToStore } from './interface.js';
 
 const SCHEMA = `
@@ -198,9 +198,10 @@ export class SqlJsStorage implements EventStorage {
       });
     }
 
-    // Separate conditions: constrained (with key/value) vs unconstrained (type only)
+    // Separate conditions by type
     const constrained = conditions.filter(isConstrainedCondition);
-    const unconstrained = conditions.filter(c => !isConstrainedCondition(c));
+    const keyOnly = conditions.filter(isKeyOnlyCondition);
+    const unconstrained = conditions.filter(c => !isConstrainedCondition(c) && !isKeyOnlyCondition(c)) as Array<{ type: string }>;
 
     const whereClauses: string[] = [];
 
@@ -218,10 +219,18 @@ export class SqlJsStorage implements EventStorage {
       whereClauses.push(`(${constrainedClauses.join(' OR ')})`);
     }
 
-    // Build SQL
+    // Key-only: match by key + value only (any event type)
+    if (keyOnly.length > 0) {
+      const keyOnlyClauses = keyOnly.map(
+        c => `(k.key_name = ${escapeSql(c.key)} AND k.key_value = ${escapeSql(c.value)})`
+      );
+      whereClauses.push(`(${keyOnlyClauses.join(' OR ')})`);
+    }
+
+    // Build SQL - need JOIN if we have constrained or key-only conditions
+    const needsJoin = constrained.length > 0 || keyOnly.length > 0;
     let sql: string;
-    if (constrained.length > 0) {
-      // Need JOIN for constrained conditions
+    if (needsJoin) {
       sql = `
         SELECT DISTINCT
           e.position,
@@ -235,7 +244,7 @@ export class SqlJsStorage implements EventStorage {
         WHERE (${whereClauses.join(' OR ')})
       `;
     } else {
-      // No constrained conditions, no JOIN needed
+      // No constrained or key-only conditions, no JOIN needed
       sql = `
         SELECT
           position,

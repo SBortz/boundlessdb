@@ -413,5 +413,89 @@ describe('EventStore', () => {
         expect(isConflict(secondCreate)).toBe(true);
       });
     });
+
+    describe('key-only queries', () => {
+      it('returns all events with matching key regardless of type', async () => {
+        // Create a course and enroll a student
+        await store.append([
+          { type: 'CourseCreated', data: { courseId: 'cs101', name: 'Intro to CS' } },
+        ], null);
+        await store.append([
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } },
+        ], null);
+        await store.append([
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'bob' } },
+        ], null);
+        await store.append([
+          { type: 'StudentUnsubscribed', data: { courseId: 'cs101', studentId: 'alice' } },
+        ], null);
+
+        // Key-only query: get ALL events for course cs101
+        const result = await store.read({
+          conditions: [{ key: 'course', value: 'cs101' }],
+        });
+
+        // Should return all 4 events (CourseCreated + 2 Subscribe + 1 Unsubscribe)
+        expect(result.events).toHaveLength(4);
+        expect(result.events.map(e => e.type)).toEqual([
+          'CourseCreated',
+          'StudentSubscribed',
+          'StudentSubscribed',
+          'StudentUnsubscribed',
+        ]);
+      });
+
+      it('works with fluent API matchKey', async () => {
+        await store.append([
+          { type: 'CourseCreated', data: { courseId: 'cs101', name: 'Intro' } },
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } },
+        ], null);
+
+        const result = await store.query()
+          .matchKey('course', 'cs101')
+          .read();
+
+        expect(result.events).toHaveLength(2);
+      });
+
+      it('can mix key-only with type-based conditions', async () => {
+        await store.append([
+          { type: 'CourseCreated', data: { courseId: 'cs101', name: 'Intro' } },
+          { type: 'CourseCreated', data: { courseId: 'math101', name: 'Math' } },
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } },
+        ], null);
+
+        // Get all cs101 events OR all CourseCreated events
+        const result = await store.read({
+          conditions: [
+            { key: 'course', value: 'cs101' },  // key-only
+            { type: 'CourseCreated' },           // unconstrained
+          ],
+        });
+
+        // Should return: CourseCreated(cs101), CourseCreated(math101), StudentSubscribed(cs101)
+        expect(result.events).toHaveLength(3);
+      });
+
+      it('detects conflicts with key-only conditions', async () => {
+        // Read with key-only condition
+        const initialRead = await store.read({
+          conditions: [{ key: 'course', value: 'cs101' }],
+        });
+
+        // Someone adds a course event
+        await store.append([
+          { type: 'CourseCreated', data: { courseId: 'cs101', name: 'CS' } },
+        ], null);
+
+        // Try to append with stale condition - should conflict
+        const result = await store.append(
+          [{ type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } }],
+          initialRead.appendCondition
+        );
+
+        expect(isConflict(result)).toBe(true);
+      });
+    });
   });
 });

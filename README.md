@@ -167,12 +167,31 @@ const { events, appendCondition } = await store.query<CourseEvent>()
 | Method | Description |
 |--------|-------------|
 | `matchType(type)` | Match all events of type (unconstrained) |
-| `matchKey(type, key, value)` | Match events where key equals value (constrained) |
+| `matchKey(key, value)` | Match ALL events with key=value, any type |
+| `matchTypeAndKey(type, key, value)` | Match events of type where key=value |
 | `fromPosition(bigint)` | Start reading from position |
 | `limit(number)` | Limit number of results |
 | `read()` | Execute query, returns `QueryResult` |
 
 The fluent API is equivalent to calling `store.read()` with conditions — use whichever style you prefer.
+
+### Key-Only Queries (Aggregate Queries)
+
+Query all events for an entity regardless of event type:
+
+```typescript
+// Get ALL events for course cs101 (CourseCreated, StudentSubscribed, etc.)
+const { events } = await store.query()
+  .matchKey('course', 'cs101')
+  .read();
+
+// Or using read() directly:
+const { events } = await store.read({
+  conditions: [{ key: 'course', value: 'cs101' }]
+});
+```
+
+This is useful when you need the complete history of an aggregate.
 
 ## AppendCondition
 
