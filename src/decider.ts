@@ -1,5 +1,5 @@
 /**
- * Decider Pattern - Inspired by Emmett
+ * Decider Pattern
  * 
  * The Decider pattern provides a structured way to:
  * 1. evolve: Build state from events
