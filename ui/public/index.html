@@ -331,6 +331,16 @@
   
   <div class="features">
     <div class="feature">
+      <div class="feature-icon">🔷</div>
+      <h3>Type-Safe Events</h3>
+      <p>Event&lt;Type, Payload&gt; marker type. Full TypeScript support with discriminated unions.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">🧠</div>
+      <h3>Decider Pattern</h3>
+      <p>Built-in evolve() and decide() helpers. Inspired by Emmett's approach.</p>
+    </div>
+    <div class="feature">
       <div class="feature-icon">🚫</div>
       <h3>No Streams</h3>
       <p>Events organized via configurable consistency keys, not rigid stream boundaries.</p>
@@ -359,11 +369,6 @@
       <div class="feature-icon">💾</div>
       <h3>Multiple Storage Engines</h3>
       <p>SQLite for embedded, PostgreSQL for production, sql.js for browser, or in-memory for testing.</p>
-    </div>
-    <div class="feature">
-      <div class="feature-icon">📦</div>
-      <h3>Embedded Library</h3>
-      <p>Runs in your process — no separate server needed. (No gRPC/HTTP API yet.)</p>
     </div>
   </div>
   
@@ -403,28 +408,76 @@
   </div>
   
   <div class="code-section">
+    <h2>Type-Safe Events</h2>
+    <pre><code><span class="keyword">import</span> { Event, Decider, evolve, decide } <span class="keyword">from</span> <span class="string">'boundlessdb'</span>;
+
+<span class="comment">// Define typed events with Event&lt;Type, Payload&gt;</span>
+<span class="keyword">type</span> StudentSubscribed = <span class="function">Event</span>&lt;<span class="string">'StudentSubscribed'</span>, {
+  courseId: <span class="keyword">string</span>;
+  studentId: <span class="keyword">string</span>;
+}&gt;;
+
+<span class="keyword">type</span> CourseCreated = <span class="function">Event</span>&lt;<span class="string">'CourseCreated'</span>, {
+  courseId: <span class="keyword">string</span>;
+  capacity: <span class="keyword">number</span>;
+}&gt;;
+
+<span class="keyword">type</span> CourseEvents = CourseCreated | StudentSubscribed;</code></pre>
+  </div>
+
+  <div class="code-section">
     <h2>The DCB Pattern: Read → Decide → Write</h2>
-    <pre><code><span class="comment">// 1️⃣ READ — Query events by consistency keys</span>
-<span class="keyword">const</span> { events, token } = <span class="keyword">await</span> store.<span class="function">read</span>({
+    <pre><code><span class="comment">// 1️⃣ READ — Query events, get typed QueryResult</span>
+<span class="keyword">const</span> result = <span class="keyword">await</span> store.<span class="function">read</span>&lt;CourseEvents&gt;({
   conditions: [
     { type: <span class="string">'CourseCreated'</span>, key: <span class="string">'course'</span>, value: <span class="string">'cs101'</span> },
     { type: <span class="string">'StudentSubscribed'</span>, key: <span class="string">'course'</span>, value: <span class="string">'cs101'</span> },
   ]
 });
-<span class="comment">// token captures: "I read all events matching these conditions up to position X"</span>
 
-<span class="comment">// 2️⃣ DECIDE — Project state and check business rules</span>
-<span class="keyword">const</span> course = events.<span class="function">find</span>(e => e.type === <span class="string">'CourseCreated'</span>);
-<span class="keyword">const</span> enrolled = events.<span class="function">filter</span>(e => e.type === <span class="string">'StudentSubscribed'</span>).length;
+result.events     <span class="comment">// StoredEvent&lt;CourseEvents&gt;[]</span>
+result.token      <span class="comment">// ConsistencyToken</span>
+result.isEmpty()  <span class="comment">// boolean</span>
+result.count      <span class="comment">// number</span>
 
-<span class="keyword">if</span> (enrolled >= course.data.capacity) {
+<span class="comment">// 2️⃣ DECIDE — Build state, check business rules</span>
+<span class="keyword">const</span> state = <span class="function">evolve</span>(result.events, courseDecider);
+
+<span class="keyword">if</span> (state.enrolled >= state.capacity) {
   <span class="keyword">throw new</span> <span class="function">Error</span>(<span class="string">'Course is full!'</span>);
 }
 
 <span class="comment">// 3️⃣ WRITE — Append with the token from your read</span>
-<span class="keyword">const</span> result = <span class="keyword">await</span> store.<span class="function">append</span>([
+<span class="keyword">const</span> appendResult = <span class="keyword">await</span> store.<span class="function">append</span>&lt;CourseEvents&gt;([
   { type: <span class="string">'StudentSubscribed'</span>, data: { courseId: <span class="string">'cs101'</span>, studentId: <span class="string">'alice'</span> } }
-], token);  <span class="comment">// ← Token ensures no one else wrote since your read!</span></code></pre>
+], result.token);  <span class="comment">// ← Token ensures no one else wrote since your read!</span></code></pre>
+  </div>
+  
+  <div class="code-section">
+    <h2>Decider Pattern (Inspired by Emmett)</h2>
+    <pre><code><span class="keyword">const</span> courseDecider: <span class="function">Decider</span>&lt;CourseState, CourseCommand, CourseEvents&gt; = {
+  <span class="function">initialState</span>: () => ({ capacity: <span class="const">0</span>, enrolled: <span class="const">0</span> }),
+  
+  <span class="function">evolve</span>: (state, event) => {
+    <span class="keyword">switch</span> (event.type) {
+      <span class="keyword">case</span> <span class="string">'CourseCreated'</span>:
+        <span class="keyword">return</span> { ...state, capacity: event.data.capacity };
+      <span class="keyword">case</span> <span class="string">'StudentSubscribed'</span>:
+        <span class="keyword">return</span> { ...state, enrolled: state.enrolled + <span class="const">1</span> };
+    }
+  },
+  
+  <span class="function">decide</span>: (command, state) => {
+    <span class="keyword">if</span> (command.type === <span class="string">'Subscribe'</span>) {
+      <span class="keyword">if</span> (state.enrolled >= state.capacity) <span class="keyword">throw new</span> <span class="function">Error</span>(<span class="string">'Full!'</span>);
+      <span class="keyword">return</span> { type: <span class="string">'StudentSubscribed'</span>, data: command };
+    }
+  }
+};
+
+<span class="comment">// Use it:</span>
+<span class="keyword">const</span> newEvents = <span class="function">decide</span>(command, result.events, courseDecider);
+<span class="keyword">await</span> store.<span class="function">append</span>(newEvents, result.token);</code></pre>
   </div>
   
   <div class="code-section">
