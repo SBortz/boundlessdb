@@ -399,26 +399,22 @@
   
   <div class="code-section">
     <h2>The DCB Pattern: Read → Decide → Write</h2>
-    <pre><code><span class="comment">// 1️⃣ READ — Query events by consistency keys</span>
-<span class="keyword">const</span> { events, token } = <span class="keyword">await</span> store.<span class="function">read</span>({
+    <pre><code><span class="keyword">const</span> { events, token } = <span class="keyword">await</span> store.<span class="function">read</span>({
   conditions: [
     { type: <span class="string">'CourseCreated'</span>, key: <span class="string">'course'</span>, value: <span class="string">'cs101'</span> },
     { type: <span class="string">'StudentSubscribed'</span>, key: <span class="string">'course'</span>, value: <span class="string">'cs101'</span> },
   ]
 });
-<span class="comment">// token captures: "I read all events matching these conditions up to position X"</span>
 
-<span class="comment">// 2️⃣ DECIDE — Build state with evolve helper</span>
 <span class="keyword">const</span> state = <span class="function">evolve</span>(events, courseDecider);
 
 <span class="keyword">if</span> (state.enrolled >= state.capacity) {
   <span class="keyword">throw new</span> <span class="function">Error</span>(<span class="string">'Course is full!'</span>);
 }
 
-<span class="comment">// 3️⃣ WRITE — Append with the token from your read</span>
 <span class="keyword">const</span> result = <span class="keyword">await</span> store.<span class="function">append</span>([
   { type: <span class="string">'StudentSubscribed'</span>, data: { courseId: <span class="string">'cs101'</span>, studentId: <span class="string">'alice'</span> } }
-], token);  <span class="comment">// ← Token ensures no one else wrote since your read!</span></code></pre>
+], token);</code></pre>
   </div>
   
   <div class="code-section">
