@@ -419,7 +419,7 @@ const result = await store.read({ conditions: [] });
 
 ## Decider Pattern
 
-BoundlessDB includes helpers for the Decider pattern (inspired by [Emmett](https://github.com/event-driven-io/emmett)):
+BoundlessDB includes helpers for the Decider pattern:
 
 ```typescript
 import { Decider, evolve, decide } from 'boundlessdb';
