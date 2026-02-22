@@ -414,7 +414,7 @@
 
 <span class="keyword">const</span> result = <span class="keyword">await</span> store.<span class="function">append</span>([
   { type: <span class="string">'StudentSubscribed'</span>, data: { courseId: <span class="string">'cs101'</span>, studentId: <span class="string">'alice'</span> } }
-], token);</code></pre>
+], token);  <span class="comment">// ← Token ensures no one else wrote since your read!</span></code></pre>
   </div>
   
   <div class="code-section">
