@@ -143,6 +143,31 @@ if (result.conflict) {
 }
 ```
 
+## Fluent Query API
+
+Build queries with a chainable API:
+
+```typescript
+const { events, appendCondition } = await store.query<CourseEvent>()
+  .matchType('CourseCreated')                         // all events of type
+  .matchKey('StudentSubscribed', 'course', 'cs101')   // where key = value
+  .fromPosition(100n)                                 // start from position
+  .limit(50)                                          // limit results
+  .read();
+```
+
+### Methods
+
+| Method | Description |
+|--------|-------------|
+| `matchType(type)` | Match all events of type (unconstrained) |
+| `matchKey(type, key, value)` | Match events where key equals value (constrained) |
+| `fromPosition(bigint)` | Start reading from position |
+| `limit(number)` | Limit number of results |
+| `read()` | Execute query, returns `QueryResult` |
+
+The fluent API is equivalent to calling `store.read()` with conditions — use whichever style you prefer.
+
 ## AppendCondition
 
 When you call `read()`, the result contains an `appendCondition` with:
