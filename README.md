@@ -21,12 +21,6 @@ The entire event store runs client-side in your browser using WebAssembly SQLite
 - 💾 **SQLite, PostgreSQL & In-Memory** — Multiple storage backends
 - 📦 **Embedded Library** — No separate server, runs in your process
 
-## Installation
-
-```bash
-npm install @sbortz/boundless
-```
-
 ## Quick Start
 
 ```typescript
