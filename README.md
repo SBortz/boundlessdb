@@ -21,12 +21,6 @@ The entire event store runs client-side in your browser using WebAssembly SQLite
 - 💾 **SQLite, PostgreSQL & In-Memory** — Multiple storage backends
 - 📦 **Embedded Library** — No separate server, runs in your process
 
-## Installation
-
-```bash
-npm install @sbortz/boundless
-```
-
 ## Quick Start
 
 ```typescript
@@ -97,17 +91,6 @@ const result = await store.read({
 ## The DCB Pattern: Read → Decide → Write
 
 ```typescript
-// Define your own functions — pure JavaScript, no framework needed
-const initialState = { enrolled: 0, capacity: 30 };
-
-const evolve = (state, event) => {
-  switch (event.type) {
-    case 'CourseCreated': return { ...state, capacity: event.data.capacity };
-    case 'StudentSubscribed': return { ...state, enrolled: state.enrolled + 1 };
-    default: return state;
-  }
-};
-
 // 1️⃣ READ — Query events and get an appendCondition
 const { events, appendCondition } = await store.read({
   conditions: [
@@ -116,25 +99,47 @@ const { events, appendCondition } = await store.read({
   ]
 });
 
-// 2️⃣ DECIDE — Build state with standard reduce
+// 2️⃣ DECIDE — Build state, run business logic
 const state = events.reduce(evolve, initialState);
+const newEvents = decide(command, state);
 
-if (state.enrolled >= state.capacity) {
-  throw new Error('Course is full!');
-}
+// 3️⃣ WRITE — Append with optimistic concurrency
+const result = await store.append(newEvents, appendCondition);
+```
 
-// 3️⃣ WRITE — Append with the appendCondition from your read
-const result = await store.append([
-  { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } }
-], appendCondition);  // ← Ensures no one else wrote since your read!
+### Define Your Functions
 
-// Handle result
-if (appendResult.conflict) {
-  // Someone else enrolled while you were deciding!
-  console.log('Events since your read:', appendResult.conflictingEvents);
-  // Retry with appendResult.appendCondition...
+```typescript
+const initialState = { enrolled: 0, capacity: 30 };
+
+// evolve: (state, event) → new state
+const evolve = (state, event) => {
+  switch (event.type) {
+    case 'StudentSubscribed':
+      return { ...state, enrolled: state.enrolled + 1 };
+    default:
+      return state;
+  }
+};
+
+// decide: (command, state) → events[]
+const decide = (command, state) => {
+  if (state.enrolled >= state.capacity) {
+    throw new Error('Course is full!');
+  }
+  return [{ type: 'StudentSubscribed', data: command }];
+};
+```
+
+### Handle Conflicts
+
+```typescript
+if (result.conflict) {
+  // Someone else wrote while you were deciding
+  console.log('Events since your read:', result.conflictingEvents);
+  // Retry with result.appendCondition
 } else {
-  console.log('Enrolled at position', appendResult.position);
+  console.log('Success at position', result.position);
 }
 ```
 
