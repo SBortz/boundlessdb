@@ -310,6 +310,113 @@ const store = createEventStore({
 npm install pg
 ```
 
+## Typed Events
+
+Define type-safe events using the `Event` marker type:
+
+```typescript
+import { Event, EventStore } from 'boundlessdb';
+
+// Define your events
+type ProductItemAdded = Event<'ProductItemAdded', {
+  cartId: string;
+  productId: string;
+  quantity: number;
+}>;
+
+type ProductItemRemoved = Event<'ProductItemRemoved', {
+  cartId: string;
+  productId: string;
+}>;
+
+// Create a union type for all cart events
+type CartEvents = ProductItemAdded | ProductItemRemoved;
+
+// Read with type safety
+const result = await store.read<CartEvents>({
+  conditions: [{ type: 'ProductItemAdded', key: 'cart', value: 'cart-123' }]
+});
+
+// TypeScript knows the event types!
+for (const event of result.events) {
+  if (event.type === 'ProductItemAdded') {
+    console.log(event.data.quantity);  // ✅ typed as number
+  }
+}
+```
+
+## Query Conditions
+
+Query conditions support both **constrained** (with key/value) and **unconstrained** (type-only) queries.
+
+### Constrained Query
+Match events of a type where a specific key has a specific value:
+
+```typescript
+// Get ProductItemAdded events where cart='cart-123'
+const result = await store.read({
+  conditions: [
+    { type: 'ProductItemAdded', key: 'cart', value: 'cart-123' }
+  ]
+});
+```
+
+### Unconstrained Query
+Omit `key` and `value` to match **all events of a type**:
+
+```typescript
+// Get ALL ProductItemAdded events (regardless of cart)
+const result = await store.read({
+  conditions: [
+    { type: 'ProductItemAdded' }  // no key/value = match all
+  ]
+});
+```
+
+### Mixed Conditions
+Combine constrained and unconstrained in one query:
+
+```typescript
+// Get: ALL ProductItemAdded OR CartCheckedOut where cart='cart-123'
+const result = await store.read({
+  conditions: [
+    { type: 'ProductItemAdded' },                            // unconstrained
+    { type: 'CartCheckedOut', key: 'cart', value: 'cart-123' } // constrained
+  ]
+});
+```
+
+### Same Type, Multiple Values
+Query multiple values of the same key:
+
+```typescript
+// Get ProductItemAdded for cart-1 OR cart-2
+const result = await store.read({
+  conditions: [
+    { type: 'ProductItemAdded', key: 'cart', value: 'cart-1' },
+    { type: 'ProductItemAdded', key: 'cart', value: 'cart-2' }
+  ]
+});
+```
+
+### Partial Conditions
+If `key` is provided without `value` (or vice versa), it's treated as **unconstrained**:
+
+```typescript
+// These are ALL equivalent (unconstrained):
+{ type: 'ProductItemAdded' }
+{ type: 'ProductItemAdded', key: 'cart' }           // value missing
+{ type: 'ProductItemAdded', value: 'cart-123' }     // key missing
+```
+
+### Empty Conditions
+Empty conditions returns **all events** in the store:
+
+```typescript
+// Get ALL events (useful for admin/debug/export)
+const result = await store.read({ conditions: [] });
+```
+
 ## API Reference
 
 ### `createEventStore(options)`
@@ -321,34 +428,43 @@ const store = createEventStore({
 });
 ```
 
-### `store.read(query)`
+### `store.read<E>(query)`
 
 ```typescript
-const { events, token } = await store.read({
-  conditions: [{ type, key, value }],
+const result = await store.read<CartEvents>({
+  conditions: [{ type, key?, value? }],
   fromPosition?: bigint,
   limit?: number,
 });
+
+result.events      // StoredEvent<E>[]
+result.token       // ConsistencyToken
+result.position    // bigint
+result.conditions  // QueryCondition[]
+result.count       // number
+result.isEmpty()   // boolean
+result.first()     // StoredEvent<E> | undefined
+result.last()      // StoredEvent<E> | undefined
 ```
 
-### `store.append(events, condition)`
+### `store.append<E>(events, condition)`
 
 ```typescript
 // With token from read()
-const result = await store.append(events, token);
+const result = await store.append<CartEvents>([newEvent], token);
 
 // With direct AppendCondition
-const result = await store.append(events, {
+const result = await store.append<CartEvents>([newEvent], {
   position: bigint,
   conditions: [{ type, key, value }]
 });
 
 // Without consistency check
-const result = await store.append(events, null);
+const result = await store.append<CartEvents>([newEvent], null);
 
 // Result handling
 if (result.conflict) {
-  result.conflictingEvents;  // What changed since your read
+  result.conflictingEvents;  // StoredEvent<E>[] - what changed since your read
   result.newToken;           // Fresh token for retry
 } else {
   result.position;           // Position of last appended event
