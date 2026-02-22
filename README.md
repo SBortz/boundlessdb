@@ -1,8 +1,8 @@
-# BoundlessDBDB
+# BoundlessDB
 
 An **embedded, DCB-inspired** Event Store with config-based consistency keys.
 
-> *BoundlessDBDB* — because consistency boundaries should be dynamic, not fixed.
+> *BoundlessDB* — because consistency boundaries should be dynamic, not fixed.
 
 ## 🎉 Try it Live!
 
@@ -15,17 +15,39 @@ The entire event store runs client-side in your browser using WebAssembly SQLite
 - 🚀 **Works in Browser** — Full client-side event sourcing via sql.js (WASM)
 - 🔑 **No Streams** — Events organized via configurable consistency keys
 - ⚙️ **Config-based Key Extraction** — Events remain pure business data
-- 🔐 **HMAC-signed Consistency Tokens** — Tamper-proof optimistic concurrency
+- 🎟️ **Simple Base64 Tokens** — Lightweight optimistic concurrency control
 - ⚡ **Conflict Detection with Delta** — Get exactly what changed since your read
 - 🔄 **Auto-Reindex** — Change your config, keys are automatically rebuilt
-- 💾 **SQLite & In-Memory Storage** — Persistent or in-memory for testing
+- 💾 **SQLite, PostgreSQL & In-Memory** — Multiple storage backends
 - 📦 **Embedded Library** — No separate server, runs in your process
-- ☁️ **Supabase Edge Functions** — Deploy as serverless REST API (see [supabase/](./supabase/))
 
 ## Installation
 
 ```bash
 npm install @sbortz/boundless
+```
+
+## Quick Start
+
+```typescript
+import { createEventStore, SqliteStorage } from 'boundlessdb';
+
+const store = createEventStore({
+  storage: new SqliteStorage(':memory:'),
+  consistency: {
+    eventTypes: {
+      CourseCreated: {
+        keys: [{ name: 'course', path: 'data.courseId' }]
+      },
+      StudentSubscribed: {
+        keys: [
+          { name: 'course', path: 'data.courseId' },
+          { name: 'student', path: 'data.studentId' }
+        ]
+      }
+    }
+  }
+});
 ```
 
 ## How It Works
@@ -106,25 +128,33 @@ if (result.conflict) {
 }
 ```
 
-## Why Signed Tokens?
+## Consistency Tokens
 
-When you call `read()`, the server returns a token containing:
+When you call `read()`, the store returns a token containing:
 - The **position** up to which events were read
 - The **query conditions** you used
 
-Why sign it? Two reasons:
+The token is a simple Base64-encoded JSON object — you can inspect it, create it manually, or pass an `AppendCondition` object directly:
 
-### 1. Performance (Safe Space)
+```typescript
+// Option 1: Use token from read()
+const { events, token } = await store.read({ conditions });
+await store.append(newEvents, token);
 
-Without a position, the server must re-execute your full query on every `append()` to find conflicting events. With the position baked into the token, the server can skip all events before that point — they're in the "safe space" that was already checked during your read.
+// Option 2: Pass conditions directly (no token needed!)
+await store.append(newEvents, {
+  position: 42n,
+  conditions: [{ type: 'UserCreated', key: 'username', value: 'alice' }]
+});
 
-### 2. Integrity
+// Option 3: Skip consistency check entirely
+await store.append(newEvents, null);
+```
 
-The client cannot tamper with the position or query between `read()` and `append()`. The server trusts the token because it signed it itself.
-
-Think of it as a **promise from the server**: *"I guarantee these conditions were checked up to this position."*
-
-> The token is just base64-encoded JSON + HMAC signature, so it's still inspectable if needed. But the signature ensures it hasn't been modified.
+This flexibility lets you:
+- **Create uniqueness checks without reading first** (e.g., "username must be unique")
+- **Build custom retry logic** by constructing conditions manually
+- **Optimize performance** by skipping unnecessary reads
 
 ## Query Across Multiple Dimensions
 
@@ -231,7 +261,6 @@ BoundlessDB works **entirely in the browser** with no server required:
 
   const store = createEventStore({
     storage: new SqlJsStorage(),
-    secret: 'demo-secret',
     consistency: {
       eventTypes: {
         TodoAdded: { keys: [{ name: 'list', path: 'data.listId' }] }
@@ -259,42 +288,27 @@ npm run build:browser
 | `PostgresStorage` | Node.js | PostgreSQL database |
 | `InMemoryStorage` | Any | None (testing) |
 
-### PostgreSQL Storage (Optional)
+### PostgreSQL Storage
 
 For production deployments with PostgreSQL:
 
 ```typescript
 import { createEventStore, PostgresStorage } from 'boundlessdb';
 
-// Using connection string
 const storage = new PostgresStorage('postgresql://user:pass@localhost/mydb');
 await storage.init();  // Required: creates tables if they don't exist
 
 const store = createEventStore({
   storage,
-  secret: 'your-secret',
   consistency: { /* ... */ }
 });
-
-// Using pool configuration (for advanced settings)
-const storage = new PostgresStorage({
-  host: 'localhost',
-  port: 5432,
-  database: 'mydb',
-  user: 'myuser',
-  password: 'mypass',
-  max: 20,  // max pool connections
-});
-await storage.init();
 ```
 
-**Note:** PostgreSQL support requires the `pg` package. Install it separately if needed:
+**Note:** PostgreSQL support requires the `pg` package:
 
 ```bash
 npm install pg
 ```
-
-SQLite remains the default and recommended backend for single-process deployments.
 
 ## API Reference
 
@@ -302,8 +316,7 @@ SQLite remains the default and recommended backend for single-process deployment
 
 ```typescript
 const store = createEventStore({
-  storage: SqliteStorage | SqlJsStorage | InMemoryStorage,
-  secret: string,                  // HMAC signing secret
+  storage: SqliteStorage | SqlJsStorage | PostgresStorage | InMemoryStorage,
   consistency: ConsistencyConfig,  // Key extraction rules
 });
 ```
@@ -318,14 +331,22 @@ const { events, token } = await store.read({
 });
 ```
 
-### `store.append(events, token)`
+### `store.append(events, condition)`
 
 ```typescript
-const result = await store.append(
-  [{ type: 'MyEvent', data: {...} }],
-  token  // or null to skip consistency check
-);
+// With token from read()
+const result = await store.append(events, token);
 
+// With direct AppendCondition
+const result = await store.append(events, {
+  position: bigint,
+  conditions: [{ type, key, value }]
+});
+
+// Without consistency check
+const result = await store.append(events, null);
+
+// Result handling
 if (result.conflict) {
   result.conflictingEvents;  // What changed since your read
   result.newToken;           // Fresh token for retry
@@ -335,50 +356,21 @@ if (result.conflict) {
 }
 ```
 
-## Supabase Edge Functions
-
-Deploy BoundlessDB as a **serverless REST API** on Supabase's global edge network:
-
-```bash
-cd supabase
-
-# Deploy the schema
-supabase db push
-
-# Set secrets
-supabase secrets set BOUNDLESS_SECRET=$(openssl rand -hex 32)
-
-# Deploy functions
-supabase functions deploy boundless-read
-supabase functions deploy boundless-append
-supabase functions deploy boundless-head
-supabase functions deploy boundless-health
-```
-
-Then use from any client:
+### Token Helpers
 
 ```typescript
-// Read events
-const response = await fetch(
-  'https://your-project.supabase.co/functions/v1/boundless-read',
-  {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${supabaseAnonKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      conditions: [
-        { type: 'OrderPlaced', key: 'customer', value: 'cust-123' }
-      ]
-    }),
-  }
-);
+import { encodeAppendCondition, decodeAppendCondition } from 'boundlessdb';
 
-const { events, token } = await response.json();
+// Create a token manually
+const token = encodeAppendCondition({
+  position: 42n,
+  conditions: [{ type: 'UserCreated', key: 'username', value: 'alice' }]
+});
+
+// Decode a token
+const condition = decodeAppendCondition(token);
+// → { position: 42n, conditions: [...] }
 ```
-
-See [`supabase/README.md`](./supabase/README.md) for full documentation.
 
 ## Development
 
@@ -388,6 +380,11 @@ npm test
 npm run build
 npm run build:browser
 ```
+
+## Related
+
+- [dcb.events](https://dcb.events) — Dynamic Consistency Boundaries
+- [Giraflow](https://giraflow.dev) — Event Modeling visualization
 
 ---
 
