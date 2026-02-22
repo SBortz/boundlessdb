@@ -452,13 +452,21 @@
   <!-- Tabbed Code Example -->
   <div class="tabs-container">
     <div class="tabs-header">
-      <button class="tab-btn active" data-tab="fluent">Read & Write</button>
+      <button class="tab-btn active" data-tab="query">Fine-Granular Querying</button>
+      <button class="tab-btn" data-tab="append">Append With Dynamic Consistency</button>
       <button class="tab-btn" data-tab="conflict">Resolve Conflicts</button>
-      <button class="tab-btn" data-tab="impl">Decide / Evolve</button>
     </div>
     
     <div class="tabs-content-wrapper">
-      <div class="tab-content active" id="tab-fluent">
+      <div class="tab-content active" id="tab-query">
+        
+        <pre><code><span class="keyword">const</span> { events, appendCondition } = <span class="keyword">await</span> store.<span class="function">query</span>&lt;CourseEvent&gt;()
+  .<span class="function">matchType</span>(<span class="string">'CourseCreated'</span>)                        <span class="comment">// all CourseCreated</span>
+  .<span class="function">matchKey</span>(<span class="string">'StudentSubscribed'</span>, <span class="string">'course'</span>, <span class="string">'cs101'</span>)  <span class="comment">// + where course='cs101'</span>
+  .<span class="function">read</span>();</code></pre>
+      </div>
+      
+      <div class="tab-content" id="tab-append">
         
         <pre><code><span class="keyword">const</span> { events, appendCondition } = <span class="keyword">await</span> store.<span class="function">query</span>&lt;CourseEvent&gt;()
   .<span class="function">matchType</span>(<span class="string">'CourseCreated'</span>)                        <span class="comment">// all CourseCreated</span>
@@ -489,29 +497,6 @@
   <span class="comment">// Success!</span>
   console.<span class="function">log</span>(<span class="string">'Enrolled at position'</span>, result.position);
 }</code></pre>
-      </div>
-      
-      <div class="tab-content" id="tab-impl">
-        
-        <pre><code><span class="keyword">const</span> initialState = { enrolled: <span class="const">0</span>, capacity: <span class="const">30</span> };
-
-<span class="comment">// evolve: (state, event) → new state</span>
-<span class="keyword">const</span> <span class="function">evolve</span> = (state, event) => {
-  <span class="keyword">switch</span> (event.type) {
-    <span class="keyword">case</span> <span class="string">'StudentSubscribed'</span>:
-      <span class="keyword">return</span> { ...state, enrolled: state.enrolled + <span class="const">1</span> };
-    <span class="keyword">default</span>:
-      <span class="keyword">return</span> state;
-  }
-};
-
-<span class="comment">// decide: (command, state) → events[]</span>
-<span class="keyword">const</span> <span class="function">decide</span> = (command, state) => {
-  <span class="keyword">if</span> (state.enrolled >= state.capacity) {
-    <span class="keyword">throw new</span> <span class="function">Error</span>(<span class="string">'Course is full!'</span>);
-  }
-  <span class="keyword">return</span> [{ type: <span class="string">'StudentSubscribed'</span>, data: command }];
-};</code></pre>
       </div>
     </div>
     <div class="cta-row">
