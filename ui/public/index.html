@@ -430,38 +430,18 @@
   <div class="tabs-container">
     <div class="tabs-header">
       <button class="tab-btn active" data-tab="pattern">The Pattern</button>
-      <button class="tab-btn" data-tab="typed">With Types</button>
-      <button class="tab-btn" data-tab="impl">evolve & decide</button>
+      <button class="tab-btn" data-tab="impl">Decide / Evolve</button>
     </div>
     
     <div class="tabs-content-wrapper">
       <div class="tab-content active" id="tab-pattern">
         <div class="tab-label">Read → Reduce → Decide → Write</div>
-        <pre><code><span class="comment">// 1. Read events matching your query</span>
-<span class="keyword">const</span> { events, appendCondition } = <span class="keyword">await</span> store.<span class="function">read</span>({
+        <pre><code><span class="comment">// 1. Read with typed events</span>
+<span class="keyword">const</span> { events, appendCondition } = <span class="keyword">await</span> store.<span class="function">read</span>&lt;CourseEvent&gt;({
   conditions: [
     { type: <span class="string">'CourseCreated'</span>, key: <span class="string">'course'</span>, value: <span class="string">'cs101'</span> },
     { type: <span class="string">'StudentSubscribed'</span>, key: <span class="string">'course'</span>, value: <span class="string">'cs101'</span> }
   ]
-});
-
-<span class="comment">// 2. Build state</span>
-<span class="keyword">const</span> state = events.<span class="function">reduce</span>(evolve, initialState);
-
-<span class="comment">// 3. Business logic</span>
-<span class="keyword">const</span> newEvents = <span class="function">decide</span>(command, state);
-
-<span class="comment">// 4. Append with optimistic concurrency</span>
-<span class="keyword">await</span> store.<span class="function">append</span>(newEvents, appendCondition);</code></pre>
-      </div>
-      
-      <div class="tab-content" id="tab-typed">
-        <div class="tab-label">Type-Safe Version</div>
-        <pre><code><span class="keyword">type</span> CourseEvent = Event&lt;<span class="string">'StudentSubscribed'</span>, { courseId: <span class="const">string</span> }&gt;;
-
-<span class="comment">// 1. Read with typed events</span>
-<span class="keyword">const</span> { events, appendCondition } = <span class="keyword">await</span> store.<span class="function">read</span>&lt;CourseEvent&gt;({
-  conditions: [{ type: <span class="string">'StudentSubscribed'</span>, key: <span class="string">'course'</span>, value: <span class="string">'cs101'</span> }]
 });
 
 <span class="comment">// 2. Build state</span>
