@@ -97,6 +97,17 @@ const result = await store.read({
 ## The DCB Pattern: Read → Decide → Write
 
 ```typescript
+// Define your own functions — pure JavaScript, no framework needed
+const initialState = { enrolled: 0, capacity: 30 };
+
+const evolve = (state, event) => {
+  switch (event.type) {
+    case 'CourseCreated': return { ...state, capacity: event.data.capacity };
+    case 'StudentSubscribed': return { ...state, enrolled: state.enrolled + 1 };
+    default: return state;
+  }
+};
+
 // 1️⃣ READ — Query events and get an appendCondition
 const result = await store.read({
   conditions: [
@@ -105,8 +116,8 @@ const result = await store.read({
   ]
 });
 
-// 2️⃣ DECIDE — Build state with evolve helper
-const state = evolve(result.events, courseDecider);
+// 2️⃣ DECIDE — Build state with standard reduce
+const state = result.events.reduce(evolve, initialState);
 
 if (state.enrolled >= state.capacity) {
   throw new Error('Course is full!');
@@ -428,64 +439,6 @@ Empty conditions returns **all events** in the store:
 // Get ALL events (useful for admin/debug/export)
 const result = await store.read({ conditions: [] });
 ```
-
-## Decider Pattern
-
-BoundlessDB includes helpers for the Decider pattern:
-
-```typescript
-import { Decider, evolve, decide } from 'boundlessdb';
-
-// Define your decider
-const cartDecider: Decider<CartState, CartCommand, CartEvent> = {
-  initialState: () => ({ items: new Map(), checkedOut: false }),
-  
-  evolve: (state, event) => {
-    switch (event.type) {
-      case 'ItemAdded':
-        state.items.set(event.data.productId, event.data.quantity);
-        return state;
-      case 'CartCheckedOut':
-        return { ...state, checkedOut: true };
-    }
-  },
-  
-  decide: (command, state) => {
-    switch (command.type) {
-      case 'AddItem':
-        if (state.checkedOut) throw new Error('Cart already checked out');
-        return { type: 'ItemAdded', data: command };
-      case 'Checkout':
-        return { type: 'CartCheckedOut', data: { itemCount: state.items.size } };
-    }
-  }
-};
-```
-
-### Using with BoundlessDB
-
-```typescript
-// 1. Read events
-const result = await store.read<CartEvent>({
-  conditions: [{ type: 'ItemAdded', key: 'cart', value: cartId }]
-});
-
-// 2. Build state from events
-const state = evolve(result.events, cartDecider);
-
-// 3. Decide: command + state → new events
-const newEvents = decide(command, state, cartDecider);
-
-// 4. Append with consistency check
-await store.append(newEvents, result.appendCondition);
-```
-
-### Decider Helpers
-
-| Function | Description |
-|----------|-------------|
-| `evolve(events, decider)` | Fold events into state |
-| `decide(command, state, decider)` | Execute command against state → new events |
 
 ## API Reference
 

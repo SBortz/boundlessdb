@@ -399,19 +399,33 @@
   
   <div class="code-section">
     <h2>The DCB Pattern: Read → Decide → Write</h2>
-    <pre><code><span class="keyword">const</span> readResult = <span class="keyword">await</span> store.<span class="function">read</span>({
+    <pre><code><span class="comment">// Define your own functions — pure JavaScript</span>
+<span class="keyword">const</span> initialState = { enrolled: <span class="const">0</span>, capacity: <span class="const">30</span> };
+
+<span class="keyword">const</span> <span class="function">evolve</span> = (state, event) => {
+  <span class="keyword">switch</span> (event.type) {
+    <span class="keyword">case</span> <span class="string">'CourseCreated'</span>: <span class="keyword">return</span> { ...state, capacity: event.data.capacity };
+    <span class="keyword">case</span> <span class="string">'StudentSubscribed'</span>: <span class="keyword">return</span> { ...state, enrolled: state.enrolled + <span class="const">1</span> };
+    <span class="keyword">default</span>: <span class="keyword">return</span> state;
+  }
+};
+
+<span class="comment">// 1️⃣ READ</span>
+<span class="keyword">const</span> readResult = <span class="keyword">await</span> store.<span class="function">read</span>({
   conditions: [
     { type: <span class="string">'CourseCreated'</span>, key: <span class="string">'course'</span>, value: <span class="string">'cs101'</span> },
     { type: <span class="string">'StudentSubscribed'</span>, key: <span class="string">'course'</span>, value: <span class="string">'cs101'</span> },
   ]
 });
 
-<span class="keyword">const</span> state = <span class="function">evolve</span>(readResult.events, courseDecider);
+<span class="comment">// 2️⃣ DECIDE — standard reduce, no magic</span>
+<span class="keyword">const</span> state = readResult.events.<span class="function">reduce</span>(evolve, initialState);
 
 <span class="keyword">if</span> (state.enrolled >= state.capacity) {
   <span class="keyword">throw new</span> <span class="function">Error</span>(<span class="string">'Course is full!'</span>);
 }
 
+<span class="comment">// 3️⃣ WRITE</span>
 <span class="keyword">const</span> result = <span class="keyword">await</span> store.<span class="function">append</span>([
   { type: <span class="string">'StudentSubscribed'</span>, data: { courseId: <span class="string">'cs101'</span>, studentId: <span class="string">'alice'</span> } }
 ], readResult.appendCondition);  <span class="comment">// ← Ensures no one else wrote since your read!</span></code></pre>
