@@ -99,23 +99,22 @@ export function evolve<State, Command, E extends Event>(
 }
 
 /**
- * Execute a command against a decider, given the current events.
- * Builds state from events, then calls decider.decide().
+ * Execute a command against a decider with the current state.
  * Returns the new events that should be appended.
  * 
  * @example
  * ```typescript
  * const result = await store.read<CartEvent>({ conditions });
- * const newEvents = decide(command, result.events, cartDecider);
- * await store.append(newEvents, result.token);
+ * const state = evolve(result.events, cartDecider);
+ * const newEvents = decide(command, state, cartDecider);
+ * await store.append(newEvents, result.appendCondition);
  * ```
  */
 export function decide<State, Command, E extends Event>(
   command: Command,
-  events: readonly (E | StoredEvent<E>)[],
+  state: State,
   decider: Decider<State, Command, E>
 ): E[] {
-  const state = evolve(events, decider);
   const result = decider.decide(command, state);
   return Array.isArray(result) ? result : [result];
 }

@@ -474,7 +474,7 @@ const result = await store.read<CartEvent>({
 const state = evolve(result.events, cartDecider);
 
 // 3. Decide: command + state → new events
-const newEvents = decide(command, result.events, cartDecider);
+const newEvents = decide(command, state, cartDecider);
 
 // 4. Append with consistency check
 await store.append(newEvents, result.appendCondition);
@@ -485,7 +485,7 @@ await store.append(newEvents, result.appendCondition);
 | Function | Description |
 |----------|-------------|
 | `evolve(events, decider)` | Fold events into state |
-| `decide(command, events, decider)` | Build state + decide → new events |
+| `decide(command, state, decider)` | Execute command against state → new events |
 
 ## API Reference
 
