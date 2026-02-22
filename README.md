@@ -373,14 +373,23 @@ const result = await store.read({
 ```
 
 ### Mixed Conditions
-Combine constrained and unconstrained in one query:
+Combine constrained and unconstrained in one query (OR logic):
 
 ```typescript
-// Get: ALL ProductItemAdded OR CartCheckedOut where cart='cart-123'
+// "Give me the course definition + all enrollments for cs101"
 const result = await store.read({
   conditions: [
-    { type: 'ProductItemAdded' },                            // unconstrained
-    { type: 'CartCheckedOut', key: 'cart', value: 'cart-123' } // constrained
+    { type: 'CourseCreated', key: 'course', value: 'cs101' },
+    { type: 'StudentSubscribed', key: 'course', value: 'cs101' },
+    { type: 'StudentUnsubscribed', key: 'course', value: 'cs101' },
+  ]
+});
+
+// "All courses + only Alice's enrollments"
+const result = await store.read({
+  conditions: [
+    { type: 'CourseCreated' },                                  // unconstrained: ALL courses
+    { type: 'StudentSubscribed', key: 'student', value: 'alice' } // constrained: only Alice
   ]
 });
 ```
@@ -398,14 +407,18 @@ const result = await store.read({
 });
 ```
 
-### Partial Conditions
-If `key` is provided without `value` (or vice versa), it's treated as **unconstrained**:
+### Type Safety
+With TypeScript, conditions are type-safe — you must provide either:
+- **Only `type`** (unconstrained), or
+- **`type` + `key` + `value`** (constrained)
 
 ```typescript
-// These are ALL equivalent (unconstrained):
+// ✅ Valid
 { type: 'ProductItemAdded' }
-{ type: 'ProductItemAdded', key: 'cart' }           // value missing
-{ type: 'ProductItemAdded', value: 'cart-123' }     // key missing
+{ type: 'ProductItemAdded', key: 'cart', value: 'cart-123' }
+
+// ❌ TypeScript Error — key without value not allowed
+{ type: 'ProductItemAdded', key: 'cart' }
 ```
 
 ### Empty Conditions
