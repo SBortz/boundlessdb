@@ -2,11 +2,43 @@
   "name": "boundlessdb",
   "version": "0.1.0",
   "license": "MIT",
-  "description": "DCB-native Event Store for Node.js and Browser",
+  "description": "A DCB-inspired event store library for TypeScript — with support for SQLite, PostgreSQL, in-memory",
+  "author": "Sebastian Bortz",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SBortz/boundless.git"
+  },
+  "homepage": "https://boundlessdb.dev",
+  "keywords": [
+    "event-sourcing",
+    "event-store",
+    "dcb",
+    "dynamic-consistency-boundaries",
+    "typescript",
+    "sqlite",
+    "postgresql",
+    "cqrs"
+  ],
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "browser": "ui/public/boundless.browser.js",
+  "browser": "dist/browser.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./browser": {
+      "types": "./dist/browser.d.ts",
+      "import": "./dist/browser.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
     "build:browser": "node scripts/build-browser.js",
