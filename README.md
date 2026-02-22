@@ -417,6 +417,65 @@ Empty conditions returns **all events** in the store:
 const result = await store.read({ conditions: [] });
 ```
 
+## Decider Pattern
+
+BoundlessDB includes helpers for the Decider pattern (inspired by [Emmett](https://github.com/event-driven-io/emmett)):
+
+```typescript
+import { Decider, buildState, executeCommand } from 'boundlessdb';
+
+// Define your decider
+const cartDecider: Decider<CartState, CartCommand, CartEvent> = {
+  initialState: () => ({ items: new Map(), checkedOut: false }),
+  
+  evolve: (state, event) => {
+    switch (event.type) {
+      case 'ItemAdded':
+        state.items.set(event.data.productId, event.data.quantity);
+        return state;
+      case 'CartCheckedOut':
+        return { ...state, checkedOut: true };
+    }
+  },
+  
+  decide: (command, state) => {
+    switch (command.type) {
+      case 'AddItem':
+        if (state.checkedOut) throw new Error('Cart already checked out');
+        return { type: 'ItemAdded', data: command };
+      case 'Checkout':
+        return { type: 'CartCheckedOut', data: { itemCount: state.items.size } };
+    }
+  }
+};
+```
+
+### Using with BoundlessDB
+
+```typescript
+// 1. Read events
+const result = await store.read<CartEvent>({
+  conditions: [{ type: 'ItemAdded', key: 'cart', value: cartId }]
+});
+
+// 2. Build state from events
+const state = buildState(result.events, cartDecider.evolve, cartDecider.initialState());
+
+// 3. Execute command to get new events
+const newEvents = executeCommand(result.events, command, cartDecider);
+
+// 4. Append with consistency check
+await store.append(newEvents, result.token);
+```
+
+### Decider Helpers
+
+| Function | Description |
+|----------|-------------|
+| `buildState(events, evolve, initial)` | Fold events into state |
+| `buildStateWithDecider(events, decider)` | Same, using decider's initialState |
+| `executeCommand(events, command, decider)` | Build state + decide in one call |
+
 ## API Reference
 
 ### `createEventStore(options)`

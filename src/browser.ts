@@ -56,3 +56,7 @@ export {
   validateToken, 
   TokenValidationError,
 } from './token.browser.js';
+
+// Decider pattern
+export type { Decider } from './decider.js';
+export { buildState, buildStateWithDecider, executeCommand } from './decider.js';
