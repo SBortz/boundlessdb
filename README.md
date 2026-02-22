@@ -4,6 +4,12 @@ A **DCB-inspired** event store library for TypeScript.
 
 > *BoundlessDB* — because consistency boundaries should be dynamic, not fixed.
 
+## Installation
+
+```bash
+npm install boundlessdb
+```
+
 ## 🎉 Try it Live!
 
 **[Interactive Browser Demo](https://boundlessdb.dev/demo.html)** — No installation required!
