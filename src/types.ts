@@ -142,12 +142,20 @@ export function isConflict(result: AppendResult | ConflictResult): result is Con
 export type ConsistencyToken = string;
 
 /**
+ * Append condition - can be passed directly to append() instead of token
+ */
+export interface AppendCondition {
+  /** Position from which to check for conflicts */
+  position: bigint;
+  /** Conditions that define what constitutes a conflict */
+  conditions: QueryCondition[];
+}
+
+/**
  * Internal token payload structure
  */
 export interface TokenPayload {
-  v: 1;
   pos: bigint;
-  ts: number;
   q: QueryCondition[];
 }
 
@@ -155,9 +163,7 @@ export interface TokenPayload {
  * JSON-serializable token payload (bigint as string)
  */
 export interface TokenPayloadJSON {
-  v: 1;
   pos: string;
-  ts: number;
   q: QueryCondition[];
 }
 
@@ -166,8 +172,6 @@ export interface TokenPayloadJSON {
 // ============================================================
 
 export interface EventStoreOptions {
-  /** Token signing secret (required) */
-  secret: string;
   /** Consistency configuration */
   consistency: ConsistencyConfig;
 }

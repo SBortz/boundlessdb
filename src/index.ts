@@ -16,6 +16,7 @@ export type {
   AppendResult,
   ConflictResult,
   ConsistencyToken,
+  AppendCondition,
   TokenPayload,
   EventStoreOptions,
 } from './types.js';
@@ -36,5 +37,14 @@ export { PostgresStorage } from './storage/postgres.js';
 export { KeyExtractor, KeyExtractionError } from './config/extractor.js';
 export { validateConfig, ConfigValidationError } from './config/validator.js';
 
-// Token
-export { createToken, validateToken, TokenValidationError } from './token.js';
+// Token utilities
+export { 
+  createToken, 
+  decodeToken,
+  encodeAppendCondition,
+  decodeAppendCondition,
+  TokenDecodeError,
+  // Backwards compatibility aliases
+  validateToken, 
+  TokenValidationError,
+} from './token.js';

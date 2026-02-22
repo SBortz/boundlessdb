@@ -1,40 +1,35 @@
 /**
- * Consistency Token: Create and validate HMAC-signed tokens
+ * Consistency Token: Encode/decode append conditions as Base64
+ * 
+ * No cryptographic signing - the token is simply a convenience wrapper
+ * around { position, conditions } for easier passing between read and append.
  */
 
-import { createHmac, timingSafeEqual } from 'node:crypto';
 import type {
   ConsistencyToken,
   Query,
   QueryCondition,
   TokenPayload,
   TokenPayloadJSON,
+  AppendCondition,
 } from './types.js';
 
 /**
  * Base64URL encode (no padding)
  */
-function base64urlEncode(data: string | Buffer): string {
-  const buf = typeof data === 'string' ? Buffer.from(data, 'utf-8') : data;
-  return buf.toString('base64url');
+function base64urlEncode(data: string): string {
+  return Buffer.from(data, 'utf-8').toString('base64url');
 }
 
 /**
  * Base64URL decode
  */
-function base64urlDecode(data: string): Buffer {
-  return Buffer.from(data, 'base64url');
+function base64urlDecode(data: string): string {
+  return Buffer.from(data, 'base64url').toString('utf-8');
 }
 
 /**
- * Compute HMAC-SHA256
- */
-function hmacSha256(secret: string, data: string): Buffer {
-  return createHmac('sha256', secret).update(data, 'utf-8').digest();
-}
-
-/**
- * Normalize query conditions for deterministic signature
+ * Normalize query conditions for deterministic encoding
  * - Sort by type, then by key, then by value
  * - Remove any extra properties
  */
@@ -49,72 +44,43 @@ function normalizeQuery(conditions: QueryCondition[]): QueryCondition[] {
 }
 
 /**
- * Create a consistency token
+ * Create a consistency token (Base64 encoded, no signature)
  */
 export function createToken(
   query: Query,
-  position: bigint,
-  secret: string
+  position: bigint
 ): ConsistencyToken {
   const payload: TokenPayloadJSON = {
-    v: 1,
     pos: position.toString(),
-    ts: Math.floor(Date.now() / 1000),
     q: normalizeQuery(query.conditions),
   };
 
-  const payloadJson = JSON.stringify(payload);
-  const sig = hmacSha256(secret, payloadJson);
-
-  return base64urlEncode(payloadJson) + '.' + base64urlEncode(sig);
+  return base64urlEncode(JSON.stringify(payload));
 }
 
 /**
- * Token validation error
+ * Token decode error
  */
-export class TokenValidationError extends Error {
+export class TokenDecodeError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = 'TokenValidationError';
+    this.name = 'TokenDecodeError';
   }
 }
 
+// Keep old name as alias for backwards compatibility
+export { TokenDecodeError as TokenValidationError };
+
 /**
- * Validate and decode a consistency token
- * @throws TokenValidationError if token is invalid
+ * Decode a consistency token
+ * @throws TokenDecodeError if token is malformed
  */
-export function validateToken(
-  token: ConsistencyToken,
-  secret: string
-): TokenPayload {
-  const parts = token.split('.');
-  if (parts.length !== 2) {
-    throw new TokenValidationError('Invalid token format: expected two parts separated by dot');
-  }
-
-  const [payloadB64, sigB64] = parts;
-
+export function decodeToken(token: ConsistencyToken): TokenPayload {
   let payloadJson: string;
   try {
-    payloadJson = base64urlDecode(payloadB64).toString('utf-8');
+    payloadJson = base64urlDecode(token);
   } catch {
-    throw new TokenValidationError('Invalid token: payload is not valid base64url');
-  }
-
-  let providedSig: Buffer;
-  try {
-    providedSig = base64urlDecode(sigB64);
-  } catch {
-    throw new TokenValidationError('Invalid token: signature is not valid base64url');
-  }
-
-  // Verify signature
-  const expectedSig = hmacSha256(secret, payloadJson);
-  if (providedSig.length !== expectedSig.length) {
-    throw new TokenValidationError('Invalid token: signature verification failed');
-  }
-  if (!timingSafeEqual(providedSig, expectedSig)) {
-    throw new TokenValidationError('Invalid token: signature verification failed');
+    throw new TokenDecodeError('Invalid token: not valid base64url');
   }
 
   // Parse payload
@@ -122,21 +88,15 @@ export function validateToken(
   try {
     raw = JSON.parse(payloadJson);
   } catch {
-    throw new TokenValidationError('Invalid token: payload is not valid JSON');
+    throw new TokenDecodeError('Invalid token: not valid JSON');
   }
 
   // Validate structure
-  if (raw.v !== 1) {
-    throw new TokenValidationError(`Invalid token: unsupported version ${raw.v}`);
-  }
   if (typeof raw.pos !== 'string') {
-    throw new TokenValidationError('Invalid token: pos must be a string');
-  }
-  if (typeof raw.ts !== 'number') {
-    throw new TokenValidationError('Invalid token: ts must be a number');
+    throw new TokenDecodeError('Invalid token: pos must be a string');
   }
   if (!Array.isArray(raw.q)) {
-    throw new TokenValidationError('Invalid token: q must be an array');
+    throw new TokenDecodeError('Invalid token: q must be an array');
   }
 
   // Convert position to bigint
@@ -144,33 +104,37 @@ export function validateToken(
   try {
     pos = BigInt(raw.pos);
   } catch {
-    throw new TokenValidationError('Invalid token: pos is not a valid bigint');
+    throw new TokenDecodeError('Invalid token: pos is not a valid bigint');
   }
 
   return {
-    v: 1,
     pos,
-    ts: raw.ts,
     q: raw.q,
   };
 }
 
+// Keep old name as alias for backwards compatibility
+export { decodeToken as validateToken };
+
 /**
- * Create a token from a TokenPayload (for generating new tokens after reads)
+ * Create a token from an AppendCondition (for manual token creation)
  */
-export function createTokenFromPayload(
-  payload: TokenPayload,
-  secret: string
-): ConsistencyToken {
-  const jsonPayload: TokenPayloadJSON = {
-    v: payload.v,
-    pos: payload.pos.toString(),
-    ts: payload.ts,
-    q: normalizeQuery(payload.q),
+export function encodeAppendCondition(condition: AppendCondition): ConsistencyToken {
+  const payload: TokenPayloadJSON = {
+    pos: condition.position.toString(),
+    q: normalizeQuery(condition.conditions),
   };
 
-  const payloadJson = JSON.stringify(jsonPayload);
-  const sig = hmacSha256(secret, payloadJson);
+  return base64urlEncode(JSON.stringify(payload));
+}
 
-  return base64urlEncode(payloadJson) + '.' + base64urlEncode(sig);
+/**
+ * Decode a token to AppendCondition
+ */
+export function decodeAppendCondition(token: ConsistencyToken): AppendCondition {
+  const payload = decodeToken(token);
+  return {
+    position: payload.pos,
+    conditions: payload.q,
+  };
 }
