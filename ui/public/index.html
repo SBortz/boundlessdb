@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>BoundlessDB — DCB Event Store</title>
   <style>
+    :root {
+      --content-width: 900px;
+    }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -16,8 +19,8 @@
     
     .hero {
       text-align: center;
-      padding: 4rem 2rem;
-      max-width: 900px;
+      padding: 2rem 2rem 0.5rem;
+      max-width: var(--content-width);
       margin: 0 auto;
     }
     
@@ -67,7 +70,7 @@
       display: flex;
       justify-content: center;
       gap: 1rem;
-      margin-bottom: 4rem;
+      margin-bottom: 2rem;
       flex-wrap: wrap;
     }
     
@@ -101,12 +104,26 @@
       background: rgba(0, 204, 255, 0.1);
     }
     
+    .cta-row {
+      display: flex;
+      justify-content: center;
+      gap: 1rem;
+      margin: 2.5rem 0 3rem;
+    }
+    
+    .cta-row .btn {
+      min-width: 180px;
+      padding: 1rem 2rem;
+      font-size: 1.1rem;
+      text-align: center;
+    }
+    
     .features {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
       gap: 1.5rem;
       padding: 2rem;
-      max-width: 1200px;
+      max-width: var(--content-width);
       margin: 0 auto;
     }
     
@@ -134,7 +151,7 @@
     }
     
     .code-section {
-      max-width: 800px;
+      max-width: var(--content-width);
       margin: 3rem auto;
       padding: 0 2rem;
     }
@@ -164,7 +181,7 @@
     .const { color: #e5c07b; }
     
     .architecture {
-      max-width: 900px;
+      max-width: var(--content-width);
       margin: 4rem auto;
       padding: 0 2rem;
       text-align: center;
@@ -244,7 +261,7 @@
       border: 1px solid #0f3460;
       border-radius: 12px;
       padding: 1.5rem;
-      max-width: 800px;
+      max-width: var(--content-width);
       margin: 0 auto;
       text-align: left;
     }
@@ -307,6 +324,99 @@
     footer a:hover {
       text-decoration: underline;
     }
+    
+    /* Tabs - Flat Design */
+    .tabs-container {
+      max-width: var(--content-width);
+      margin: 0 auto 2rem;
+      padding: 0 2rem;
+    }
+    
+    .tabs-header {
+      display: flex;
+      gap: 0;
+      border-bottom: 2px solid #1e3a5f;
+    }
+    
+    .tab-btn {
+      padding: 0.75rem 1.5rem;
+      background: transparent;
+      border: none;
+      color: #666;
+      cursor: pointer;
+      font-size: 0.9rem;
+      font-weight: 600;
+      transition: all 0.2s;
+      position: relative;
+    }
+    
+    .tab-btn:hover {
+      color: #0cf;
+    }
+    
+    .tab-btn.active {
+      color: #0cf;
+    }
+    
+    .tab-btn.active::after {
+      content: '';
+      position: absolute;
+      bottom: -2px;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: #0cf;
+    }
+    
+    .tabs-content-wrapper {
+      background: #0a1628;
+      border: 1px solid #1e3a5f;
+      border-top: none;
+      border-radius: 0 0 8px 8px;
+      padding: 1.5rem;
+      box-shadow: 0 0 60px rgba(0, 204, 255, 0.08), 0 0 100px rgba(0, 204, 255, 0.05);
+      position: relative;
+    }
+    
+    .tabs-content-wrapper::before {
+      content: '';
+      position: absolute;
+      inset: -1px;
+      border-radius: 0 0 8px 8px;
+      padding: 1px;
+      background: linear-gradient(180deg, transparent 0%, rgba(0, 204, 255, 0.1) 100%);
+      -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+      mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+      -webkit-mask-composite: xor;
+      mask-composite: exclude;
+      pointer-events: none;
+    }
+    
+    .tab-content {
+      display: none;
+    }
+    
+    .tab-content.active {
+      display: block;
+    }
+    
+    .tab-content pre {
+      margin: 0;
+      background: transparent;
+      border: none;
+      padding: 0;
+      font-size: 0.9rem;
+      line-height: 1.7;
+    }
+    
+    .tab-label {
+      color: #0cf;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+      margin-bottom: 1rem;
+      font-weight: 600;
+    }
   </style>
 </head>
 <body>
@@ -314,18 +424,82 @@
     <div class="logo">🗃️</div>
     <h1>BoundlessDB</h1>
     <p class="tagline">An <span class="highlight">embedded, DCB-inspired</span> Event Store for TypeScript</p>
-    
-    <div class="badges">
-      <span class="badge">TypeScript</span>
-      <span class="badge">SQLite</span>
-      <span class="badge">PostgreSQL</span>
-      <span class="badge">sql.js (Browser)</span>
+  </div>
+  
+  <!-- Tabbed Code Example -->
+  <div class="tabs-container">
+    <div class="tabs-header">
+      <button class="tab-btn active" data-tab="pattern">The Pattern</button>
+      <button class="tab-btn" data-tab="typed">With Types</button>
+      <button class="tab-btn" data-tab="impl">evolve & decide</button>
     </div>
     
-    <div class="cta-buttons">
+    <div class="tabs-content-wrapper">
+      <div class="tab-content active" id="tab-pattern">
+        <div class="tab-label">Read → Reduce → Decide → Write</div>
+        <pre><code><span class="comment">// 1. Read events matching your query</span>
+<span class="keyword">const</span> { events, appendCondition } = <span class="keyword">await</span> store.<span class="function">read</span>({
+  conditions: [
+    { type: <span class="string">'CourseCreated'</span>, key: <span class="string">'course'</span>, value: <span class="string">'cs101'</span> },
+    { type: <span class="string">'StudentSubscribed'</span>, key: <span class="string">'course'</span>, value: <span class="string">'cs101'</span> }
+  ]
+});
+
+<span class="comment">// 2. Build state</span>
+<span class="keyword">const</span> state = events.<span class="function">reduce</span>(evolve, initialState);
+
+<span class="comment">// 3. Business logic</span>
+<span class="keyword">const</span> newEvents = <span class="function">decide</span>(command, state);
+
+<span class="comment">// 4. Append with optimistic concurrency</span>
+<span class="keyword">await</span> store.<span class="function">append</span>(newEvents, appendCondition);</code></pre>
+      </div>
+      
+      <div class="tab-content" id="tab-typed">
+        <div class="tab-label">Type-Safe Version</div>
+        <pre><code><span class="keyword">type</span> CourseEvent = Event&lt;<span class="string">'StudentSubscribed'</span>, { courseId: <span class="const">string</span> }&gt;;
+
+<span class="comment">// 1. Read with typed events</span>
+<span class="keyword">const</span> { events, appendCondition } = <span class="keyword">await</span> store.<span class="function">read</span>&lt;CourseEvent&gt;({
+  conditions: [{ type: <span class="string">'StudentSubscribed'</span>, key: <span class="string">'course'</span>, value: <span class="string">'cs101'</span> }]
+});
+
+<span class="comment">// 2. Build state</span>
+<span class="keyword">const</span> state: CourseState = events.<span class="function">reduce</span>(evolve, initialState);
+
+<span class="comment">// 3. Business logic</span>
+<span class="keyword">const</span> newEvents: CourseEvent[] = <span class="function">decide</span>(command, state);
+
+<span class="comment">// 4. Append</span>
+<span class="keyword">await</span> store.<span class="function">append</span>(newEvents, appendCondition);</code></pre>
+      </div>
+      
+      <div class="tab-content" id="tab-impl">
+        <div class="tab-label">Define Your Functions</div>
+        <pre><code><span class="keyword">const</span> initialState = { enrolled: <span class="const">0</span>, capacity: <span class="const">30</span> };
+
+<span class="comment">// evolve: (state, event) → new state</span>
+<span class="keyword">const</span> <span class="function">evolve</span> = (state, event) => {
+  <span class="keyword">switch</span> (event.type) {
+    <span class="keyword">case</span> <span class="string">'StudentSubscribed'</span>:
+      <span class="keyword">return</span> { ...state, enrolled: state.enrolled + <span class="const">1</span> };
+    <span class="keyword">default</span>:
+      <span class="keyword">return</span> state;
+  }
+};
+
+<span class="comment">// decide: (command, state) → events[]</span>
+<span class="keyword">const</span> <span class="function">decide</span> = (command, state) => {
+  <span class="keyword">if</span> (state.enrolled >= state.capacity) {
+    <span class="keyword">throw new</span> <span class="function">Error</span>(<span class="string">'Course is full!'</span>);
+  }
+  <span class="keyword">return</span> [{ type: <span class="string">'StudentSubscribed'</span>, data: command }];
+};</code></pre>
+      </div>
+    </div>
+    <div class="cta-row">
       <a href="/demo.html" class="btn btn-primary">🎮 Try Live Demo</a>
-      <a href="https://github.com/SBortz/boundless" class="btn btn-secondary">View on GitHub</a>
-      <a href="https://github.com/SBortz/boundless#quick-start" class="btn btn-secondary">Documentation</a>
+      <a href="https://github.com/SBortz/boundless" class="btn btn-secondary">GitHub</a>
     </div>
   </div>
   
@@ -398,40 +572,6 @@
   </div>
   
   <div class="code-section">
-    <h2>The DCB Pattern: Read → Decide → Write</h2>
-    <pre><code><span class="comment">// Define your own functions — pure JavaScript</span>
-<span class="keyword">const</span> initialState = { enrolled: <span class="const">0</span>, capacity: <span class="const">30</span> };
-
-<span class="keyword">const</span> <span class="function">evolve</span> = (state, event) => {
-  <span class="keyword">switch</span> (event.type) {
-    <span class="keyword">case</span> <span class="string">'CourseCreated'</span>: <span class="keyword">return</span> { ...state, capacity: event.data.capacity };
-    <span class="keyword">case</span> <span class="string">'StudentSubscribed'</span>: <span class="keyword">return</span> { ...state, enrolled: state.enrolled + <span class="const">1</span> };
-    <span class="keyword">default</span>: <span class="keyword">return</span> state;
-  }
-};
-
-<span class="comment">// 1️⃣ READ</span>
-<span class="keyword">const</span> { events, appendCondition } = <span class="keyword">await</span> store.<span class="function">read</span>({
-  conditions: [
-    { type: <span class="string">'CourseCreated'</span>, key: <span class="string">'course'</span>, value: <span class="string">'cs101'</span> },
-    { type: <span class="string">'StudentSubscribed'</span>, key: <span class="string">'course'</span>, value: <span class="string">'cs101'</span> },
-  ]
-});
-
-<span class="comment">// 2️⃣ DECIDE — standard reduce, no magic</span>
-<span class="keyword">const</span> state = events.<span class="function">reduce</span>(evolve, initialState);
-
-<span class="keyword">if</span> (state.enrolled >= state.capacity) {
-  <span class="keyword">throw new</span> <span class="function">Error</span>(<span class="string">'Course is full!'</span>);
-}
-
-<span class="comment">// 3️⃣ WRITE</span>
-<span class="keyword">const</span> result = <span class="keyword">await</span> store.<span class="function">append</span>([
-  { type: <span class="string">'StudentSubscribed'</span>, data: { courseId: <span class="string">'cs101'</span>, studentId: <span class="string">'alice'</span> } }
-], appendCondition);  <span class="comment">// ← Ensures no one else wrote since your read!</span></code></pre>
-  </div>
-  
-  <div class="code-section">
     <h2>Conflict? No Problem!</h2>
     <pre><code><span class="keyword">if</span> (result.conflict) {
   <span class="comment">// Someone else enrolled while you were deciding!</span>
@@ -485,10 +625,11 @@ appendCondition = {
   
   <div class="code-section">
     <h2>Config-based Key Extraction</h2>
-    <pre><code><span class="comment">// Keys are extracted from event payloads via configuration</span>
-<span class="comment">// Events stay pure — no tags or metadata pollution!</span>
-
-<span class="keyword">const</span> consistency = {
+    <div class="flow-note" style="margin-bottom:1rem">
+      Keys are extracted from event payloads via configuration.<br>
+      Events stay pure — no tags or metadata pollution!
+    </div>
+    <pre><code><span class="keyword">const</span> consistency = {
   eventTypes: {
     <span class="const">CourseCreated</span>: {
       keys: [
@@ -503,15 +644,15 @@ appendCondition = {
       ]
     }
   }
-};
-
-<span class="comment">// When an event is appended:</span>
-<span class="comment">// { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice', semester: 'ws24' } }</span>
-<span class="comment">//</span>
-<span class="comment">// Keys are automatically extracted and indexed:</span>
-<span class="comment">//   → course: 'cs101'</span>
-<span class="comment">//   → student: 'alice'</span>
-<span class="comment">//   → semester: 'WS24' (transformed to uppercase)</span></code></pre>
+};</code></pre>
+    <div class="flow-note" style="margin-top:1rem">
+      <strong>When an event is appended:</strong><br>
+      <code style="color:#98c379">{ type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice', semester: 'ws24' } }</code><br><br>
+      <strong>Keys are automatically extracted and indexed:</strong><br>
+      → course: <code>'cs101'</code><br>
+      → student: <code>'alice'</code><br>
+      → semester: <code>'WS24'</code> (transformed to uppercase)
+    </div>
   </div>
   
   <div class="code-section">
@@ -587,5 +728,22 @@ appendCondition = {
   <footer>
     <p>Built with ❤️ for <a href="https://www.eventstore.com/event-sourcing">Event Sourcing</a></p>
   </footer>
+  
+  <script>
+    // Tab switching
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tabId = btn.dataset.tab;
+        
+        // Update buttons
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        
+        // Update content
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        document.getElementById('tab-' + tabId).classList.add('active');
+      });
+    });
+  </script>
 </body>
 </html>
