@@ -87,18 +87,15 @@ export interface Query {
  */
 export class QueryResult<E extends Event = Event> {
   readonly events: StoredEvent<E>[];
-  readonly token: ConsistencyToken;
   readonly position: bigint;
   readonly conditions: QueryCondition[];
 
   constructor(
     events: StoredEvent<E>[],
-    token: ConsistencyToken,
     position: bigint,
     conditions: QueryCondition[]
   ) {
     this.events = events;
-    this.token = token;
     this.position = position;
     this.conditions = conditions;
   }
@@ -121,6 +118,11 @@ export class QueryResult<E extends Event = Event> {
   /** Get the last event, or undefined if empty */
   last(): StoredEvent<E> | undefined {
     return this.events[this.events.length - 1];
+  }
+
+  /** Get the append condition for use with store.append() */
+  get appendCondition(): AppendCondition {
+    return { position: this.position, conditions: this.conditions };
   }
 }
 
@@ -175,21 +177,12 @@ export interface ExtractedKey {
 // ============================================================
 
 /**
- * Result of a successful read operation (legacy - use QueryResult instead)
- * @deprecated Use QueryResult<E> for typed results
- */
-export interface ReadResult<E extends Event = Event> {
-  events: StoredEvent<E>[];
-  token: ConsistencyToken;
-}
-
-/**
  * Result of a successful append operation
  */
 export interface AppendResult {
   conflict: false;
   position: bigint;
-  token: ConsistencyToken;
+  appendCondition: AppendCondition;
 }
 
 /**
@@ -198,7 +191,7 @@ export interface AppendResult {
 export interface ConflictResult<E extends Event = Event> {
   conflict: true;
   conflictingEvents: StoredEvent<E>[];
-  newToken: ConsistencyToken;
+  appendCondition: AppendCondition;
 }
 
 /**
@@ -211,38 +204,19 @@ export function isConflict<E extends Event = Event>(
 }
 
 // ============================================================
-// Token
+// Append Condition
 // ============================================================
 
 /**
- * Opaque consistency token (Base64URL encoded)
- */
-export type ConsistencyToken = string;
-
-/**
- * Append condition - can be passed directly to append() instead of token
+ * Condition for optimistic concurrency check on append.
+ * Pass to store.append() to ensure no conflicting events were written
+ * since your read.
  */
 export interface AppendCondition {
   /** Position from which to check for conflicts */
   position: bigint;
   /** Conditions that define what constitutes a conflict */
   conditions: QueryCondition[];
-}
-
-/**
- * Internal token payload structure
- */
-export interface TokenPayload {
-  pos: bigint;
-  q: QueryCondition[];
-}
-
-/**
- * JSON-serializable token payload (bigint as string)
- */
-export interface TokenPayloadJSON {
-  pos: string;
-  q: QueryCondition[];
 }
 
 // ============================================================

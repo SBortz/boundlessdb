@@ -17,15 +17,10 @@ export type {
   EventTypeConfig,
   ExtractedKey,
   // Result types
-  ReadResult,
   AppendResult,
   ConflictResult,
-  ConsistencyToken,
   AppendCondition,
-  TokenPayload,
   EventStoreOptions,
-  // Legacy alias
-  NewEvent,
 } from './types.js';
 
 export { QueryResult, isConflict } from './types.js';
@@ -43,18 +38,6 @@ export { PostgresStorage } from './storage/postgres.js';
 // Config
 export { KeyExtractor, KeyExtractionError } from './config/extractor.js';
 export { validateConfig, ConfigValidationError } from './config/validator.js';
-
-// Token utilities
-export { 
-  createToken, 
-  decodeToken,
-  encodeAppendCondition,
-  decodeAppendCondition,
-  TokenDecodeError,
-  // Backwards compatibility aliases
-  validateToken, 
-  TokenValidationError,
-} from './token.js';
 
 // Decider pattern
 export type { Decider } from './decider.js';

@@ -863,7 +863,7 @@
     let storage = null;
 
     // Live Query State
-    let currentLiveToken = null;
+    let currentLiveCondition = null;
     let currentLiveConditions = [
       {type:'CourseCreated',key:'course',value:'cs101'},
       {type:'StudentSubscribed',key:'course',value:'cs101'},
@@ -1021,23 +1021,23 @@
           showScenarioResult(`${student.emoji} ${student.name}: Reading ${course.id}...\n\n→ store.read({ course: '${course.id}' })`, 'info');
           await sleep(1000);
           
-          const { events, token } = await store.read({
+          const readResult = await store.read({
             conditions: [
               {type:'CourseCreated', key:'course', value: course.id},
               {type:'StudentSubscribed', key:'course', value: course.id}
             ]
           });
           
-          const enrolled = events.filter(e => e.type === 'StudentSubscribed').length;
-          const pos = events.length > 0 ? Math.max(...events.map(e => Number(e.position))) : 0;
+          const enrolled = readResult.events.filter(e => e.type === 'StudentSubscribed').length;
+          const pos = Number(readResult.position);
           
-          showScenarioResult(`${student.emoji} ${student.name}: ${course.id} has ${enrolled}/${course.capacity} enrolled.\nToken position: #${pos}\n\nDeciding to enroll...`, 'info');
+          showScenarioResult(`${student.emoji} ${student.name}: ${course.id} has ${enrolled}/${course.capacity} enrolled.\nPosition: #${pos}\n\nDeciding to enroll...`, 'info');
           await sleep(1000);
           
-          // Append with token
+          // Append with appendCondition
           const result = await store.append(
             [{ type: 'StudentSubscribed', data: { courseId: course.id, studentId: student.id, name: student.name } }],
-            token
+            readResult.appendCondition
           );
           
           await refreshAll();
@@ -1052,7 +1052,7 @@
         }
       }
       
-      showScenarioResult(`🎉 NORMAL FLOW COMPLETE!\n\n👩 Alice: enrolled in 3 courses\n👨 Bob: enrolled in 3 courses\n\nEach enrollment followed:\n  1. READ → got token\n  2. DECIDE → check capacity\n  3. APPEND with token → success!`, 'success');
+      showScenarioResult(`🎉 NORMAL FLOW COMPLETE!\n\n👩 Alice: enrolled in 3 courses\n👨 Bob: enrolled in 3 courses\n\nEach enrollment followed:\n  1. READ → got appendCondition\n  2. DECIDE → check capacity\n  3. APPEND with condition → success!`, 'success');
     };
     
     // Show Conflict Demo - demonstrates concurrent writes with conflict
@@ -1093,13 +1093,11 @@
           {type:'StudentSubscribed', key:'course', value:'math201'}
         ]
       });
-      const aliceToken = aliceRead.token;
-      const alicePos = aliceRead.events.length > 0 
-        ? Math.max(...aliceRead.events.map(e => Number(e.position)))
-        : 0;
+      const aliceCondition = aliceRead.appendCondition;
+      const alicePos = Number(aliceRead.position);
       const aliceEnrolled = aliceRead.events.filter(e => e.type === 'StudentSubscribed').length;
       
-      showScenarioResult(`👩 ALICE: Sees ${aliceEnrolled}/5 enrolled.\nToken position: #${alicePos}\n\n"Great, 2 seats left! Let me think..."`, 'info');
+      showScenarioResult(`👩 ALICE: Sees ${aliceEnrolled}/5 enrolled.\nPosition: #${alicePos}\n\n"Great, 2 seats left! Let me think..."`, 'info');
       await sleep(2000);
       
       // While Alice thinks, Bob and Carol also want to enroll
@@ -1128,13 +1126,13 @@
       showScenarioResult(`👧 CAROL: ✅ Enrolled at position #${carolResult.position}! (5/5 seats - FULL!)`, 'success');
       await sleep(2000);
       
-      // Now Alice tries with her OLD token
-      showScenarioResult(`👩 ALICE: "OK, I'll enroll now!"\n\nUsing her OLD token from position #${alicePos}...\n(But Bob #${bobResult.position} and Carol #${carolResult.position} wrote since then!)`, 'info');
+      // Now Alice tries with her OLD appendCondition
+      showScenarioResult(`👩 ALICE: "OK, I'll enroll now!"\n\nUsing her OLD condition from position #${alicePos}...\n(But Bob #${bobResult.position} and Carol #${carolResult.position} wrote since then!)`, 'info');
       await sleep(2000);
       
       const aliceResult = await store.append(
         [{ type: 'StudentSubscribed', data: { courseId: 'math201', studentId: 'alice', name: 'Alice' } }],
-        aliceToken
+        aliceCondition
       );
       
       await refreshAll();
@@ -1147,7 +1145,7 @@
           `👩 ALICE's enrollment was REJECTED!\n\n` +
           `Why? ${conflicts.length} events written since her read:\n` +
           conflicts.map(e => `  • #${e.position}: ${e.data?.name || 'Unknown'} enrolled`).join('\n') + `\n\n` +
-          `Alice's token was at position #${alicePos}\n` +
+          `Alice's condition was at position #${alicePos}\n` +
           `But matching events exist at: ${conflicts.map(e => '#' + e.position).join(', ')}\n\n` +
           `🔄 Alice must RE-READ to see the course is now FULL!\n\n` +
           `✨ DCB prevented Alice from "stealing" a non-existent seat!`,
@@ -1232,9 +1230,9 @@
       try {
         const result = await store.read({ conditions });
         
-        currentLiveToken = result.token;
+        currentLiveCondition = result.appendCondition;
         document.getElementById('live-count').textContent = result.events.length;
-        document.getElementById('live-token').textContent = `Token: ${result.token.substring(0, 20)}...`;
+        document.getElementById('live-token').textContent = `Position: #${result.position}`;
         
         // Get keys for each event
         const allKeys = await storage.getAllKeys();
@@ -1267,11 +1265,11 @@
     };
 
     window.copyLiveToken = function() {
-      if (currentLiveToken) {
-        navigator.clipboard.writeText(currentLiveToken);
+      if (currentLiveCondition) {
+        navigator.clipboard.writeText(JSON.stringify(currentLiveCondition, (k, v) => typeof v === 'bigint' ? v.toString() : v, 2));
         document.getElementById('live-token').textContent = '✅ Copied!';
         setTimeout(() => {
-          document.getElementById('live-token').textContent = `Token: ${currentLiveToken.substring(0, 20)}...`;
+          document.getElementById('live-token').textContent = `Position: #${currentLiveCondition.position}`;
         }, 1000);
       }
     };

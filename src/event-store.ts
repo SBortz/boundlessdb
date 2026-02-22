@@ -7,18 +7,17 @@ import { KeyExtractor } from './config/extractor.js';
 import { validateConfig } from './config/validator.js';
 import type { EventStorage } from './storage/interface.js';
 import { SqliteStorage } from './storage/sqlite.js';
-import { createToken, decodeToken, TokenDecodeError } from './token.js';
 import {
   QueryResult,
   type AppendCondition,
   type AppendResult,
   type ConflictResult,
   type ConsistencyConfig,
-  type ConsistencyToken,
   type Event,
   type EventStoreOptions,
   type EventWithMetadata,
   type Query,
+  type QueryCondition,
   type StoredEvent,
 } from './types.js';
 
@@ -146,18 +145,15 @@ export class EventStore {
       query.limit
     );
 
-    // Get the latest position for the token
+    // Get the position for the append condition
     // If we have events, use the last event's position
     // Otherwise, use the current latest position
     const position = events.length > 0
       ? events[events.length - 1].position
       : await this.storage.getLatestPosition();
 
-    const token = createToken(query, position);
-
     return new QueryResult<E>(
       events as StoredEvent<E>[],
-      token,
       position,
       query.conditions
     );
@@ -170,25 +166,22 @@ export class EventStore {
    * @param events Events to append
    * @param condition Consistency check - can be:
    *   - null: Skip consistency check (optimistic first write)
-   *   - ConsistencyToken: Token from previous read() call
-   *   - AppendCondition: Direct { position, conditions } object
+   *   - AppendCondition: { position, conditions } from a previous read
    * @returns AppendResult on success, ConflictResult on conflict
    * 
    * @example
    * ```typescript
-   * // With token from read
-   * const result = await store.append<CartEvents>([newEvent], queryResult.token);
+   * // With appendCondition from read
+   * const result = await store.read<CartEvents>({ conditions: [...] });
+   * await store.append<CartEvents>([newEvent], result.appendCondition);
    * 
-   * // With direct condition
-   * const result = await store.append<CartEvents>([newEvent], {
-   *   position: queryResult.position,
-   *   conditions: queryResult.conditions
-   * });
+   * // Without consistency check (first write)
+   * await store.append<CartEvents>([newEvent], null);
    * ```
    */
   async append<E extends Event = Event>(
     events: EventWithMetadata<E>[],
-    condition: ConsistencyToken | AppendCondition | null
+    condition: AppendCondition | null
   ): Promise<AppendResult | ConflictResult<E>> {
     if (events.length === 0) {
       // Nothing to append
@@ -196,56 +189,28 @@ export class EventStore {
       return {
         conflict: false,
         position,
-        token: condition 
-          ? (typeof condition === 'string' ? condition : createToken({ conditions: condition.conditions }, position))
-          : createToken({ conditions: [] }, position),
+        appendCondition: { position, conditions: condition?.conditions ?? [] },
       };
     }
 
     // Extract keys from all events
     const keysPerEvent = events.map(event => this.keyExtractor.extract(event));
 
-    // Parse condition (token string or direct object)
-    let appendCondition: AppendCondition | null = null;
-    
+    // Check for conflicts if condition provided
     if (condition !== null) {
-      if (typeof condition === 'string') {
-        // It's a token - decode it
-        try {
-          const payload = decodeToken(condition);
-          appendCondition = {
-            position: payload.pos,
-            conditions: payload.q,
-          };
-        } catch (e) {
-          if (e instanceof TokenDecodeError) {
-            throw e;
-          }
-          throw e;
-        }
-      } else {
-        // It's a direct AppendCondition object
-        appendCondition = condition;
-      }
-
-      // Check for conflicts: any events since position that match the conditions?
       const conflictingEvents = await this.storage.getEventsSince(
-        appendCondition.conditions,
-        appendCondition.position
+        condition.conditions,
+        condition.position
       );
 
       if (conflictingEvents.length > 0) {
         // Conflict detected — return delta
         const latestPosition = conflictingEvents[conflictingEvents.length - 1].position;
-        const newToken = createToken(
-          { conditions: appendCondition.conditions },
-          latestPosition
-        );
 
         return {
           conflict: true,
           conflictingEvents: conflictingEvents as StoredEvent<E>[],
-          newToken,
+          appendCondition: { position: latestPosition, conditions: condition.conditions },
         };
       }
     }
@@ -263,27 +228,26 @@ export class EventStore {
     // Append atomically
     const position = await this.storage.append(eventsToStore, keysPerEvent);
 
-    // Build new token
-    const newTokenQuery = this.buildQueryFromEvents(events, appendCondition);
-    const newToken = createToken(newTokenQuery, position);
+    // Build new appendCondition
+    const newConditions = this.buildConditionsFromEvents(events, condition);
 
     return {
       conflict: false,
       position,
-      token: newToken,
+      appendCondition: { position, conditions: newConditions },
     };
   }
 
   /**
-   * Build a query that covers the appended events
-   * Used to create the token returned after append
+   * Build conditions that cover the appended events
+   * Used to create the appendCondition returned after append
    */
-  private buildQueryFromEvents<E extends Event>(
+  private buildConditionsFromEvents<E extends Event>(
     events: EventWithMetadata<E>[],
     originalCondition: AppendCondition | null
-  ): Query {
+  ): QueryCondition[] {
     // Start with original conditions if provided
-    const conditions = new Map<string, { type: string; key: string; value: string }>();
+    const conditions = new Map<string, QueryCondition>();
 
     if (originalCondition !== null) {
       for (const cond of originalCondition.conditions) {
@@ -298,13 +262,13 @@ export class EventStore {
     for (const event of events) {
       const extractedKeys = this.keyExtractor.extract(event);
       for (const extracted of extractedKeys) {
-        const cond = { type: event.type, key: extracted.name, value: extracted.value };
+        const cond: QueryCondition = { type: event.type, key: extracted.name, value: extracted.value };
         const key = `${cond.type}:${cond.key}:${cond.value}`;
         conditions.set(key, cond);
       }
     }
 
-    return { conditions: Array.from(conditions.values()) };
+    return Array.from(conditions.values());
   }
 
   /**

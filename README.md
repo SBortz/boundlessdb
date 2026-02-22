@@ -15,7 +15,7 @@ The entire event store runs client-side in your browser using WebAssembly SQLite
 - 🚀 **Works in Browser** — Full client-side event sourcing via sql.js (WASM)
 - 🔑 **No Streams** — Events organized via configurable consistency keys
 - ⚙️ **Config-based Key Extraction** — Events remain pure business data
-- 🎟️ **Simple Base64 Tokens** — Lightweight optimistic concurrency control
+- 🎟️ **AppendCondition** — Simple, transparent optimistic concurrency control
 - ⚡ **Conflict Detection with Delta** — Get exactly what changed since your read
 - 🔄 **Auto-Reindex** — Change your config, keys are automatically rebuilt
 - 💾 **SQLite, PostgreSQL & In-Memory** — Multiple storage backends
@@ -58,7 +58,7 @@ You append an event with business data:
 await store.append([{ 
   type: 'StudentSubscribed', 
   data: { courseId: 'cs101', studentId: 'alice' } 
-}], token);
+}], result.appendCondition);
 ```
 
 ### 2️⃣ Keys Extracted
@@ -86,62 +86,61 @@ event_keys: [pos:1, course, cs101], [pos:1, student, alice]
 ### 4️⃣ Query by Keys
 Find all events matching any combination of key conditions:
 ```typescript
-const { events, token } = await store.read({
+const result = await store.read({
   conditions: [
     { type: 'StudentSubscribed', key: 'course', value: 'cs101' }
   ]
 });
-// token captures: "I read all matching events up to position X"
+// result.appendCondition captures: "I read all matching events up to position X"
 ```
 
 ## The DCB Pattern: Read → Decide → Write
 
 ```typescript
-// 1️⃣ READ — Query events and get a consistency token
-const { events, token } = await store.read({
+// 1️⃣ READ — Query events and get an appendCondition
+const result = await store.read({
   conditions: [
     { type: 'CourseCreated', key: 'course', value: 'cs101' },
     { type: 'StudentSubscribed', key: 'course', value: 'cs101' },
   ]
 });
 
-// 2️⃣ DECIDE — Project state and check business rules
-const course = events.find(e => e.type === 'CourseCreated');
-const enrolled = events.filter(e => e.type === 'StudentSubscribed').length;
+// 2️⃣ DECIDE — Build state with evolve helper
+const state = evolve(result.events, courseDecider);
 
-if (enrolled >= course.data.capacity) {
+if (state.enrolled >= state.capacity) {
   throw new Error('Course is full!');
 }
 
-// 3️⃣ WRITE — Append with the token from your read
-const result = await store.append([
+// 3️⃣ WRITE — Append with the appendCondition from your read
+const appendResult = await store.append([
   { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } }
-], token);  // ← Token ensures no one else wrote since your read!
+], result.appendCondition);  // ← Ensures no one else wrote since your read!
 
 // Handle result
-if (result.conflict) {
+if (appendResult.conflict) {
   // Someone else enrolled while you were deciding!
-  console.log('Events since your read:', result.conflictingEvents);
-  // Retry with result.newToken...
+  console.log('Events since your read:', appendResult.conflictingEvents);
+  // Retry with appendResult.appendCondition...
 } else {
-  console.log('Enrolled at position', result.position);
+  console.log('Enrolled at position', appendResult.position);
 }
 ```
 
-## Consistency Tokens
+## AppendCondition
 
-When you call `read()`, the store returns a token containing:
+When you call `read()`, the result contains an `appendCondition` with:
 - The **position** up to which events were read
 - The **query conditions** you used
 
-The token is a simple Base64-encoded JSON object — you can inspect it, create it manually, or pass an `AppendCondition` object directly:
+This is a simple, transparent object — no encoding, no magic:
 
 ```typescript
-// Option 1: Use token from read()
-const { events, token } = await store.read({ conditions });
-await store.append(newEvents, token);
+// Option 1: Use appendCondition from read()
+const result = await store.read({ conditions });
+await store.append(newEvents, result.appendCondition);
 
-// Option 2: Pass conditions directly (no token needed!)
+// Option 2: Create conditions manually
 await store.append(newEvents, {
   position: 42n,
   conditions: [{ type: 'UserCreated', key: 'username', value: 'alice' }]
@@ -162,7 +161,7 @@ Traditional streams give you ONE boundary. DCB lets you query ANY combination:
 
 ```typescript
 // "Has Alice already enrolled in CS101?"
-const { events, token } = await store.read({
+const result = await store.read({
   conditions: [
     { type: 'StudentSubscribed', key: 'course', value: 'cs101' },
     { type: 'StudentSubscribed', key: 'student', value: 'alice' },
@@ -465,7 +464,7 @@ const state = evolve(result.events, cartDecider);
 const newEvents = decide(command, result.events, cartDecider);
 
 // 4. Append with consistency check
-await store.append(newEvents, result.token);
+await store.append(newEvents, result.appendCondition);
 ```
 
 ### Decider Helpers
@@ -495,26 +494,27 @@ const result = await store.read<CartEvents>({
   limit?: number,
 });
 
-result.events      // StoredEvent<E>[]
-result.token       // ConsistencyToken
-result.position    // bigint
-result.conditions  // QueryCondition[]
-result.count       // number
-result.isEmpty()   // boolean
-result.first()     // StoredEvent<E> | undefined
-result.last()      // StoredEvent<E> | undefined
+result.events           // StoredEvent<E>[]
+result.position         // bigint
+result.conditions       // QueryCondition[]
+result.appendCondition  // AppendCondition (for store.append)
+result.count            // number
+result.isEmpty()        // boolean
+result.first()          // StoredEvent<E> | undefined
+result.last()           // StoredEvent<E> | undefined
 ```
 
 ### `store.append<E>(events, condition)`
 
 ```typescript
-// With token from read()
-const result = await store.append<CartEvents>([newEvent], token);
+// With appendCondition from read()
+const readResult = await store.read<CartEvents>({ conditions });
+const result = await store.append<CartEvents>([newEvent], readResult.appendCondition);
 
-// With direct AppendCondition
+// With manual AppendCondition
 const result = await store.append<CartEvents>([newEvent], {
-  position: bigint,
-  conditions: [{ type, key, value }]
+  position: 42n,
+  conditions: [{ type: 'UserCreated', key: 'username', value: 'alice' }]
 });
 
 // Without consistency check
@@ -523,27 +523,11 @@ const result = await store.append<CartEvents>([newEvent], null);
 // Result handling
 if (result.conflict) {
   result.conflictingEvents;  // StoredEvent<E>[] - what changed since your read
-  result.newToken;           // Fresh token for retry
+  result.appendCondition;    // Fresh condition for retry
 } else {
   result.position;           // Position of last appended event
-  result.token;              // Token for next operation
+  result.appendCondition;    // Condition for next operation
 }
-```
-
-### Token Helpers
-
-```typescript
-import { encodeAppendCondition, decodeAppendCondition } from 'boundlessdb';
-
-// Create a token manually
-const token = encodeAppendCondition({
-  position: 42n,
-  conditions: [{ type: 'UserCreated', key: 'username', value: 'alice' }]
-});
-
-// Decode a token
-const condition = decodeAppendCondition(token);
-// → { position: 42n, conditions: [...] }
 ```
 
 ## Development

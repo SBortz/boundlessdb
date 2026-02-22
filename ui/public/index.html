@@ -343,7 +343,7 @@
     <div class="feature">
       <div class="feature-icon">⚡</div>
       <h3>Conflict Detection</h3>
-      <p>Get exactly what changed since your read — with the new token for retry.</p>
+      <p>Get exactly what changed since your read — with a fresh condition for retry.</p>
     </div>
     <div class="feature">
       <div class="feature-icon">🔄</div>
@@ -399,14 +399,14 @@
   
   <div class="code-section">
     <h2>The DCB Pattern: Read → Decide → Write</h2>
-    <pre><code><span class="keyword">const</span> { events, token } = <span class="keyword">await</span> store.<span class="function">read</span>({
+    <pre><code><span class="keyword">const</span> readResult = <span class="keyword">await</span> store.<span class="function">read</span>({
   conditions: [
     { type: <span class="string">'CourseCreated'</span>, key: <span class="string">'course'</span>, value: <span class="string">'cs101'</span> },
     { type: <span class="string">'StudentSubscribed'</span>, key: <span class="string">'course'</span>, value: <span class="string">'cs101'</span> },
   ]
 });
 
-<span class="keyword">const</span> state = <span class="function">evolve</span>(events, courseDecider);
+<span class="keyword">const</span> state = <span class="function">evolve</span>(readResult.events, courseDecider);
 
 <span class="keyword">if</span> (state.enrolled >= state.capacity) {
   <span class="keyword">throw new</span> <span class="function">Error</span>(<span class="string">'Course is full!'</span>);
@@ -414,7 +414,7 @@
 
 <span class="keyword">const</span> result = <span class="keyword">await</span> store.<span class="function">append</span>([
   { type: <span class="string">'StudentSubscribed'</span>, data: { courseId: <span class="string">'cs101'</span>, studentId: <span class="string">'alice'</span> } }
-], token);  <span class="comment">// ← Token ensures no one else wrote since your read!</span></code></pre>
+], readResult.appendCondition);  <span class="comment">// ← Ensures no one else wrote since your read!</span></code></pre>
   </div>
   
   <div class="code-section">
@@ -423,23 +423,20 @@
   <span class="comment">// Someone else enrolled while you were deciding!</span>
   console.<span class="function">log</span>(<span class="string">'Events since your read:'</span>, result.conflictingEvents);
   
-  <span class="comment">// You get a fresh token to retry</span>
-  <span class="keyword">const</span> freshToken = result.newToken;
-  
-  <span class="comment">// Re-read, re-decide, re-write...</span>
+  <span class="comment">// Retry with fresh appendCondition</span>
+  <span class="keyword">await</span> store.<span class="function">append</span>(events, result.appendCondition);
 } <span class="keyword">else</span> {
   <span class="comment">// Success!</span>
   console.<span class="function">log</span>(<span class="string">'Enrolled at position'</span>, result.position);
-  console.<span class="function">log</span>(<span class="string">'New token for next operation:'</span>, result.token);
 }</code></pre>
   </div>
   
   <div class="code-section">
     <h2>How Conflict Detection Works</h2>
-    <pre><code><span class="comment">// The token captures your exact query scope:</span>
-token = {
-  q: [{ type: <span class="string">'StudentSubscribed'</span>, key: <span class="string">'course'</span>, value: <span class="string">'cs101'</span> }],
-  pos: <span class="const">5</span>  <span class="comment">// Position at time of read</span>
+    <pre><code><span class="comment">// The appendCondition captures your exact query scope:</span>
+appendCondition = {
+  conditions: [{ type: <span class="string">'StudentSubscribed'</span>, key: <span class="string">'course'</span>, value: <span class="string">'cs101'</span> }],
+  position: <span class="const">5n</span>  <span class="comment">// Position at time of read</span>
 }
 
 <span class="comment">// On append, BoundlessDB checks:</span>
@@ -463,7 +460,7 @@ token = {
 <span class="comment">// DCB: Query ANY combination of keys!</span>
 
 <span class="comment">// "Has Alice already enrolled in CS101?"</span>
-<span class="keyword">const</span> { events, token } = <span class="keyword">await</span> store.<span class="function">read</span>({
+<span class="keyword">const</span> result = <span class="keyword">await</span> store.<span class="function">read</span>({
   conditions: [
     { type: <span class="string">'StudentSubscribed'</span>, key: <span class="string">'course'</span>, value: <span class="string">'cs101'</span> },
     { type: <span class="string">'StudentSubscribed'</span>, key: <span class="string">'student'</span>, value: <span class="string">'alice'</span> },

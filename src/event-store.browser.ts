@@ -1,25 +1,22 @@
 /**
  * Browser-compatible EventStore
- * 
- * No cryptographic signing - tokens are Base64 encoded for convenience.
  */
 
 import { KeyExtractor } from './config/extractor.js';
 import { validateConfig } from './config/validator.js';
 import type { EventStorage } from './storage/interface.js';
 import { SqlJsStorage } from './storage/sqljs.js';
-import { createToken, decodeToken, TokenDecodeError } from './token.browser.js';
 import {
   QueryResult,
   type AppendCondition,
   type AppendResult,
   type ConflictResult,
   type ConsistencyConfig,
-  type ConsistencyToken,
   type Event,
   type EventStoreOptions,
   type EventWithMetadata,
   type Query,
+  type QueryCondition,
   type StoredEvent,
 } from './types.js';
 
@@ -88,8 +85,6 @@ export interface EventStoreConfig extends EventStoreOptions {
 
 /**
  * Browser-compatible DCB-native Event Store
- * 
- * No cryptographic signing - tokens are Base64 encoded for convenience.
  */
 export class EventStore {
   private readonly storage: EventStorage;
@@ -197,20 +192,7 @@ export class EventStore {
    * Read events matching a query
    * 
    * @typeParam E - Event union type for typed results
-   * @returns QueryResult with typed events and consistency token
-   * 
-   * @example
-   * ```typescript
-   * // Typed read
-   * const result = await store.read<CartEvents>({
-   *   conditions: [{ type: 'ProductItemAdded', key: 'cart', value: 'cart-123' }]
-   * });
-   * 
-   * // Untyped read (all events of type)
-   * const result = await store.read({
-   *   conditions: [{ type: 'ProductItemAdded' }]
-   * });
-   * ```
+   * @returns QueryResult with typed events and appendCondition
    */
   async read<E extends Event = Event>(query: Query): Promise<QueryResult<E>> {
     await this.ensureInitialized();
@@ -228,19 +210,16 @@ export class EventStore {
     
     console.log(`   Found: ${events.length} events`);
 
-    // Get the latest position for the token
+    // Get the position for the append condition
     const position = events.length > 0
       ? events[events.length - 1].position
       : await this.storage.getLatestPosition();
 
-    const token = createToken(query, position);
-    
-    console.log(`🎟️ TOKEN: Generated at position #${position}`);
+    console.log(`📍 POSITION: #${position}`);
     console.log(`   Scope: ${query.conditions.length} condition(s)`);
 
     return new QueryResult<E>(
       events as StoredEvent<E>[],
-      token,
       position,
       query.conditions
     );
@@ -253,40 +232,25 @@ export class EventStore {
    * @param events Events to append
    * @param condition Consistency check - can be:
    *   - null: Skip consistency check (optimistic first write)
-   *   - ConsistencyToken: Token from previous read() call
-   *   - AppendCondition: Direct { position, conditions } object
+   *   - AppendCondition: { position, conditions } from a previous read
    * @returns AppendResult on success, ConflictResult on conflict
-   * 
-   * @example
-   * ```typescript
-   * // With token from read
-   * const result = await store.append<CartEvents>([newEvent], queryResult.token);
-   * 
-   * // With direct condition
-   * const result = await store.append<CartEvents>([newEvent], {
-   *   position: queryResult.position,
-   *   conditions: queryResult.conditions
-   * });
-   * ```
    */
   async append<E extends Event = Event>(
     events: EventWithMetadata<E>[],
-    condition: ConsistencyToken | AppendCondition | null
+    condition: AppendCondition | null
   ): Promise<AppendResult | ConflictResult<E>> {
     await this.ensureInitialized();
     
     console.log(`✏️ APPEND: ${events.length} event(s)`);
     events.forEach(e => console.log(`   → ${e.type}: ${JSON.stringify(e.data).substring(0, 60)}...`));
-    console.log(`   Condition: ${condition ? (typeof condition === 'string' ? 'token' : 'direct') : 'null (no conflict check)'}`);
+    console.log(`   Condition: ${condition ? 'AppendCondition' : 'null (no conflict check)'}`);
     
     if (events.length === 0) {
       const position = await this.storage.getLatestPosition();
       return {
         conflict: false,
         position,
-        token: condition 
-          ? (typeof condition === 'string' ? condition : createToken({ conditions: condition.conditions }, position))
-          : createToken({ conditions: [] }, position),
+        appendCondition: { position, conditions: condition?.conditions ?? [] },
       };
     }
 
@@ -297,42 +261,20 @@ export class EventStore {
       console.log(`   Event ${i}: ${keys.map(k => `${k.name}="${k.value}"`).join(', ')}`);
     });
 
-    // Parse condition (token string or direct object)
-    let appendCondition: AppendCondition | null = null;
-    
+    // Check for conflicts if condition provided
     if (condition !== null) {
-      if (typeof condition === 'string') {
-        // It's a token - decode it
-        try {
-          const payload = decodeToken(condition);
-          appendCondition = {
-            position: payload.pos,
-            conditions: payload.q,
-          };
-        } catch (e) {
-          if (e instanceof TokenDecodeError) {
-            throw e;
-          }
-          throw e;
-        }
-      } else {
-        // It's a direct AppendCondition object
-        appendCondition = condition;
-      }
-
-      // Check for conflicts
-      const conditionsStr = appendCondition.conditions.map(c => 
+      const conditionsStr = condition.conditions.map(c => 
         c.key && c.value ? `${c.type}[${c.key}=${c.value}]` : `${c.type}[*]`
       ).join(', ');
-      console.log(`🔍 CONFLICT CHECK: Looking for events since position #${appendCondition.position}`);
+      console.log(`🔍 CONFLICT CHECK: Looking for events since position #${condition.position}`);
       console.log(`   Checking conditions: ${conditionsStr || '(none)'}`);
       
       const conflictingEvents = await this.storage.getEventsSince(
-        appendCondition.conditions,
-        appendCondition.position
+        condition.conditions,
+        condition.position
       );
       
-      console.log(`   Result: ${conflictingEvents.length} matching event(s) found since #${appendCondition.position}`);
+      console.log(`   Result: ${conflictingEvents.length} matching event(s) found since #${condition.position}`);
 
       if (conflictingEvents.length > 0) {
         // Conflict detected
@@ -341,10 +283,10 @@ export class EventStore {
         console.log('   CONFLICT DETECTED');
         console.log('═══════════════════════════════════════════');
         console.log('');
-        console.log('📍 Your position: #' + appendCondition.position);
+        console.log('📍 Your position: #' + condition.position);
         console.log('');
         console.log('🔍 Query conditions you checked:');
-        appendCondition.conditions.forEach(c => {
+        condition.conditions.forEach(c => {
           if (c.key && c.value) {
             console.log(`   • ${c.type} where ${c.key}="${c.value}"`);
           } else {
@@ -362,20 +304,16 @@ export class EventStore {
         console.log('   These events match your query conditions!');
         console.log('   Your decision was based on stale data.');
         console.log('');
-        console.log('🔄 Solution: Use result.newToken to retry.');
+        console.log('🔄 Solution: Use result.appendCondition to retry.');
         console.log('═══════════════════════════════════════════');
         console.log('');
         
         const latestPosition = conflictingEvents[conflictingEvents.length - 1].position;
-        const newToken = createToken(
-          { conditions: appendCondition.conditions },
-          latestPosition
-        );
 
         return {
           conflict: true,
           conflictingEvents: conflictingEvents as StoredEvent<E>[],
-          newToken,
+          appendCondition: { position: latestPosition, conditions: condition.conditions },
         };
       }
     }
@@ -402,27 +340,26 @@ export class EventStore {
     
     console.log(`💾 STORED: Event(s) at position #${position}`);
 
-    // Build new token
-    const newTokenQuery = this.buildQueryFromEvents(events, appendCondition);
-    const newToken = createToken(newTokenQuery, position);
+    // Build new appendCondition
+    const newConditions = this.buildConditionsFromEvents(events, condition);
     
-    console.log(`✅ SUCCESS: Append complete, new token at #${position}`);
+    console.log(`✅ SUCCESS: Append complete at position #${position}`);
 
     return {
       conflict: false,
       position,
-      token: newToken,
+      appendCondition: { position, conditions: newConditions },
     };
   }
 
   /**
-   * Build a query that covers the appended events
+   * Build conditions that cover the appended events
    */
-  private buildQueryFromEvents<E extends Event>(
+  private buildConditionsFromEvents<E extends Event>(
     events: EventWithMetadata<E>[],
     originalCondition: AppendCondition | null
-  ): Query {
-    const conditions = new Map<string, { type: string; key: string; value: string }>();
+  ): QueryCondition[] {
+    const conditions = new Map<string, QueryCondition>();
 
     if (originalCondition !== null) {
       for (const cond of originalCondition.conditions) {
@@ -437,13 +374,13 @@ export class EventStore {
     for (const event of events) {
       const extractedKeys = this.keyExtractor.extract(event);
       for (const extracted of extractedKeys) {
-        const cond = { type: event.type, key: extracted.name, value: extracted.value };
+        const cond: QueryCondition = { type: event.type, key: extracted.name, value: extracted.value };
         const key = `${cond.type}:${cond.key}:${cond.value}`;
         conditions.set(key, cond);
       }
     }
 
-    return { conditions: Array.from(conditions.values()) };
+    return Array.from(conditions.values());
   }
 
   /**
