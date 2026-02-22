@@ -201,7 +201,7 @@ export class SqlJsStorage implements EventStorage {
     // Separate conditions by type
     const constrained = conditions.filter(isConstrainedCondition);
     const keyOnly = conditions.filter(isKeyOnlyCondition);
-    const unconstrained = conditions.filter(c => !isConstrainedCondition(c) && !isKeyOnlyCondition(c));
+    const unconstrained = conditions.filter(c => !isConstrainedCondition(c) && !isKeyOnlyCondition(c)) as Array<{ type: string }>;
 
     const whereClauses: string[] = [];
 

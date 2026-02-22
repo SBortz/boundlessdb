@@ -9,6 +9,7 @@ import { SqlJsStorage } from './storage/sqljs.js';
 import {
   QueryResult,
   isConstrainedCondition,
+  isKeyOnlyCondition,
   type AppendCondition,
   type AppendResult,
   type ConflictResult,
@@ -201,7 +202,8 @@ export class EventStore {
     
     console.log('📖 READ: Querying events...');
     console.log('   Conditions:', query.conditions.map(c => 
-      isConstrainedCondition(c) ? `${c.type}[${c.key}=${c.value}]` : `${c.type}[*]`
+      isConstrainedCondition(c) ? `${c.type}[${c.key}=${c.value}]` : 
+      isKeyOnlyCondition(c) ? `*[${c.key}=${c.value}]` : `${c.type}[*]`
     ).join(', ') || '(none)');
     
     const events = await this.storage.query(
@@ -266,7 +268,8 @@ export class EventStore {
     // Check for conflicts if condition provided
     if (condition !== null) {
       const conditionsStr = condition.conditions.map(c => 
-        isConstrainedCondition(c) ? `${c.type}[${c.key}=${c.value}]` : `${c.type}[*]`
+        isConstrainedCondition(c) ? `${c.type}[${c.key}=${c.value}]` : 
+        isKeyOnlyCondition(c) ? `*[${c.key}=${c.value}]` : `${c.type}[*]`
       ).join(', ');
       console.log(`🔍 CONFLICT CHECK: Looking for events since position #${condition.position}`);
       console.log(`   Checking conditions: ${conditionsStr || '(none)'}`);
@@ -291,6 +294,8 @@ export class EventStore {
         condition.conditions.forEach(c => {
           if (isConstrainedCondition(c)) {
             console.log(`   • ${c.type} where ${c.key}="${c.value}"`);
+          } else if (isKeyOnlyCondition(c)) {
+            console.log(`   • ANY type where ${c.key}="${c.value}"`);
           } else {
             console.log(`   • ${c.type} (all)`);
           }
