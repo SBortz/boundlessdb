@@ -2,7 +2,7 @@
  * In-Memory Storage implementation (for testing)
  */
 
-import { isConstrainedCondition, type ExtractedKey, type QueryCondition, type StoredEvent } from '../types.js';
+import { isConstrainedCondition, isKeyOnlyCondition, type ExtractedKey, type QueryCondition, type StoredEvent } from '../types.js';
 import type { EventStorage, EventToStore } from './interface.js';
 
 interface StoredEventInternal extends StoredEvent {
@@ -67,7 +67,14 @@ export class InMemoryStorage implements EventStorage {
     matching = matching.filter(event => {
       // Must match at least one condition
       return conditions.some(cond => {
-        // Type must match
+        // Key-only condition: match key regardless of type
+        if (isKeyOnlyCondition(cond)) {
+          return event.keys.some(
+            key => key.name === cond.key && key.value === cond.value
+          );
+        }
+
+        // Type must match for type-based conditions
         if (event.type !== cond.type) {
           return false;
         }
@@ -77,7 +84,7 @@ export class InMemoryStorage implements EventStorage {
           return true;
         }
 
-        // Key must match
+        // Constrained: type + key must match
         return event.keys.some(
           key => key.name === cond.key && key.value === cond.value
         );

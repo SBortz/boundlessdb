@@ -3,7 +3,7 @@
  */
 
 import { Pool, PoolClient, type PoolConfig } from 'pg';
-import { isConstrainedCondition, type ExtractedKey, type QueryCondition, type StoredEvent } from '../types.js';
+import { isConstrainedCondition, isKeyOnlyCondition, type ExtractedKey, type QueryCondition, type StoredEvent } from '../types.js';
 import type { EventStorage, EventToStore } from './interface.js';
 
 const SCHEMA = `
@@ -197,9 +197,10 @@ export class PostgresStorage implements EventStorage {
       return result.rows.map(row => this.rowToEvent(row));
     }
 
-    // Separate conditions: constrained (with key/value) vs unconstrained (type only)
+    // Separate conditions by type
     const constrained = conditions.filter(isConstrainedCondition);
-    const unconstrained = conditions.filter(c => !isConstrainedCondition(c));
+    const keyOnly = conditions.filter(isKeyOnlyCondition);
+    const unconstrained = conditions.filter(c => !isConstrainedCondition(c) && !isKeyOnlyCondition(c));
 
     const whereClauses: string[] = [];
 
@@ -225,10 +226,21 @@ export class PostgresStorage implements EventStorage {
       whereClauses.push(`(${constrainedClauses.join(' OR ')})`);
     }
 
-    // Build SQL
+    // Key-only: match by key + value only (any event type)
+    if (keyOnly.length > 0) {
+      const keyOnlyClauses = keyOnly.map(c => {
+        const clause = `(k.key_name = $${paramIndex} AND k.key_value = $${paramIndex + 1})`;
+        params.push(c.key, c.value);
+        paramIndex += 2;
+        return clause;
+      });
+      whereClauses.push(`(${keyOnlyClauses.join(' OR ')})`);
+    }
+
+    // Build SQL - need JOIN if we have constrained or key-only conditions
+    const needsJoin = constrained.length > 0 || keyOnly.length > 0;
     let sql: string;
-    if (constrained.length > 0) {
-      // Need JOIN for constrained conditions
+    if (needsJoin) {
       sql = `
         SELECT DISTINCT ON (e.position)
           e.position,
@@ -242,7 +254,7 @@ export class PostgresStorage implements EventStorage {
         WHERE (${whereClauses.join(' OR ')})
       `;
     } else {
-      // No constrained conditions, no JOIN needed
+      // No constrained or key-only conditions, no JOIN needed
       sql = `
         SELECT
           position,

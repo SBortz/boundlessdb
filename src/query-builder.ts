@@ -59,6 +59,20 @@ export class QueryBuilder<E extends Event> {
   }
 
   /**
+   * Add a key-only condition (match ALL events with key=value, regardless of type).
+   * Useful for aggregate queries.
+   * 
+   * @example
+   * ```typescript
+   * .matchAnyType('course', 'cs101')  // matches ALL events where course=cs101
+   * ```
+   */
+  matchAnyType(key: string, value: string): this {
+    this.conditions.push({ key, value });
+    return this;
+  }
+
+  /**
    * Start reading from a specific position.
    * 
    * @example
