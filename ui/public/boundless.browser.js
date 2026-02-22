@@ -3075,19 +3075,6 @@ var InMemoryStorage = class {
     this.nextPosition = 1n;
   }
 };
-
-// src/decider.ts
-function evolve(events, decider) {
-  return events.reduce(
-    (state, event) => decider.evolve(state, event),
-    decider.initialState()
-  );
-}
-function decide(command, events, decider) {
-  const state = evolve(events, decider);
-  const result = decider.decide(command, state);
-  return Array.isArray(result) ? result : [result];
-}
 export {
   ConfigValidationError,
   EventStore,
@@ -3097,8 +3084,6 @@ export {
   QueryResult,
   SqlJsStorage,
   createEventStore,
-  decide,
-  evolve,
   isConflict,
   isConstrainedCondition,
   validateConfig

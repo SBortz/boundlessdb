@@ -40,7 +40,3 @@ export { SqlJsStorage, type SqlJsStorageOptions } from './storage/sqljs.js';
 // Config
 export { KeyExtractor, KeyExtractionError } from './config/extractor.js';
 export { validateConfig, ConfigValidationError } from './config/validator.js';
-
-// Decider pattern
-export type { Decider } from './decider.js';
-export { evolve, decide } from './decider.js';
