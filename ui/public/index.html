@@ -417,6 +417,29 @@
       margin-bottom: 1rem;
       font-weight: 600;
     }
+    
+    .install-box {
+      text-align: center;
+      margin-top: 1.5rem;
+    }
+    
+    .install-cmd {
+      display: inline-block;
+      background: #0a1628;
+      border: 1px solid #1e3a5f;
+      border-radius: 8px;
+      padding: 0.75rem 1.5rem;
+      font-family: 'Fira Code', 'Monaco', monospace;
+      font-size: 1rem;
+      color: #98c379;
+      user-select: all;
+      cursor: pointer;
+    }
+    
+    .install-cmd:hover {
+      border-color: #0cf;
+      box-shadow: 0 0 20px rgba(0, 204, 255, 0.15);
+    }
   </style>
 </head>
 <body>
@@ -498,6 +521,10 @@
     <div class="cta-row">
       <a href="/demo.html" class="btn btn-primary">🎮 Try Live Demo</a>
       <a href="https://github.com/SBortz/boundless" class="btn btn-secondary">GitHub</a>
+    </div>
+    
+    <div class="install-box">
+      <code class="install-cmd">npm install boundlessdb</code>
     </div>
   </div>
   
