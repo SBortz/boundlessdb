@@ -423,7 +423,7 @@
   <div class="hero">
     <div class="logo">🗃️</div>
     <h1>BoundlessDB</h1>
-    <p class="tagline">A <span class="highlight">DCB-inspired</span> event store library for TypeScript</p>
+    <p class="tagline">A <a href="https://dcb.events" class="highlight" style="text-decoration: none;">DCB-inspired</a> event store library for TypeScript — with support for SQLite, PostgreSQL, in-memory</p>
   </div>
   
   <!-- Tabbed Code Example -->
@@ -458,8 +458,8 @@
       <div class="tab-content" id="tab-fluent">
         
         <pre><code><span class="keyword">const</span> { events, appendCondition } = <span class="keyword">await</span> store.<span class="function">query</span>&lt;CourseEvent&gt;()
-  .<span class="function">matchType</span>(<span class="string">'CourseCreated'</span>)
-  .<span class="function">matchKey</span>(<span class="string">'StudentSubscribed'</span>, <span class="string">'course'</span>, <span class="string">'cs101'</span>)
+  .<span class="function">matchType</span>(<span class="string">'CourseCreated'</span>)                        <span class="comment">// all CourseCreated</span>
+  .<span class="function">matchKey</span>(<span class="string">'StudentSubscribed'</span>, <span class="string">'course'</span>, <span class="string">'cs101'</span>)  <span class="comment">// + where course='cs101'</span>
   .<span class="function">read</span>();
 
 <span class="comment">// Build state</span>
@@ -724,7 +724,7 @@ appendCondition = {
   </div>
   
   <footer>
-    <p>Built with ❤️ for <a href="https://www.eventstore.com/event-sourcing">Event Sourcing</a></p>
+    <p>Built with ❤️ for <a href="https://www.eventstore.com/event-sourcing">Event Sourcing</a> · Learn more about <a href="https://dcb.events">Dynamic Consistency Boundaries</a></p>
   </footer>
   
   <script>
