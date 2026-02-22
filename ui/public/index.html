@@ -452,33 +452,13 @@
   <!-- Tabbed Code Example -->
   <div class="tabs-container">
     <div class="tabs-header">
-      <button class="tab-btn active" data-tab="pattern">The Pattern</button>
-      <button class="tab-btn" data-tab="fluent">Fluent API</button>
+      <button class="tab-btn active" data-tab="fluent">Fluent API</button>
+      <button class="tab-btn" data-tab="conflict">Conflict</button>
       <button class="tab-btn" data-tab="impl">Decide / Evolve</button>
     </div>
     
     <div class="tabs-content-wrapper">
-      <div class="tab-content active" id="tab-pattern">
-        
-        <pre><code><span class="comment">// 1. Read with typed events</span>
-<span class="keyword">const</span> { events, appendCondition } = <span class="keyword">await</span> store.<span class="function">read</span>&lt;CourseEvent&gt;({
-  conditions: [
-    { type: <span class="string">'CourseCreated'</span>, key: <span class="string">'course'</span>, value: <span class="string">'cs101'</span> },
-    { type: <span class="string">'StudentSubscribed'</span>, key: <span class="string">'course'</span>, value: <span class="string">'cs101'</span> }
-  ]
-});
-
-<span class="comment">// 2. Build state</span>
-<span class="keyword">const</span> state: CourseState = events.<span class="function">reduce</span>(evolve, initialState);
-
-<span class="comment">// 3. Business logic</span>
-<span class="keyword">const</span> newEvents: CourseEvent[] = <span class="function">decide</span>(command, state);
-
-<span class="comment">// 4. Append</span>
-<span class="keyword">await</span> store.<span class="function">append</span>(newEvents, appendCondition);</code></pre>
-      </div>
-      
-      <div class="tab-content" id="tab-fluent">
+      <div class="tab-content active" id="tab-fluent">
         
         <pre><code><span class="keyword">const</span> { events, appendCondition } = <span class="keyword">await</span> store.<span class="function">query</span>&lt;CourseEvent&gt;()
   .<span class="function">matchType</span>(<span class="string">'CourseCreated'</span>)                        <span class="comment">// all CourseCreated</span>
@@ -493,6 +473,22 @@
 
 <span class="comment">// Append</span>
 <span class="keyword">await</span> store.<span class="function">append</span>(newEvents, appendCondition);</code></pre>
+      </div>
+      
+      <div class="tab-content" id="tab-conflict">
+        
+        <pre><code><span class="keyword">const</span> result = <span class="keyword">await</span> store.<span class="function">append</span>(newEvents, appendCondition);
+
+<span class="keyword">if</span> (result.conflict) {
+  <span class="comment">// Someone else enrolled while you were deciding!</span>
+  console.<span class="function">log</span>(<span class="string">'Events since your read:'</span>, result.conflictingEvents);
+  
+  <span class="comment">// Retry with fresh appendCondition</span>
+  <span class="keyword">await</span> store.<span class="function">append</span>(events, result.appendCondition);
+} <span class="keyword">else</span> {
+  <span class="comment">// Success!</span>
+  console.<span class="function">log</span>(<span class="string">'Enrolled at position'</span>, result.position);
+}</code></pre>
       </div>
       
       <div class="tab-content" id="tab-impl">
