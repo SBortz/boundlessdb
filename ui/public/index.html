@@ -432,13 +432,15 @@
       font-family: 'Fira Code', 'Monaco', monospace;
       font-size: 1rem;
       color: #98c379;
-      user-select: all;
+      text-decoration: none;
       cursor: pointer;
+      transition: all 0.2s;
     }
     
     .install-cmd:hover {
       border-color: #0cf;
       box-shadow: 0 0 20px rgba(0, 204, 255, 0.15);
+      color: #98c379;
     }
   </style>
 </head>
@@ -509,7 +511,7 @@
     </div>
     
     <div class="install-box">
-      <code class="install-cmd">npm install boundlessdb</code>
+      <a href="https://www.npmjs.com/package/boundlessdb" class="install-cmd" target="_blank">npm install boundlessdb</a>
     </div>
   </div>
   
