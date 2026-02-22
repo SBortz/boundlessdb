@@ -2632,59 +2632,15 @@ var SqlJsStorage = class {
 
 // src/token.browser.ts
 function base64urlEncode(data) {
-  const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;
+  const bytes = new TextEncoder().encode(data);
   return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 function base64urlDecode(data) {
   const base64 = data.replace(/-/g, "+").replace(/_/g, "/");
   const padded = base64 + "=".repeat((4 - base64.length % 4) % 4);
   const binary = atob(padded);
-  return new Uint8Array([...binary].map((c) => c.charCodeAt(0)));
-}
-var hasWebCrypto = typeof crypto !== "undefined" && typeof crypto.subtle !== "undefined" && typeof crypto.subtle.importKey === "function";
-function simpleHashFallback(secret, data) {
-  const combined = secret + ":" + data;
-  const fnv1a = (str, seed) => {
-    let hash = 2166136261 ^ seed;
-    for (let i = 0; i < str.length; i++) {
-      hash ^= str.charCodeAt(i);
-      hash = Math.imul(hash, 16777619);
-    }
-    return hash >>> 0;
-  };
-  const result = new Uint8Array(32);
-  for (let i = 0; i < 8; i++) {
-    const h = fnv1a(combined, i * 12345);
-    result[i * 4] = h >>> 24 & 255;
-    result[i * 4 + 1] = h >>> 16 & 255;
-    result[i * 4 + 2] = h >>> 8 & 255;
-    result[i * 4 + 3] = h & 255;
-  }
-  return result;
-}
-async function hmacSha256(secret, data) {
-  if (!hasWebCrypto) {
-    console.warn("\u26A0\uFE0F Web Crypto API not available (requires HTTPS). Using insecure fallback hash.");
-    return simpleHashFallback(secret, data);
-  }
-  const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(data));
-  return new Uint8Array(signature);
-}
-function timingSafeEqual(a, b) {
-  if (a.length !== b.length) return false;
-  let result = 0;
-  for (let i = 0; i < a.length; i++) {
-    result |= a[i] ^ b[i];
-  }
-  return result === 0;
+  const bytes = new Uint8Array([...binary].map((c) => c.charCodeAt(0)));
+  return new TextDecoder().decode(bytes);
 }
 function normalizeQuery(conditions) {
   return conditions.map((c) => ({ type: c.type, key: c.key, value: c.value })).sort((a, b) => {
@@ -2693,87 +2649,62 @@ function normalizeQuery(conditions) {
     return a.value.localeCompare(b.value);
   });
 }
-async function createToken(query, position, secret) {
+function createToken(query, position) {
   const payload = {
-    v: 1,
     pos: position.toString(),
-    ts: Math.floor(Date.now() / 1e3),
     q: normalizeQuery(query.conditions)
   };
-  const payloadJson = JSON.stringify(payload);
-  const sig = await hmacSha256(secret, payloadJson);
-  return base64urlEncode(payloadJson) + "." + base64urlEncode(sig);
+  return base64urlEncode(JSON.stringify(payload));
 }
-var TokenValidationError = class extends Error {
+var TokenDecodeError = class extends Error {
   constructor(message) {
     super(message);
-    this.name = "TokenValidationError";
+    this.name = "TokenDecodeError";
   }
 };
-async function validateToken(token, secret) {
-  const parts = token.split(".");
-  if (parts.length !== 2) {
-    throw new TokenValidationError("Invalid token format: expected two parts separated by dot");
-  }
-  const [payloadB64, sigB64] = parts;
+function decodeToken(token) {
   let payloadJson;
   try {
-    const decoded = base64urlDecode(payloadB64);
-    payloadJson = new TextDecoder().decode(decoded);
+    payloadJson = base64urlDecode(token);
   } catch {
-    throw new TokenValidationError("Invalid token: payload is not valid base64url");
-  }
-  let providedSig;
-  try {
-    providedSig = base64urlDecode(sigB64);
-  } catch {
-    throw new TokenValidationError("Invalid token: signature is not valid base64url");
-  }
-  const expectedSig = await hmacSha256(secret, payloadJson);
-  if (!timingSafeEqual(providedSig, expectedSig)) {
-    throw new TokenValidationError("Invalid token: signature verification failed");
+    throw new TokenDecodeError("Invalid token: not valid base64url");
   }
   let raw;
   try {
     raw = JSON.parse(payloadJson);
   } catch {
-    throw new TokenValidationError("Invalid token: payload is not valid JSON");
-  }
-  if (raw.v !== 1) {
-    throw new TokenValidationError(`Invalid token: unsupported version ${raw.v}`);
+    throw new TokenDecodeError("Invalid token: not valid JSON");
   }
   if (typeof raw.pos !== "string") {
-    throw new TokenValidationError("Invalid token: pos must be a string");
-  }
-  if (typeof raw.ts !== "number") {
-    throw new TokenValidationError("Invalid token: ts must be a number");
+    throw new TokenDecodeError("Invalid token: pos must be a string");
   }
   if (!Array.isArray(raw.q)) {
-    throw new TokenValidationError("Invalid token: q must be an array");
+    throw new TokenDecodeError("Invalid token: q must be an array");
   }
   let pos;
   try {
     pos = BigInt(raw.pos);
   } catch {
-    throw new TokenValidationError("Invalid token: pos is not a valid bigint");
+    throw new TokenDecodeError("Invalid token: pos is not a valid bigint");
   }
   return {
-    v: 1,
     pos,
-    ts: raw.ts,
     q: raw.q
   };
 }
-async function createTokenFromPayload(payload, secret) {
-  const jsonPayload = {
-    v: payload.v,
-    pos: payload.pos.toString(),
-    ts: payload.ts,
-    q: normalizeQuery(payload.q)
+function encodeAppendCondition(condition) {
+  const payload = {
+    pos: condition.position.toString(),
+    q: normalizeQuery(condition.conditions)
   };
-  const payloadJson = JSON.stringify(jsonPayload);
-  const sig = await hmacSha256(secret, payloadJson);
-  return base64urlEncode(payloadJson) + "." + base64urlEncode(sig);
+  return base64urlEncode(JSON.stringify(payload));
+}
+function decodeAppendCondition(token) {
+  const payload = decodeToken(token);
+  return {
+    position: payload.pos,
+    conditions: payload.q
+  };
 }
 
 // src/event-store.browser.ts
@@ -2822,13 +2753,11 @@ async function hashConfig(config) {
 var EventStore = class {
   constructor(options) {
     __publicField(this, "storage");
-    __publicField(this, "secret");
     __publicField(this, "keyExtractor");
     __publicField(this, "config");
     __publicField(this, "initPromise", null);
     validateConfig(options.consistency);
     this.storage = options.storage;
-    this.secret = options.secret;
     this.config = options.consistency;
     this.keyExtractor = new KeyExtractor(this.config);
     console.log("\u{1F680} INIT: Creating EventStore...");
@@ -2905,7 +2834,7 @@ var EventStore = class {
   async read(query) {
     await this.ensureInitialized();
     console.log("\u{1F4D6} READ: Querying events...");
-    console.log("   Conditions:", query.conditions.map((c) => `${c.type}[${c.key}=${c.value}]`).join(", "));
+    console.log("   Conditions:", query.conditions.map((c) => `${c.type}[${c.key}=${c.value}]`).join(", ") || "(none)");
     const events = await this.storage.query(
       query.conditions,
       query.fromPosition,
@@ -2913,28 +2842,32 @@ var EventStore = class {
     );
     console.log(`   Found: ${events.length} events`);
     const position = events.length > 0 ? events[events.length - 1].position : await this.storage.getLatestPosition();
-    const token = await createToken(query, position, this.secret);
+    const token = createToken(query, position);
     console.log(`\u{1F39F}\uFE0F TOKEN: Generated at position #${position}`);
     console.log(`   Scope: ${query.conditions.length} condition(s)`);
     return { events, token };
   }
   /**
-   * Append events with consistency check
+   * Append events with optional consistency check
+   * 
    * @param events Events to append
-   * @param token Consistency token from previous read (null to skip check)
+   * @param condition Consistency check - can be:
+   *   - null: Skip consistency check (optimistic first write)
+   *   - ConsistencyToken: Token from previous read() call
+   *   - AppendCondition: Direct { position, conditions } object
    * @returns AppendResult on success, ConflictResult on conflict
    */
-  async append(events, token) {
+  async append(events, condition) {
     await this.ensureInitialized();
     console.log(`\u270F\uFE0F APPEND: ${events.length} event(s)`);
     events.forEach((e) => console.log(`   \u2192 ${e.type}: ${JSON.stringify(e.data).substring(0, 60)}...`));
-    console.log(`   Token: ${token ? "provided (will check conflicts)" : "null (no conflict check)"}`);
+    console.log(`   Condition: ${condition ? typeof condition === "string" ? "token" : "direct" : "null (no conflict check)"}`);
     if (events.length === 0) {
       const position2 = await this.storage.getLatestPosition();
       return {
         conflict: false,
         position: position2,
-        token: token ?? await createToken({ conditions: [] }, position2, this.secret)
+        token: condition ? typeof condition === "string" ? condition : createToken({ conditions: condition.conditions }, position2) : createToken({ conditions: [] }, position2)
       };
     }
     const keysPerEvent = events.map((event) => this.keyExtractor.extract(event));
@@ -2942,33 +2875,41 @@ var EventStore = class {
     keysPerEvent.forEach((keys, i) => {
       console.log(`   Event ${i}: ${keys.map((k) => `${k.name}="${k.value}"`).join(", ")}`);
     });
-    if (token !== null) {
-      let tokenPayload;
-      try {
-        tokenPayload = await validateToken(token, this.secret);
-      } catch (e) {
-        if (e instanceof TokenValidationError) {
+    let appendCondition = null;
+    if (condition !== null) {
+      if (typeof condition === "string") {
+        try {
+          const payload = decodeToken(condition);
+          appendCondition = {
+            position: payload.pos,
+            conditions: payload.q
+          };
+        } catch (e) {
+          if (e instanceof TokenDecodeError) {
+            throw e;
+          }
           throw e;
         }
-        throw e;
+      } else {
+        appendCondition = condition;
       }
-      console.log(`\u{1F50D} CONFLICT CHECK: Looking for events since position #${tokenPayload.pos}`);
-      console.log(`   Checking conditions: ${tokenPayload.q.map((c) => `${c.type}[${c.key}=${c.value}]`).join(", ")}`);
+      console.log(`\u{1F50D} CONFLICT CHECK: Looking for events since position #${appendCondition.position}`);
+      console.log(`   Checking conditions: ${appendCondition.conditions.map((c) => `${c.type}[${c.key}=${c.value}]`).join(", ") || "(none)"}`);
       const conflictingEvents = await this.storage.getEventsSince(
-        tokenPayload.q,
-        tokenPayload.pos
+        appendCondition.conditions,
+        appendCondition.position
       );
-      console.log(`   Result: ${conflictingEvents.length} matching event(s) found since #${tokenPayload.pos}`);
+      console.log(`   Result: ${conflictingEvents.length} matching event(s) found since #${appendCondition.position}`);
       if (conflictingEvents.length > 0) {
         console.log("");
         console.log("\u274C \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
         console.log("   CONFLICT DETECTED");
         console.log("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
         console.log("");
-        console.log("\u{1F4CD} Your token position: #" + tokenPayload.pos);
+        console.log("\u{1F4CD} Your position: #" + appendCondition.position);
         console.log("");
         console.log("\u{1F50D} Query conditions you checked:");
-        tokenPayload.q.forEach((c) => {
+        appendCondition.conditions.forEach((c) => {
           console.log(`   \u2022 ${c.type} where ${c.key}="${c.value}"`);
         });
         console.log("");
@@ -2986,10 +2927,9 @@ var EventStore = class {
         console.log("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
         console.log("");
         const latestPosition = conflictingEvents[conflictingEvents.length - 1].position;
-        const newToken2 = await createToken(
-          { conditions: tokenPayload.q },
-          latestPosition,
-          this.secret
+        const newToken2 = createToken(
+          { conditions: appendCondition.conditions },
+          latestPosition
         );
         return {
           conflict: true,
@@ -3014,8 +2954,8 @@ var EventStore = class {
     });
     const position = await this.storage.append(eventsToStore, keysPerEvent);
     console.log(`\u{1F4BE} STORED: Event(s) at position #${position}`);
-    const newTokenQuery = await this.buildQueryFromEvents(events, token);
-    const newToken = await createToken(newTokenQuery, position, this.secret);
+    const newTokenQuery = this.buildQueryFromEvents(events, appendCondition);
+    const newToken = createToken(newTokenQuery, position);
     console.log(`\u2705 SUCCESS: Append complete, new token at #${position}`);
     return {
       conflict: false,
@@ -3025,18 +2965,13 @@ var EventStore = class {
   }
   /**
    * Build a query that covers the appended events
-   * Used to create the token returned after append
    */
-  async buildQueryFromEvents(events, originalToken) {
+  buildQueryFromEvents(events, originalCondition) {
     const conditions = /* @__PURE__ */ new Map();
-    if (originalToken !== null) {
-      try {
-        const payload = await validateToken(originalToken, this.secret);
-        for (const cond of payload.q) {
-          const key = `${cond.type}:${cond.key}:${cond.value}`;
-          conditions.set(key, cond);
-        }
-      } catch {
+    if (originalCondition !== null) {
+      for (const cond of originalCondition.conditions) {
+        const key = `${cond.type}:${cond.key}:${cond.value}`;
+        conditions.set(key, cond);
       }
     }
     for (const event of events) {
@@ -3145,12 +3080,15 @@ export {
   KeyExtractionError,
   KeyExtractor,
   SqlJsStorage,
-  TokenValidationError,
+  TokenDecodeError,
+  TokenDecodeError as TokenValidationError,
   createEventStore,
   createToken,
-  createTokenFromPayload,
+  decodeAppendCondition,
+  decodeToken,
+  encodeAppendCondition,
   isConflict,
   validateConfig,
-  validateToken
+  decodeToken as validateToken
 };
 //# sourceMappingURL=boundless.browser.js.map

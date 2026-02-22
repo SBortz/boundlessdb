@@ -832,11 +832,10 @@
       createEventStore, 
       SqlJsStorage, 
       isConflict,
-      createTokenFromPayload
-    } from './boundless.browser.js?v=31';
+      encodeAppendCondition
+    } from './boundless.browser.js?v=32';
 
     // Configuration for the demo
-    const DEMO_SECRET = 'demo-secret-key-for-hmac-signing';
     const CONSISTENCY_CONFIG = {
       eventTypes: {
         CourseCreated: {
@@ -909,7 +908,6 @@
         // Create the event store
         store = createEventStore({
           storage,
-          secret: DEMO_SECRET,
           consistency: CONSISTENCY_CONFIG
         });
 
@@ -1349,13 +1347,12 @@
           // Convert to TokenPayload format (pos as bigint)
           const payload = {
             v: editedPayload.v || 1,
-            pos: BigInt(editedPayload.pos || '0'),
-            ts: editedPayload.ts || Math.floor(Date.now() / 1000),
-            q: editedPayload.q || []
+            position: BigInt(editedPayload.pos || '0'),
+            conditions: editedPayload.q || []
           };
-          // Create new signed token from edited payload
-          tokenToUse = await createTokenFromPayload(payload, DEMO_SECRET);
-          console.log('📝 Created token from edited payload, pos=' + payload.pos);
+          // Create token from edited payload
+          tokenToUse = encodeAppendCondition(payload);
+          console.log('📝 Created token from edited payload, pos=' + payload.position);
         } catch (e) {
           console.warn('Could not parse edited token payload:', e);
         }
