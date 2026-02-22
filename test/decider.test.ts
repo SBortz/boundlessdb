@@ -104,24 +104,25 @@ describe('Decider', () => {
   });
 
   describe('decide', () => {
-    it('produces events from command', () => {
-      const events: CartEvent[] = [];
+    it('produces events from command and state', () => {
+      const state = cartDecider.initialState();
       const command: CartCommand = { type: 'AddItem', productId: 'apple', quantity: 3 };
 
-      const newEvents = decide(command, events, cartDecider);
+      const newEvents = decide(command, state, cartDecider);
       
       expect(newEvents).toHaveLength(1);
       expect(newEvents[0].type).toBe('ItemAdded');
       expect(newEvents[0].data).toEqual({ productId: 'apple', quantity: 3 });
     });
 
-    it('considers current state when deciding', () => {
+    it('uses evolved state when deciding', () => {
       const events: CartEvent[] = [
         { type: 'ItemAdded', data: { productId: 'apple', quantity: 1 } },
       ];
+      const state = evolve(events, cartDecider);
       const command: CartCommand = { type: 'Checkout' };
 
-      const newEvents = decide(command, events, cartDecider);
+      const newEvents = decide(command, state, cartDecider);
       
       expect(newEvents).toHaveLength(1);
       expect(newEvents[0].type).toBe('CartCheckedOut');
@@ -133,25 +134,26 @@ describe('Decider', () => {
         { type: 'ItemAdded', data: { productId: 'apple', quantity: 1 } },
         { type: 'CartCheckedOut', data: { itemCount: 1 } },
       ];
+      const state = evolve(events, cartDecider);
       const command: CartCommand = { type: 'AddItem', productId: 'banana', quantity: 1 };
 
-      expect(() => decide(command, events, cartDecider))
+      expect(() => decide(command, state, cartDecider))
         .toThrow('Cart already checked out');
     });
 
     it('throws when checkout on empty cart', () => {
-      const events: CartEvent[] = [];
+      const state = cartDecider.initialState();
       const command: CartCommand = { type: 'Checkout' };
 
-      expect(() => decide(command, events, cartDecider))
+      expect(() => decide(command, state, cartDecider))
         .toThrow('Cart is empty');
     });
 
     it('throws when removing non-existent item', () => {
-      const events: CartEvent[] = [];
+      const state = cartDecider.initialState();
       const command: CartCommand = { type: 'RemoveItem', productId: 'ghost' };
 
-      expect(() => decide(command, events, cartDecider))
+      expect(() => decide(command, state, cartDecider))
         .toThrow('Item not in cart');
     });
   });
