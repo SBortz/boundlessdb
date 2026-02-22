@@ -411,7 +411,7 @@
 };
 
 <span class="comment">// 1️⃣ READ</span>
-<span class="keyword">const</span> readResult = <span class="keyword">await</span> store.<span class="function">read</span>({
+<span class="keyword">const</span> { events, appendCondition } = <span class="keyword">await</span> store.<span class="function">read</span>({
   conditions: [
     { type: <span class="string">'CourseCreated'</span>, key: <span class="string">'course'</span>, value: <span class="string">'cs101'</span> },
     { type: <span class="string">'StudentSubscribed'</span>, key: <span class="string">'course'</span>, value: <span class="string">'cs101'</span> },
@@ -419,7 +419,7 @@
 });
 
 <span class="comment">// 2️⃣ DECIDE — standard reduce, no magic</span>
-<span class="keyword">const</span> state = readResult.events.<span class="function">reduce</span>(evolve, initialState);
+<span class="keyword">const</span> state = events.<span class="function">reduce</span>(evolve, initialState);
 
 <span class="keyword">if</span> (state.enrolled >= state.capacity) {
   <span class="keyword">throw new</span> <span class="function">Error</span>(<span class="string">'Course is full!'</span>);
@@ -428,7 +428,7 @@
 <span class="comment">// 3️⃣ WRITE</span>
 <span class="keyword">const</span> result = <span class="keyword">await</span> store.<span class="function">append</span>([
   { type: <span class="string">'StudentSubscribed'</span>, data: { courseId: <span class="string">'cs101'</span>, studentId: <span class="string">'alice'</span> } }
-], readResult.appendCondition);  <span class="comment">// ← Ensures no one else wrote since your read!</span></code></pre>
+], appendCondition);  <span class="comment">// ← Ensures no one else wrote since your read!</span></code></pre>
   </div>
   
   <div class="code-section">
