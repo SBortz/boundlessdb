@@ -47,7 +47,7 @@ describe('EventStore', () => {
         });
 
         expect(result.events).toEqual([]);
-        expect(result.token).toBeDefined();
+        expect(result.appendCondition).toBeDefined();
       });
 
       it('returns matching events', async () => {
@@ -118,7 +118,7 @@ describe('EventStore', () => {
         expect(isConflict(result)).toBe(false);
         if (!isConflict(result)) {
           expect(result.position).toBe(1n);
-          expect(result.token).toBeDefined();
+          expect(result.appendCondition).toBeDefined();
         }
       });
 
@@ -186,10 +186,10 @@ describe('EventStore', () => {
           conditions: [{ type: 'StudentSubscribed', key: 'course', value: 'cs101' }],
         });
 
-        // Append with token from read
+        // Append with appendCondition from read
         const appendResult = await store.append(
           [{ type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } }],
-          readResult.token
+          readResult.appendCondition
         );
 
         expect(isConflict(appendResult)).toBe(false);
@@ -216,10 +216,10 @@ describe('EventStore', () => {
           null
         );
 
-        // Alice tries to subscribe with her stale token
+        // Alice tries to subscribe with her stale appendCondition
         const aliceAppend = await store.append(
           [{ type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } }],
-          aliceRead.token
+          aliceRead.appendCondition
         );
 
         // Should be a conflict
@@ -230,7 +230,7 @@ describe('EventStore', () => {
             courseId: 'cs101',
             studentId: 'bob',
           });
-          expect(aliceAppend.newToken).toBeDefined();
+          expect(aliceAppend.appendCondition).toBeDefined();
         }
       });
 
@@ -258,16 +258,16 @@ describe('EventStore', () => {
         // Alice gets conflict
         const firstAttempt = await store.append(
           [{ type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } }],
-          aliceRead.token
+          aliceRead.appendCondition
         );
 
         expect(isConflict(firstAttempt)).toBe(true);
 
         if (isConflict(firstAttempt)) {
-          // Alice retries with new token
+          // Alice retries with new appendCondition
           const secondAttempt = await store.append(
             [{ type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } }],
-            firstAttempt.newToken
+            firstAttempt.appendCondition
           );
 
           // Should succeed now
@@ -290,7 +290,7 @@ describe('EventStore', () => {
         // Alice subscribes to cs101 - should NOT conflict
         const aliceAppend = await store.append(
           [{ type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } }],
-          aliceRead.token
+          aliceRead.appendCondition
         );
 
         expect(isConflict(aliceAppend)).toBe(false);

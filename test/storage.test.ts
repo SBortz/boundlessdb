@@ -150,9 +150,11 @@ describe('Storage', () => {
         expect(events).toEqual([]);
       });
 
-      it('returns empty for empty conditions', async () => {
+      it('returns all events for empty conditions', async () => {
         const events = await storage.query([]);
-        expect(events).toEqual([]);
+        // Empty conditions = return all events (useful for admin/debug)
+        expect(events.length).toBe(4);
+        expect(events.map(e => e.type)).toEqual(['TypeA', 'TypeB', 'TypeA', 'TypeA']);
       });
 
       it('orders by position', async () => {
@@ -164,6 +166,29 @@ describe('Storage', () => {
         expect(events[0].position).toBe(1n);
         expect(events[1].position).toBe(3n);
         expect(events[2].position).toBe(4n);
+      });
+
+      it('supports unconstrained query (type only, no key/value)', async () => {
+        // Query all events of TypeA without specifying key/value
+        const events = await storage.query([
+          { type: 'TypeA' },  // No key/value = match all TypeA
+        ]);
+
+        expect(events.length).toBe(3);
+        expect(events.every(e => e.type === 'TypeA')).toBe(true);
+      });
+
+      it('supports mixed constrained and unconstrained conditions', async () => {
+        // Query: all TypeA OR TypeB with category=y
+        const events = await storage.query([
+          { type: 'TypeA' },  // Unconstrained: all TypeA
+          { type: 'TypeB', key: 'category', value: 'y' },  // Constrained
+        ]);
+
+        // Should get: 3x TypeA + 1x TypeB (category=y)
+        expect(events.length).toBe(4);
+        expect(events.filter(e => e.type === 'TypeA').length).toBe(3);
+        expect(events.filter(e => e.type === 'TypeB').length).toBe(1);
       });
     });
 

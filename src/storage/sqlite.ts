@@ -3,7 +3,7 @@
  */
 
 import Database from 'better-sqlite3';
-import type { ExtractedKey, QueryCondition, StoredEvent } from '../types.js';
+import { isConstrainedCondition, type ExtractedKey, type QueryCondition, type StoredEvent } from '../types.js';
 import type { EventStorage, EventToStore } from './interface.js';
 
 const SCHEMA = `
@@ -117,27 +117,82 @@ export class SqliteStorage implements EventStorage {
     limit?: number
   ): Promise<StoredEvent[]> {
     if (conditions.length === 0) {
-      return [];
+      // No conditions = return all events
+      let sql = `
+        SELECT position, event_id, event_type, data, metadata, timestamp
+        FROM events
+      `;
+      const params: (string | number)[] = [];
+
+      if (fromPosition !== undefined) {
+        sql += ' WHERE position > ?';
+        params.push(Number(fromPosition));
+      }
+
+      sql += ' ORDER BY position';
+
+      if (limit !== undefined) {
+        sql += ' LIMIT ?';
+        params.push(limit);
+      }
+
+      const rows = this.db.prepare(sql).all(...params) as EventRow[];
+      return rows.map(row => this.rowToEvent(row));
     }
 
-    // Build dynamic OR clause for conditions
-    const whereClauses = conditions.map(
-      () => '(e.event_type = ? AND k.key_name = ? AND k.key_value = ?)'
-    );
-    const whereParams = conditions.flatMap(c => [c.type, c.key, c.value]);
+    // Separate conditions: constrained (with key/value) vs unconstrained (type only)
+    const constrained = conditions.filter(isConstrainedCondition);
+    const unconstrained = conditions.filter(c => !isConstrainedCondition(c));
 
-    let sql = `
-      SELECT DISTINCT
-        e.position,
-        e.event_id,
-        e.event_type,
-        e.data,
-        e.metadata,
-        e.timestamp
-      FROM events e
-      JOIN event_keys k ON e.position = k.position
-      WHERE (${whereClauses.join(' OR ')})
-    `;
+    const whereClauses: string[] = [];
+    const whereParams: (string | number)[] = [];
+
+    // Unconstrained: match by type only (no join needed)
+    if (unconstrained.length > 0) {
+      const typePlaceholders = unconstrained.map(() => '?').join(', ');
+      whereClauses.push(`e.event_type IN (${typePlaceholders})`);
+      whereParams.push(...unconstrained.map(c => c.type));
+    }
+
+    // Constrained: match by type + key + value
+    if (constrained.length > 0) {
+      const constrainedClauses = constrained.map(
+        () => '(e.event_type = ? AND k.key_name = ? AND k.key_value = ?)'
+      );
+      whereClauses.push(`(${constrainedClauses.join(' OR ')})`);
+      whereParams.push(...constrained.flatMap(c => [c.type, c.key, c.value]));
+    }
+
+    // Build SQL
+    let sql: string;
+    if (constrained.length > 0) {
+      // Need JOIN for constrained conditions
+      sql = `
+        SELECT DISTINCT
+          e.position,
+          e.event_id,
+          e.event_type,
+          e.data,
+          e.metadata,
+          e.timestamp
+        FROM events e
+        LEFT JOIN event_keys k ON e.position = k.position
+        WHERE (${whereClauses.join(' OR ')})
+      `;
+    } else {
+      // No constrained conditions, no JOIN needed
+      sql = `
+        SELECT
+          position,
+          event_id,
+          event_type,
+          data,
+          metadata,
+          timestamp
+        FROM events e
+        WHERE (${whereClauses.join(' OR ')})
+      `;
+    }
 
     const params: (string | number)[] = [...whereParams];
 

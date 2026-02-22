@@ -2,29 +2,32 @@
  * DCB Event Store - Browser Bundle Entry Point
  * 
  * This file exports everything needed for browser usage with sql.js storage.
- * No cryptographic signing - tokens are Base64 encoded for convenience.
  */
 
 // Core types
 export type {
-  NewEvent,
+  // Event types
+  Event,
+  EventWithMetadata,
   StoredEvent,
+  // Query types
   Query,
   QueryCondition,
+  UnconstrainedCondition,
+  ConstrainedCondition,
+  // Config types
   ConsistencyConfig,
   ConsistencyKeyDef,
   EventTypeConfig,
   ExtractedKey,
-  ReadResult,
+  // Result types
   AppendResult,
   ConflictResult,
-  ConsistencyToken,
   AppendCondition,
-  TokenPayload,
   EventStoreOptions,
 } from './types.js';
 
-export { isConflict } from './types.js';
+export { QueryResult, isConflict, isConstrainedCondition } from './types.js';
 
 // Event Store (browser version)
 export { EventStore, createEventStore, type EventStoreConfig } from './event-store.browser.js';
@@ -38,14 +41,6 @@ export { SqlJsStorage, type SqlJsStorageOptions } from './storage/sqljs.js';
 export { KeyExtractor, KeyExtractionError } from './config/extractor.js';
 export { validateConfig, ConfigValidationError } from './config/validator.js';
 
-// Token utilities
-export { 
-  createToken, 
-  decodeToken,
-  encodeAppendCondition,
-  decodeAppendCondition,
-  TokenDecodeError,
-  // Backwards compatibility aliases
-  validateToken, 
-  TokenValidationError,
-} from './token.browser.js';
+// Decider pattern
+export type { Decider } from './decider.js';
+export { evolve, decide } from './decider.js';

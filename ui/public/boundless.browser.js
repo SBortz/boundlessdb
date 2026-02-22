@@ -2140,6 +2140,39 @@ var require_sql_wasm_browser = __commonJS({
 });
 
 // src/types.ts
+function isConstrainedCondition(c) {
+  return "key" in c && "value" in c;
+}
+var QueryResult = class {
+  constructor(events, position, conditions) {
+    __publicField(this, "events");
+    __publicField(this, "position");
+    __publicField(this, "conditions");
+    this.events = events;
+    this.position = position;
+    this.conditions = conditions;
+  }
+  /** Number of events in the result */
+  get count() {
+    return this.events.length;
+  }
+  /** Whether the result contains no events */
+  isEmpty() {
+    return this.events.length === 0;
+  }
+  /** Get the first event, or undefined if empty */
+  first() {
+    return this.events[0];
+  }
+  /** Get the last event, or undefined if empty */
+  last() {
+    return this.events[this.events.length - 1];
+  }
+  /** Get the append condition for use with store.append() */
+  get appendCondition() {
+    return { position: this.position, conditions: this.conditions };
+  }
+};
 function isConflict(result) {
   return result.conflict;
 }
@@ -2457,25 +2490,71 @@ var SqlJsStorage = class {
   }
   async query(conditions, fromPosition, limit) {
     const db = await this.ensureInitialized();
-    if (conditions.length === 0) {
-      return [];
-    }
     const escapeSql = (s) => "'" + s.replace(/'/g, "''") + "'";
-    const whereClauses = conditions.map(
-      (c) => `(e.event_type = ${escapeSql(c.type)} AND k.key_name = ${escapeSql(c.key)} AND k.key_value = ${escapeSql(c.value)})`
-    );
-    let sql = `
-      SELECT DISTINCT
-        e.position,
-        e.event_id,
-        e.event_type,
-        e.data,
-        e.metadata,
-        e.timestamp
-      FROM events e
-      JOIN event_keys k ON e.position = k.position
-      WHERE (${whereClauses.join(" OR ")})
-    `;
+    if (conditions.length === 0) {
+      let sql2 = `
+        SELECT position, event_id, event_type, data, metadata, timestamp
+        FROM events
+      `;
+      if (fromPosition !== void 0) {
+        sql2 += ` WHERE position > ${Number(fromPosition)}`;
+      }
+      sql2 += " ORDER BY position";
+      if (limit !== void 0) {
+        sql2 += ` LIMIT ${Number(limit)}`;
+      }
+      const result2 = db.exec(sql2);
+      if (result2.length === 0) return [];
+      const columns2 = result2[0].columns || result2[0].lc;
+      const rows2 = result2[0].values;
+      return rows2.map((row) => {
+        const obj = {};
+        columns2.forEach((col, i) => {
+          obj[col] = row[i];
+        });
+        return this.rowToEvent(obj);
+      });
+    }
+    const constrained = conditions.filter(isConstrainedCondition);
+    const unconstrained = conditions.filter((c) => !isConstrainedCondition(c));
+    const whereClauses = [];
+    if (unconstrained.length > 0) {
+      const typeList = unconstrained.map((c) => escapeSql(c.type)).join(", ");
+      whereClauses.push(`e.event_type IN (${typeList})`);
+    }
+    if (constrained.length > 0) {
+      const constrainedClauses = constrained.map(
+        (c) => `(e.event_type = ${escapeSql(c.type)} AND k.key_name = ${escapeSql(c.key)} AND k.key_value = ${escapeSql(c.value)})`
+      );
+      whereClauses.push(`(${constrainedClauses.join(" OR ")})`);
+    }
+    let sql;
+    if (constrained.length > 0) {
+      sql = `
+        SELECT DISTINCT
+          e.position,
+          e.event_id,
+          e.event_type,
+          e.data,
+          e.metadata,
+          e.timestamp
+        FROM events e
+        LEFT JOIN event_keys k ON e.position = k.position
+        WHERE (${whereClauses.join(" OR ")})
+      `;
+    } else {
+      sql = `
+        SELECT
+          position,
+          event_id,
+          event_type,
+          data,
+          metadata,
+          timestamp
+        FROM events e
+        WHERE (${whereClauses.join(" OR ")})
+      `;
+    }
     if (fromPosition !== void 0) {
       sql += ` AND e.position > ${Number(fromPosition)}`;
     }
@@ -2630,83 +2709,6 @@ var SqlJsStorage = class {
   }
 };
 
-// src/token.browser.ts
-function base64urlEncode(data) {
-  const bytes = new TextEncoder().encode(data);
-  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-function base64urlDecode(data) {
-  const base64 = data.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = base64 + "=".repeat((4 - base64.length % 4) % 4);
-  const binary = atob(padded);
-  const bytes = new Uint8Array([...binary].map((c) => c.charCodeAt(0)));
-  return new TextDecoder().decode(bytes);
-}
-function normalizeQuery(conditions) {
-  return conditions.map((c) => ({ type: c.type, key: c.key, value: c.value })).sort((a, b) => {
-    if (a.type !== b.type) return a.type.localeCompare(b.type);
-    if (a.key !== b.key) return a.key.localeCompare(b.key);
-    return a.value.localeCompare(b.value);
-  });
-}
-function createToken(query, position) {
-  const payload = {
-    pos: position.toString(),
-    q: normalizeQuery(query.conditions)
-  };
-  return base64urlEncode(JSON.stringify(payload));
-}
-var TokenDecodeError = class extends Error {
-  constructor(message) {
-    super(message);
-    this.name = "TokenDecodeError";
-  }
-};
-function decodeToken(token) {
-  let payloadJson;
-  try {
-    payloadJson = base64urlDecode(token);
-  } catch {
-    throw new TokenDecodeError("Invalid token: not valid base64url");
-  }
-  let raw;
-  try {
-    raw = JSON.parse(payloadJson);
-  } catch {
-    throw new TokenDecodeError("Invalid token: not valid JSON");
-  }
-  if (typeof raw.pos !== "string") {
-    throw new TokenDecodeError("Invalid token: pos must be a string");
-  }
-  if (!Array.isArray(raw.q)) {
-    throw new TokenDecodeError("Invalid token: q must be an array");
-  }
-  let pos;
-  try {
-    pos = BigInt(raw.pos);
-  } catch {
-    throw new TokenDecodeError("Invalid token: pos is not a valid bigint");
-  }
-  return {
-    pos,
-    q: raw.q
-  };
-}
-function encodeAppendCondition(condition) {
-  const payload = {
-    pos: condition.position.toString(),
-    q: normalizeQuery(condition.conditions)
-  };
-  return base64urlEncode(JSON.stringify(payload));
-}
-function decodeAppendCondition(token) {
-  const payload = decodeToken(token);
-  return {
-    position: payload.pos,
-    conditions: payload.q
-  };
-}
-
 // src/event-store.browser.ts
 function generateUUID() {
   try {
@@ -2829,12 +2831,16 @@ var EventStore = class {
   }
   /**
    * Read events matching a query
-   * @returns Events and a consistency token for subsequent appends
+   * 
+   * @typeParam E - Event union type for typed results
+   * @returns QueryResult with typed events and appendCondition
    */
   async read(query) {
     await this.ensureInitialized();
     console.log("\u{1F4D6} READ: Querying events...");
-    console.log("   Conditions:", query.conditions.map((c) => `${c.type}[${c.key}=${c.value}]`).join(", ") || "(none)");
+    console.log("   Conditions:", query.conditions.map(
+      (c) => isConstrainedCondition(c) ? `${c.type}[${c.key}=${c.value}]` : `${c.type}[*]`
+    ).join(", ") || "(none)");
     const events = await this.storage.query(
       query.conditions,
       query.fromPosition,
@@ -2842,32 +2848,35 @@ var EventStore = class {
     );
     console.log(`   Found: ${events.length} events`);
     const position = events.length > 0 ? events[events.length - 1].position : await this.storage.getLatestPosition();
-    const token = createToken(query, position);
-    console.log(`\u{1F39F}\uFE0F TOKEN: Generated at position #${position}`);
+    console.log(`\u{1F4CD} POSITION: #${position}`);
     console.log(`   Scope: ${query.conditions.length} condition(s)`);
-    return { events, token };
+    return new QueryResult(
+      events,
+      position,
+      query.conditions
+    );
   }
   /**
    * Append events with optional consistency check
    * 
+   * @typeParam E - Event type for type checking
    * @param events Events to append
    * @param condition Consistency check - can be:
    *   - null: Skip consistency check (optimistic first write)
-   *   - ConsistencyToken: Token from previous read() call
-   *   - AppendCondition: Direct { position, conditions } object
+   *   - AppendCondition: { position, conditions } from a previous read
    * @returns AppendResult on success, ConflictResult on conflict
    */
   async append(events, condition) {
     await this.ensureInitialized();
     console.log(`\u270F\uFE0F APPEND: ${events.length} event(s)`);
     events.forEach((e) => console.log(`   \u2192 ${e.type}: ${JSON.stringify(e.data).substring(0, 60)}...`));
-    console.log(`   Condition: ${condition ? typeof condition === "string" ? "token" : "direct" : "null (no conflict check)"}`);
+    console.log(`   Condition: ${condition ? "AppendCondition" : "null (no conflict check)"}`);
     if (events.length === 0) {
       const position2 = await this.storage.getLatestPosition();
       return {
         conflict: false,
         position: position2,
-        token: condition ? typeof condition === "string" ? condition : createToken({ conditions: condition.conditions }, position2) : createToken({ conditions: [] }, position2)
+        appendCondition: { position: position2, conditions: condition?.conditions ?? [] }
       };
     }
     const keysPerEvent = events.map((event) => this.keyExtractor.extract(event));
@@ -2875,42 +2884,32 @@ var EventStore = class {
     keysPerEvent.forEach((keys, i) => {
       console.log(`   Event ${i}: ${keys.map((k) => `${k.name}="${k.value}"`).join(", ")}`);
     });
-    let appendCondition = null;
     if (condition !== null) {
-      if (typeof condition === "string") {
-        try {
-          const payload = decodeToken(condition);
-          appendCondition = {
-            position: payload.pos,
-            conditions: payload.q
-          };
-        } catch (e) {
-          if (e instanceof TokenDecodeError) {
-            throw e;
-          }
-          throw e;
-        }
-      } else {
-        appendCondition = condition;
-      }
-      console.log(`\u{1F50D} CONFLICT CHECK: Looking for events since position #${appendCondition.position}`);
-      console.log(`   Checking conditions: ${appendCondition.conditions.map((c) => `${c.type}[${c.key}=${c.value}]`).join(", ") || "(none)"}`);
+      const conditionsStr = condition.conditions.map(
+        (c) => isConstrainedCondition(c) ? `${c.type}[${c.key}=${c.value}]` : `${c.type}[*]`
+      ).join(", ");
+      console.log(`\u{1F50D} CONFLICT CHECK: Looking for events since position #${condition.position}`);
+      console.log(`   Checking conditions: ${conditionsStr || "(none)"}`);
       const conflictingEvents = await this.storage.getEventsSince(
-        appendCondition.conditions,
-        appendCondition.position
+        condition.conditions,
+        condition.position
       );
-      console.log(`   Result: ${conflictingEvents.length} matching event(s) found since #${appendCondition.position}`);
+      console.log(`   Result: ${conflictingEvents.length} matching event(s) found since #${condition.position}`);
       if (conflictingEvents.length > 0) {
         console.log("");
         console.log("\u274C \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
         console.log("   CONFLICT DETECTED");
         console.log("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
         console.log("");
-        console.log("\u{1F4CD} Your position: #" + appendCondition.position);
+        console.log("\u{1F4CD} Your position: #" + condition.position);
         console.log("");
         console.log("\u{1F50D} Query conditions you checked:");
-        appendCondition.conditions.forEach((c) => {
-          console.log(`   \u2022 ${c.type} where ${c.key}="${c.value}"`);
+        condition.conditions.forEach((c) => {
+          if (isConstrainedCondition(c)) {
+            console.log(`   \u2022 ${c.type} where ${c.key}="${c.value}"`);
+          } else {
+            console.log(`   \u2022 ${c.type} (all)`);
+          }
         });
         console.log("");
         console.log("\u26A1 Events written SINCE your read (that match your query):");
@@ -2923,18 +2922,14 @@ var EventStore = class {
         console.log("   These events match your query conditions!");
         console.log("   Your decision was based on stale data.");
         console.log("");
-        console.log("\u{1F504} Solution: Use result.newToken to retry.");
+        console.log("\u{1F504} Solution: Use result.appendCondition to retry.");
         console.log("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
         console.log("");
         const latestPosition = conflictingEvents[conflictingEvents.length - 1].position;
-        const newToken2 = createToken(
-          { conditions: appendCondition.conditions },
-          latestPosition
-        );
         return {
           conflict: true,
           conflictingEvents,
-          newToken: newToken2
+          appendCondition: { position: latestPosition, conditions: condition.conditions }
         };
       }
     }
@@ -2954,24 +2949,25 @@ var EventStore = class {
     });
     const position = await this.storage.append(eventsToStore, keysPerEvent);
     console.log(`\u{1F4BE} STORED: Event(s) at position #${position}`);
-    const newTokenQuery = this.buildQueryFromEvents(events, appendCondition);
-    const newToken = createToken(newTokenQuery, position);
-    console.log(`\u2705 SUCCESS: Append complete, new token at #${position}`);
+    const newConditions = this.buildConditionsFromEvents(events, condition);
+    console.log(`\u2705 SUCCESS: Append complete at position #${position}`);
     return {
       conflict: false,
       position,
-      token: newToken
+      appendCondition: { position, conditions: newConditions }
     };
   }
   /**
-   * Build a query that covers the appended events
+   * Build conditions that cover the appended events
    */
-  buildQueryFromEvents(events, originalCondition) {
+  buildConditionsFromEvents(events, originalCondition) {
     const conditions = /* @__PURE__ */ new Map();
     if (originalCondition !== null) {
       for (const cond of originalCondition.conditions) {
-        const key = `${cond.type}:${cond.key}:${cond.value}`;
-        conditions.set(key, cond);
+        if (isConstrainedCondition(cond)) {
+          const key = `${cond.type}:${cond.key}:${cond.value}`;
+          conditions.set(key, cond);
+        }
       }
     }
     for (const event of events) {
@@ -2982,7 +2978,7 @@ var EventStore = class {
         conditions.set(key, cond);
       }
     }
-    return { conditions: Array.from(conditions.values()) };
+    return Array.from(conditions.values());
   }
   /**
    * Get the underlying storage (for advanced use cases)
@@ -3031,13 +3027,19 @@ var InMemoryStorage = class {
   }
   async query(conditions, fromPosition, limit) {
     const startPos = fromPosition ?? 0n;
-    const matching = this.events.filter((event) => {
-      if (event.position <= startPos) {
-        return false;
-      }
+    let matching = this.events.filter((event) => event.position > startPos);
+    if (conditions.length === 0) {
+      matching.sort((a, b) => a.position < b.position ? -1 : 1);
+      const limited2 = limit !== void 0 ? matching.slice(0, limit) : matching;
+      return limited2.map(({ keys: _keys, ...event }) => event);
+    }
+    matching = matching.filter((event) => {
       return conditions.some((cond) => {
         if (event.type !== cond.type) {
           return false;
+        }
+        if (!isConstrainedCondition(cond)) {
+          return true;
         }
         return event.keys.some(
           (key) => key.name === cond.key && key.value === cond.value
@@ -3073,22 +3075,32 @@ var InMemoryStorage = class {
     this.nextPosition = 1n;
   }
 };
+
+// src/decider.ts
+function evolve(events, decider) {
+  return events.reduce(
+    (state, event) => decider.evolve(state, event),
+    decider.initialState()
+  );
+}
+function decide(command, events, decider) {
+  const state = evolve(events, decider);
+  const result = decider.decide(command, state);
+  return Array.isArray(result) ? result : [result];
+}
 export {
   ConfigValidationError,
   EventStore,
   InMemoryStorage,
   KeyExtractionError,
   KeyExtractor,
+  QueryResult,
   SqlJsStorage,
-  TokenDecodeError,
-  TokenDecodeError as TokenValidationError,
   createEventStore,
-  createToken,
-  decodeAppendCondition,
-  decodeToken,
-  encodeAppendCondition,
+  decide,
+  evolve,
   isConflict,
-  validateConfig,
-  decodeToken as validateToken
+  isConstrainedCondition,
+  validateConfig
 };
 //# sourceMappingURL=boundless.browser.js.map

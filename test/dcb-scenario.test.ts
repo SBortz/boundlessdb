@@ -96,12 +96,9 @@ function projectCourseState(
 }
 
 describe('DCB Course Enrollment Scenario', () => {
-  const SECRET = 'enrollment-secret';
-
   function createStore() {
     return new EventStore({
       storage: new InMemoryStorage(),
-      secret: SECRET,
       consistency: ENROLLMENT_CONFIG,
     });
   }
@@ -129,8 +126,8 @@ describe('DCB Course Enrollment Scenario', () => {
     );
 
     // Student reads course state
-    const { events, token } = await store.read(courseQuery('cs101'));
-    const state = projectCourseState(events, 'cs101');
+    const readResult = await store.read(courseQuery('cs101'));
+    const state = projectCourseState(readResult.events, 'cs101');
 
     expect(state).not.toBeNull();
     expect(state!.enrolled.size).toBe(0);
@@ -144,7 +141,7 @@ describe('DCB Course Enrollment Scenario', () => {
         type: 'StudentSubscribed',
         data: { courseId: 'cs101', studentId: 'alice', studentName: 'Alice' },
       }],
-      token
+      readResult.appendCondition
     );
 
     expect(isConflict(result)).toBe(false);
@@ -178,17 +175,17 @@ describe('DCB Course Enrollment Scenario', () => {
         type: 'StudentSubscribed',
         data: { courseId: 'cs101', studentId: 'alice', studentName: 'Alice' },
       }],
-      aliceRead.token
+      aliceRead.appendCondition
     );
     expect(isConflict(aliceResult)).toBe(false);
 
-    // Bob tries to enroll with stale token
+    // Bob tries to enroll with stale appendCondition
     const bobResult = await store.append(
       [{
         type: 'StudentSubscribed',
         data: { courseId: 'cs101', studentId: 'bob', studentName: 'Bob' },
       }],
-      bobRead.token
+      bobRead.appendCondition
     );
 
     // Bob gets conflict with Alice's enrollment as delta
@@ -221,7 +218,7 @@ describe('DCB Course Enrollment Scenario', () => {
         type: 'StudentSubscribed',
         data: { courseId: 'cs101', studentId: 'alice', studentName: 'Alice' },
       }],
-      aliceRead.token
+      aliceRead.appendCondition
     );
 
     // Bob tries to enroll - gets conflict
@@ -230,7 +227,7 @@ describe('DCB Course Enrollment Scenario', () => {
         type: 'StudentSubscribed',
         data: { courseId: 'cs101', studentId: 'bob', studentName: 'Bob' },
       }],
-      bobRead.token
+      bobRead.appendCondition
     );
 
     expect(isConflict(bobResult)).toBe(true);
@@ -279,7 +276,7 @@ describe('DCB Course Enrollment Scenario', () => {
         type: 'StudentSubscribed',
         data: { courseId: 'cs101', studentId: 'alice', studentName: 'Alice' },
       }],
-      aliceRead.token
+      aliceRead.appendCondition
     );
 
     expect(isConflict(aliceResult)).toBe(true);
@@ -293,13 +290,13 @@ describe('DCB Course Enrollment Scenario', () => {
       expect(updatedState!.enrolled.size).toBe(1);
       expect(updatedState!.enrolled.size < updatedState!.capacity).toBe(true);
 
-      // Alice can retry with new token
+      // Alice can retry with new appendCondition
       const retryResult = await store.append(
         [{
           type: 'StudentSubscribed',
           data: { courseId: 'cs101', studentId: 'alice', studentName: 'Alice' },
         }],
-        aliceResult.newToken
+        aliceResult.appendCondition
       );
 
       expect(isConflict(retryResult)).toBe(false);
@@ -335,10 +332,10 @@ describe('DCB Course Enrollment Scenario', () => {
       ],
     };
 
-    const { events, token } = await store.read(aliceQuery);
+    const aliceEnrollment = await store.read(aliceQuery);
 
-    expect(events).toHaveLength(1);
-    expect((events[0].data as StudentSubscribedData).studentId).toBe('alice');
+    expect(aliceEnrollment.events).toHaveLength(1);
+    expect((aliceEnrollment.events[0].data as StudentSubscribedData).studentId).toBe('alice');
 
     // Try to re-enroll Alice (should conflict)
     const reEnrollResult = await store.append(
@@ -346,7 +343,7 @@ describe('DCB Course Enrollment Scenario', () => {
         type: 'StudentSubscribed',
         data: { courseId: 'cs101', studentId: 'alice', studentName: 'Alice Again' },
       }],
-      token
+      aliceEnrollment.appendCondition
     );
 
     // Wait... this shouldn't conflict because we're appending, not checking uniqueness.

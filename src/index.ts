@@ -4,24 +4,28 @@
 
 // Core types
 export type {
-  NewEvent,
+  // Event types
+  Event,
+  EventWithMetadata,
   StoredEvent,
+  // Query types
   Query,
   QueryCondition,
+  UnconstrainedCondition,
+  ConstrainedCondition,
+  // Config types
   ConsistencyConfig,
   ConsistencyKeyDef,
   EventTypeConfig,
   ExtractedKey,
-  ReadResult,
+  // Result types
   AppendResult,
   ConflictResult,
-  ConsistencyToken,
   AppendCondition,
-  TokenPayload,
   EventStoreOptions,
 } from './types.js';
 
-export { isConflict } from './types.js';
+export { QueryResult, isConflict, isConstrainedCondition } from './types.js';
 
 // Event Store
 export { EventStore, createEventStore, type EventStoreConfig } from './event-store.js';
@@ -37,14 +41,6 @@ export { PostgresStorage } from './storage/postgres.js';
 export { KeyExtractor, KeyExtractionError } from './config/extractor.js';
 export { validateConfig, ConfigValidationError } from './config/validator.js';
 
-// Token utilities
-export { 
-  createToken, 
-  decodeToken,
-  encodeAppendCondition,
-  decodeAppendCondition,
-  TokenDecodeError,
-  // Backwards compatibility aliases
-  validateToken, 
-  TokenValidationError,
-} from './token.js';
+// Decider pattern
+export type { Decider } from './decider.js';
+export { evolve, decide } from './decider.js';
