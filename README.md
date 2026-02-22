@@ -1,6 +1,6 @@
 # BoundlessDB
 
-An **embedded, DCB-inspired** Event Store with config-based consistency keys.
+A **DCB-inspired** event store library for TypeScript.
 
 > *BoundlessDB* — because consistency boundaries should be dynamic, not fixed.
 
