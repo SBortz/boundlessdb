@@ -8,10 +8,12 @@ import type { EventStorage } from './storage/interface.js';
 import { SqlJsStorage } from './storage/sqljs.js';
 import {
   QueryResult,
+  isConstrainedCondition,
   type AppendCondition,
   type AppendResult,
   type ConflictResult,
   type ConsistencyConfig,
+  type ConstrainedCondition,
   type Event,
   type EventStoreOptions,
   type EventWithMetadata,
@@ -199,7 +201,7 @@ export class EventStore {
     
     console.log('📖 READ: Querying events...');
     console.log('   Conditions:', query.conditions.map(c => 
-      c.key && c.value ? `${c.type}[${c.key}=${c.value}]` : `${c.type}[*]`
+      isConstrainedCondition(c) ? `${c.type}[${c.key}=${c.value}]` : `${c.type}[*]`
     ).join(', ') || '(none)');
     
     const events = await this.storage.query(
@@ -264,7 +266,7 @@ export class EventStore {
     // Check for conflicts if condition provided
     if (condition !== null) {
       const conditionsStr = condition.conditions.map(c => 
-        c.key && c.value ? `${c.type}[${c.key}=${c.value}]` : `${c.type}[*]`
+        isConstrainedCondition(c) ? `${c.type}[${c.key}=${c.value}]` : `${c.type}[*]`
       ).join(', ');
       console.log(`🔍 CONFLICT CHECK: Looking for events since position #${condition.position}`);
       console.log(`   Checking conditions: ${conditionsStr || '(none)'}`);
@@ -287,7 +289,7 @@ export class EventStore {
         console.log('');
         console.log('🔍 Query conditions you checked:');
         condition.conditions.forEach(c => {
-          if (c.key && c.value) {
+          if (isConstrainedCondition(c)) {
             console.log(`   • ${c.type} where ${c.key}="${c.value}"`);
           } else {
             console.log(`   • ${c.type} (all)`);
@@ -359,13 +361,13 @@ export class EventStore {
     events: EventWithMetadata<E>[],
     originalCondition: AppendCondition | null
   ): QueryCondition[] {
-    const conditions = new Map<string, QueryCondition>();
+    const conditions = new Map<string, ConstrainedCondition>();
 
     if (originalCondition !== null) {
       for (const cond of originalCondition.conditions) {
-        if (cond.key && cond.value) {
+        if (isConstrainedCondition(cond)) {
           const key = `${cond.type}:${cond.key}:${cond.value}`;
-          conditions.set(key, { type: cond.type, key: cond.key, value: cond.value });
+          conditions.set(key, cond);
         }
       }
     }
@@ -374,7 +376,7 @@ export class EventStore {
     for (const event of events) {
       const extractedKeys = this.keyExtractor.extract(event);
       for (const extracted of extractedKeys) {
-        const cond: QueryCondition = { type: event.type, key: extracted.name, value: extracted.value };
+        const cond: ConstrainedCondition = { type: event.type, key: extracted.name, value: extracted.value };
         const key = `${cond.type}:${cond.key}:${cond.value}`;
         conditions.set(key, cond);
       }

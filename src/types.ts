@@ -50,23 +50,40 @@ export type StoredEvent<E extends Event = Event> = E & Readonly<{
 // ============================================================
 
 /**
- * A single query condition: event type + optional key-value match.
- * 
- * If key/value are omitted, matches all events of the given type.
+ * Unconstrained condition: matches ALL events of the given type.
+ */
+export interface UnconstrainedCondition {
+  type: string;
+}
+
+/**
+ * Constrained condition: matches events of type with specific key-value.
+ */
+export interface ConstrainedCondition {
+  type: string;
+  key: string;
+  value: string;
+}
+
+/**
+ * A single query condition - either unconstrained (type only) or constrained (type + key + value).
  * 
  * @example
  * ```typescript
- * // Match specific key-value
+ * // Constrained: Match specific key-value
  * { type: 'ProductItemAdded', key: 'cart', value: 'cart-123' }
  * 
- * // Match all events of type (unconstrained)
+ * // Unconstrained: Match all events of type
  * { type: 'ProductItemAdded' }
  * ```
  */
-export interface QueryCondition {
-  type: string;
-  key?: string;
-  value?: string;
+export type QueryCondition = UnconstrainedCondition | ConstrainedCondition;
+
+/**
+ * Type guard: check if condition is constrained (has key + value)
+ */
+export function isConstrainedCondition(c: QueryCondition): c is ConstrainedCondition {
+  return 'key' in c && 'value' in c;
 }
 
 /**

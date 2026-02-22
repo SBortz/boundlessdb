@@ -2140,6 +2140,9 @@ var require_sql_wasm_browser = __commonJS({
 });
 
 // src/types.ts
+function isConstrainedCondition(c) {
+  return "key" in c && "value" in c;
+}
 var QueryResult = class {
   constructor(events, position, conditions) {
     __publicField(this, "events");
@@ -2512,8 +2515,8 @@ var SqlJsStorage = class {
         return this.rowToEvent(obj);
       });
     }
-    const constrained = conditions.filter((c) => c.key !== void 0 && c.value !== void 0);
-    const unconstrained = conditions.filter((c) => c.key === void 0 || c.value === void 0);
+    const constrained = conditions.filter(isConstrainedCondition);
+    const unconstrained = conditions.filter((c) => !isConstrainedCondition(c));
     const whereClauses = [];
     if (unconstrained.length > 0) {
       const typeList = unconstrained.map((c) => escapeSql(c.type)).join(", ");
@@ -2836,7 +2839,7 @@ var EventStore = class {
     await this.ensureInitialized();
     console.log("\u{1F4D6} READ: Querying events...");
     console.log("   Conditions:", query.conditions.map(
-      (c) => c.key && c.value ? `${c.type}[${c.key}=${c.value}]` : `${c.type}[*]`
+      (c) => isConstrainedCondition(c) ? `${c.type}[${c.key}=${c.value}]` : `${c.type}[*]`
     ).join(", ") || "(none)");
     const events = await this.storage.query(
       query.conditions,
@@ -2883,7 +2886,7 @@ var EventStore = class {
     });
     if (condition !== null) {
       const conditionsStr = condition.conditions.map(
-        (c) => c.key && c.value ? `${c.type}[${c.key}=${c.value}]` : `${c.type}[*]`
+        (c) => isConstrainedCondition(c) ? `${c.type}[${c.key}=${c.value}]` : `${c.type}[*]`
       ).join(", ");
       console.log(`\u{1F50D} CONFLICT CHECK: Looking for events since position #${condition.position}`);
       console.log(`   Checking conditions: ${conditionsStr || "(none)"}`);
@@ -2902,7 +2905,7 @@ var EventStore = class {
         console.log("");
         console.log("\u{1F50D} Query conditions you checked:");
         condition.conditions.forEach((c) => {
-          if (c.key && c.value) {
+          if (isConstrainedCondition(c)) {
             console.log(`   \u2022 ${c.type} where ${c.key}="${c.value}"`);
           } else {
             console.log(`   \u2022 ${c.type} (all)`);
@@ -2961,9 +2964,9 @@ var EventStore = class {
     const conditions = /* @__PURE__ */ new Map();
     if (originalCondition !== null) {
       for (const cond of originalCondition.conditions) {
-        if (cond.key && cond.value) {
+        if (isConstrainedCondition(cond)) {
           const key = `${cond.type}:${cond.key}:${cond.value}`;
-          conditions.set(key, { type: cond.type, key: cond.key, value: cond.value });
+          conditions.set(key, cond);
         }
       }
     }
@@ -3035,7 +3038,7 @@ var InMemoryStorage = class {
         if (event.type !== cond.type) {
           return false;
         }
-        if (cond.key === void 0 || cond.value === void 0) {
+        if (!isConstrainedCondition(cond)) {
           return true;
         }
         return event.keys.some(
@@ -3097,6 +3100,7 @@ export {
   decide,
   evolve,
   isConflict,
+  isConstrainedCondition,
   validateConfig
 };
 //# sourceMappingURL=boundless.browser.js.map

@@ -3,7 +3,7 @@
  */
 
 import Database from 'better-sqlite3';
-import type { ExtractedKey, QueryCondition, StoredEvent } from '../types.js';
+import { isConstrainedCondition, type ExtractedKey, type QueryCondition, type StoredEvent } from '../types.js';
 import type { EventStorage, EventToStore } from './interface.js';
 
 const SCHEMA = `
@@ -141,8 +141,8 @@ export class SqliteStorage implements EventStorage {
     }
 
     // Separate conditions: constrained (with key/value) vs unconstrained (type only)
-    const constrained = conditions.filter(c => c.key !== undefined && c.value !== undefined);
-    const unconstrained = conditions.filter(c => c.key === undefined || c.value === undefined);
+    const constrained = conditions.filter(isConstrainedCondition);
+    const unconstrained = conditions.filter(c => !isConstrainedCondition(c));
 
     const whereClauses: string[] = [];
     const whereParams: (string | number)[] = [];
@@ -160,7 +160,7 @@ export class SqliteStorage implements EventStorage {
         () => '(e.event_type = ? AND k.key_name = ? AND k.key_value = ?)'
       );
       whereClauses.push(`(${constrainedClauses.join(' OR ')})`);
-      whereParams.push(...constrained.flatMap(c => [c.type, c.key!, c.value!]));
+      whereParams.push(...constrained.flatMap(c => [c.type, c.key, c.value]));
     }
 
     // Build SQL

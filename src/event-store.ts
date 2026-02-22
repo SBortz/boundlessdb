@@ -9,10 +9,12 @@ import type { EventStorage } from './storage/interface.js';
 import { SqliteStorage } from './storage/sqlite.js';
 import {
   QueryResult,
+  isConstrainedCondition,
   type AppendCondition,
   type AppendResult,
   type ConflictResult,
   type ConsistencyConfig,
+  type ConstrainedCondition,
   type Event,
   type EventStoreOptions,
   type EventWithMetadata,
@@ -247,13 +249,13 @@ export class EventStore {
     originalCondition: AppendCondition | null
   ): QueryCondition[] {
     // Start with original conditions if provided
-    const conditions = new Map<string, QueryCondition>();
+    const conditions = new Map<string, ConstrainedCondition>();
 
     if (originalCondition !== null) {
       for (const cond of originalCondition.conditions) {
-        if (cond.key && cond.value) {
+        if (isConstrainedCondition(cond)) {
           const key = `${cond.type}:${cond.key}:${cond.value}`;
-          conditions.set(key, { type: cond.type, key: cond.key, value: cond.value });
+          conditions.set(key, cond);
         }
       }
     }
@@ -262,7 +264,7 @@ export class EventStore {
     for (const event of events) {
       const extractedKeys = this.keyExtractor.extract(event);
       for (const extracted of extractedKeys) {
-        const cond: QueryCondition = { type: event.type, key: extracted.name, value: extracted.value };
+        const cond: ConstrainedCondition = { type: event.type, key: extracted.name, value: extracted.value };
         const key = `${cond.type}:${cond.key}:${cond.value}`;
         conditions.set(key, cond);
       }

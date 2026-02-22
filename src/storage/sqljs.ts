@@ -3,7 +3,7 @@
  */
 
 import initSqlJs, { type Database as SqlJsDatabase, type SqlValue } from 'sql.js';
-import type { ExtractedKey, QueryCondition, StoredEvent } from '../types.js';
+import { isConstrainedCondition, type ExtractedKey, type QueryCondition, type StoredEvent } from '../types.js';
 import type { EventStorage, EventToStore } from './interface.js';
 
 const SCHEMA = `
@@ -199,8 +199,8 @@ export class SqlJsStorage implements EventStorage {
     }
 
     // Separate conditions: constrained (with key/value) vs unconstrained (type only)
-    const constrained = conditions.filter(c => c.key !== undefined && c.value !== undefined);
-    const unconstrained = conditions.filter(c => c.key === undefined || c.value === undefined);
+    const constrained = conditions.filter(isConstrainedCondition);
+    const unconstrained = conditions.filter(c => !isConstrainedCondition(c));
 
     const whereClauses: string[] = [];
 
@@ -213,7 +213,7 @@ export class SqlJsStorage implements EventStorage {
     // Constrained: match by type + key + value
     if (constrained.length > 0) {
       const constrainedClauses = constrained.map(
-        c => `(e.event_type = ${escapeSql(c.type)} AND k.key_name = ${escapeSql(c.key!)} AND k.key_value = ${escapeSql(c.value!)})`
+        c => `(e.event_type = ${escapeSql(c.type)} AND k.key_name = ${escapeSql(c.key)} AND k.key_value = ${escapeSql(c.value)})`
       );
       whereClauses.push(`(${constrainedClauses.join(' OR ')})`);
     }

@@ -3,7 +3,7 @@
  */
 
 import { Pool, PoolClient, type PoolConfig } from 'pg';
-import type { ExtractedKey, QueryCondition, StoredEvent } from '../types.js';
+import { isConstrainedCondition, type ExtractedKey, type QueryCondition, type StoredEvent } from '../types.js';
 import type { EventStorage, EventToStore } from './interface.js';
 
 const SCHEMA = `
@@ -198,8 +198,8 @@ export class PostgresStorage implements EventStorage {
     }
 
     // Separate conditions: constrained (with key/value) vs unconstrained (type only)
-    const constrained = conditions.filter(c => c.key !== undefined && c.value !== undefined);
-    const unconstrained = conditions.filter(c => c.key === undefined || c.value === undefined);
+    const constrained = conditions.filter(isConstrainedCondition);
+    const unconstrained = conditions.filter(c => !isConstrainedCondition(c));
 
     const whereClauses: string[] = [];
 
@@ -218,7 +218,7 @@ export class PostgresStorage implements EventStorage {
     if (constrained.length > 0) {
       const constrainedClauses = constrained.map(c => {
         const clause = `(e.event_type = $${paramIndex} AND k.key_name = $${paramIndex + 1} AND k.key_value = $${paramIndex + 2})`;
-        params.push(c.type, c.key!, c.value!);
+        params.push(c.type, c.key, c.value);
         paramIndex += 3;
         return clause;
       });
