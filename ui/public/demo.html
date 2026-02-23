@@ -1268,7 +1268,7 @@
         navigator.clipboard.writeText(JSON.stringify(currentLiveCondition, (k, v) => typeof v === 'bigint' ? v.toString() : v, 2));
         document.getElementById('live-token').textContent = '✅ Copied!';
         setTimeout(() => {
-          document.getElementById('live-token').textContent = `Position: #${currentLiveCondition.position}`;
+          document.getElementById('live-token').textContent = `Position: #${currentLiveCondition.after}`;
         }, 1000);
       }
     };
