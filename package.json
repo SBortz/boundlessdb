@@ -49,7 +49,7 @@
     "benchmark:postgres": "npx tsx benchmark/postgres-query.ts"
   },
   "dependencies": {
-    "better-sqlite3": "^11.0.0",
+    "better-sqlite3": "^12.6.2",
     "sql.js": "^1.14.0"
   },
   "optionalDependencies": {
