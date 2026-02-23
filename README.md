@@ -195,37 +195,74 @@ This is useful when you need the complete history of an aggregate.
 
 ## AppendCondition
 
-When you call `read()`, the result contains an `appendCondition` with:
-- The **position** up to which events were read
-- The **query conditions** you used
-
-This is a simple, transparent object — no encoding, no magic:
+The `AppendCondition` controls optimistic concurrency. It follows the [DCB specification](https://dcb.events/specification/#append-condition):
 
 ```typescript
-// Option 1: Use appendCondition from read()
-const result = await store.read({ conditions });
-await store.append(newEvents, result.appendCondition);
+interface AppendCondition {
+  failIfEventsMatch: QueryCondition[];  // What constitutes a conflict?
+  after?: bigint;                        // From which position to check? (optional)
+}
+```
 
-// Option 2: Create conditions manually (from specific position)
+### Case 1: Read → Append (Standard Flow)
+
+```typescript
+const result = await store.query()
+  .matchType('StudentSubscribed')
+  .matchKey('course', 'cs101')
+  .read();
+
+// appendCondition = { failIfEventsMatch: [...], after: <last_position> }
+await store.append(newEvents, result.appendCondition);
+```
+
+**Checks:** Were there NEW events (after my read) that match my query?
+- ✅ No conflict if nothing new was written
+- ❌ Conflict if someone else wrote matching events
+
+### Case 2: Manual with Position
+
+```typescript
 await store.append(newEvents, {
-  failIfEventsMatch: [{ type: 'UserCreated', key: 'username', value: 'alice' }],
+  failIfEventsMatch: [{ type: 'StudentSubscribed', key: 'course', value: 'cs101' }],
   after: 42n
 });
+```
 
-// Option 3: Check ALL events (omit 'after' for uniqueness checks)
+**Checks:** Events AFTER position 42 only.
+**Use case:** Custom retry logic, or when you know the position.
+
+### Case 3: Check ALL Events (Uniqueness)
+
+```typescript
 await store.append(newEvents, {
   failIfEventsMatch: [{ type: 'UserCreated', key: 'username', value: 'alice' }]
-  // no 'after' → fails if ANY matching event exists
+  // no 'after' → checks from position 0
 });
+```
 
-// Option 4: Skip consistency check entirely
+**Checks:** ALL events from the beginning.
+**Use case:** Uniqueness checks without reading first.
+- ❌ Fails if ANY matching event exists
+- "Username 'alice' must not exist yet"
+
+### Case 4: No Check (Blind Append)
+
+```typescript
 await store.append(newEvents, null);
 ```
 
-This flexibility lets you:
-- **Create uniqueness checks without reading first** (e.g., "username must be unique")
-- **Build custom retry logic** by constructing conditions manually
-- **Optimize performance** by skipping unnecessary reads
+**Checks:** Nothing.
+**Use case:** First write, or events where conflicts don't matter.
+
+### Summary
+
+| Case | `after` | Checks |
+|------|---------|--------|
+| Read → Append | From read position | Events AFTER read |
+| Manual | Explicit position | Events AFTER position |
+| Uniqueness | Omitted | ALL events |
+| Blind | `null` condition | Nothing |
 
 ## Query Across Multiple Dimensions
 
