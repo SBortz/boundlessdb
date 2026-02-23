@@ -409,7 +409,37 @@
       line-height: 1.7;
     }
     
-    /* Case content (AppendCondition section) */
+    /* Case tabs (AppendCondition section) */
+    .case-tabs-header {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+    }
+    
+    .case-tab {
+      padding: 0.6rem 1.2rem;
+      background: rgba(30, 58, 95, 0.5);
+      border: 1px solid #1e3a5f;
+      border-radius: 6px;
+      color: #888;
+      cursor: pointer;
+      font-size: 0.85rem;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+    
+    .case-tab:hover {
+      background: rgba(30, 58, 95, 0.8);
+      color: #aaa;
+    }
+    
+    .case-tab.active {
+      background: rgba(0, 204, 255, 0.15);
+      border-color: #0cf;
+      color: #0cf;
+    }
+    
     .case-content {
       display: none;
     }
@@ -641,11 +671,11 @@ appendCondition = {
     <h2>AppendCondition Cases</h2>
     <p style="color:#888; margin-bottom:1rem;">The <code>AppendCondition</code> controls when a conflict is detected. Four patterns cover all use cases:</p>
     
-    <div class="tabs-header" style="margin-bottom:1rem; justify-content: flex-start;">
-      <button class="tab-btn case-tab active" data-case="read">1. Read → Append</button>
-      <button class="tab-btn case-tab" data-case="manual">2. Manual Position</button>
-      <button class="tab-btn case-tab" data-case="uniqueness">3. Uniqueness Check</button>
-      <button class="tab-btn case-tab" data-case="blind">4. Blind Append</button>
+    <div class="case-tabs-header">
+      <button class="case-tab active" data-case="read">1. Read → Append</button>
+      <button class="case-tab" data-case="manual">2. Manual Position</button>
+      <button class="case-tab" data-case="uniqueness">3. Uniqueness Check</button>
+      <button class="case-tab" data-case="blind">4. Blind Append</button>
     </div>
     
     <div class="case-content active" id="case-read">
@@ -824,13 +854,13 @@ appendCondition = {
   </footer>
   
   <script>
-    // Tab switching (hero section)
-    document.querySelectorAll('.tab-btn').forEach(btn => {
+    // Tab switching (hero section) - only tabs with data-tab attribute
+    document.querySelectorAll('.tab-btn[data-tab]').forEach(btn => {
       btn.addEventListener('click', () => {
         const tabId = btn.dataset.tab;
         
-        // Update buttons
-        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        // Update buttons (only hero tabs)
+        document.querySelectorAll('.tab-btn[data-tab]').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         
         // Update content
@@ -839,13 +869,13 @@ appendCondition = {
       });
     });
     
-    // Case tabs (AppendCondition section)
-    document.querySelectorAll('.case-tab').forEach(btn => {
+    // Case tabs (AppendCondition section) - only tabs with data-case attribute
+    document.querySelectorAll('.case-tab[data-case]').forEach(btn => {
       btn.addEventListener('click', () => {
         const caseId = btn.dataset.case;
         
         // Update buttons (only case tabs)
-        document.querySelectorAll('.case-tab').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.case-tab[data-case]').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         
         // Update content
