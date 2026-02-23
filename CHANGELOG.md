@@ -6,6 +6,25 @@ All notable changes to BoundlessDB will be documented in this file.
 
 ### Breaking Changes
 
+#### Changed: AppendCondition now DCB Spec Compliant
+- Renamed `conditions` → `failIfEventsMatch`
+- Renamed `position` → `after` (now optional!)
+- **Migration:**
+  ```typescript
+  // Before
+  const condition = {
+    position: 42n,
+    conditions: [{ type: 'X', key: 'k', value: 'v' }]
+  };
+  
+  // After (DCB spec compliant)
+  const condition = {
+    failIfEventsMatch: [{ type: 'X', key: 'k', value: 'v' }],
+    after: 42n  // optional! if omitted, checks ALL events
+  };
+  ```
+- See: https://dcb.events/specification/#append-condition
+
 #### Removed: Token/Cryptographic Signing
 - Removed `token.ts` and `token.browser.ts`
 - Removed `secret` option from `EventStoreOptions`

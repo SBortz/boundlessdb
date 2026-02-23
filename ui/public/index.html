@@ -409,6 +409,24 @@
       line-height: 1.7;
     }
     
+    /* Case content (AppendCondition section) */
+    .case-content {
+      display: none;
+    }
+    
+    .case-content.active {
+      display: block;
+    }
+    
+    .case-content pre {
+      margin: 0;
+      background: transparent;
+      border: none;
+      padding: 0;
+      font-size: 0.9rem;
+      line-height: 1.7;
+    }
+    
     .tab-label {
       color: #0cf;
       font-size: 0.7rem;
@@ -577,8 +595,7 @@
         💡 <strong>Why more flexible?</strong><br><br>
         • <strong>No migration needed</strong> — Change your consistency boundaries by updating config, not events<br>
         • <strong>Events stay clean</strong> — Business data only, no infrastructure concerns<br>
-        • <strong>Retroactive changes</strong> — Add new keys to existing events via reindex<br>
-        • <strong>DRY</strong> — Key paths defined once in config, not repeated on every append
+        • <strong>Retroactive changes</strong> — Add new keys to existing events via reindex
       </div>
     </div>
   </div>
@@ -599,14 +616,14 @@
   
   <div class="code-section">
     <h2>How Conflict Detection Works</h2>
-    <pre><code><span class="comment">// The appendCondition captures your exact query scope:</span>
+    <pre><code><span class="comment">// The appendCondition captures your exact query scope (DCB spec):</span>
 appendCondition = {
-  conditions: [{ type: <span class="string">'StudentSubscribed'</span>, key: <span class="string">'course'</span>, value: <span class="string">'cs101'</span> }],
-  position: <span class="const">5n</span>  <span class="comment">// Position at time of read</span>
+  failIfEventsMatch: [{ type: <span class="string">'StudentSubscribed'</span>, key: <span class="string">'course'</span>, value: <span class="string">'cs101'</span> }],
+  after: <span class="const">5n</span>  <span class="comment">// Position at time of read (optional)</span>
 }
 
 <span class="comment">// On append, BoundlessDB checks:</span>
-<span class="comment">// "Are there NEW events (pos > 5) that MATCH these conditions?"</span>
+<span class="comment">// "Are there NEW events (after pos 5) that MATCH these conditions?"</span>
 
 <span class="comment">// ✅ NO conflict if someone wrote:</span>
 <span class="comment">//    - StudentSubscribed for course='math201' (different key value)</span>
@@ -617,6 +634,73 @@ appendCondition = {
 <span class="comment">//    - (matches your query conditions!)</span></code></pre>
     <div class="flow-note" style="margin-top:1rem">
       💡 Conflicts are <strong>scoped to your read</strong> — not global. This is the power of Dynamic Consistency Boundaries!
+    </div>
+  </div>
+  
+  <div class="code-section">
+    <h2>AppendCondition Cases</h2>
+    <p style="color:#888; margin-bottom:1.5rem;">The <code>AppendCondition</code> controls when a conflict is detected. Four patterns cover all use cases:</p>
+    
+    <div class="tabs-header">
+      <button class="tab-btn case-tab active" data-case="read">1. Read → Append</button>
+      <button class="tab-btn case-tab" data-case="manual">2. Manual Position</button>
+      <button class="tab-btn case-tab" data-case="uniqueness">3. Uniqueness Check</button>
+      <button class="tab-btn case-tab" data-case="blind">4. Blind Append</button>
+    </div>
+    
+    <div class="tabs-content-wrapper">
+      <div class="case-content active" id="case-read">
+        <pre><code><span class="comment">// Standard flow: Read first, then append</span>
+<span class="keyword">const</span> result = <span class="keyword">await</span> store.<span class="function">query</span>()
+  .<span class="function">matchType</span>(<span class="string">'StudentSubscribed'</span>)
+  .<span class="function">matchKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>)
+  .<span class="function">read</span>();
+
+<span class="comment">// appendCondition = { failIfEventsMatch: [...], after: position }</span>
+<span class="keyword">await</span> store.<span class="function">append</span>(events, result.appendCondition);</code></pre>
+        <div class="flow-note" style="margin-top:0.5rem">
+          ✅ No conflict if nothing new was written<br>
+          ❌ Conflict if someone else wrote matching events after your read
+        </div>
+      </div>
+    
+      <div class="case-content" id="case-manual">
+        <pre><code><span class="comment">// Check from a specific position</span>
+<span class="keyword">await</span> store.<span class="function">append</span>(events, {
+  failIfEventsMatch: [
+    { type: <span class="string">'StudentSubscribed'</span>, key: <span class="string">'course'</span>, value: <span class="string">'cs101'</span> }
+  ],
+  after: <span class="const">42n</span>
+});</code></pre>
+        <div class="flow-note" style="margin-top:0.5rem">
+          <strong>Use case:</strong> Custom retry logic, or when you know the exact position.<br>
+          Checks only events AFTER position 42.
+        </div>
+      </div>
+    
+      <div class="case-content" id="case-uniqueness">
+        <pre><code><span class="comment">// Check ALL events (no 'after' = from position 0)</span>
+<span class="keyword">await</span> store.<span class="function">append</span>(events, {
+  failIfEventsMatch: [
+    { type: <span class="string">'UserCreated'</span>, key: <span class="string">'username'</span>, value: <span class="string">'alice'</span> }
+  ]
+  <span class="comment">// no 'after' → checks ALL events!</span>
+});</code></pre>
+        <div class="flow-note" style="margin-top:0.5rem">
+          <strong>Use case:</strong> Uniqueness checks without reading first.<br>
+          ❌ Fails if ANY matching event exists anywhere.<br>
+          Example: "Username 'alice' must not exist yet"
+        </div>
+      </div>
+    
+      <div class="case-content" id="case-blind">
+        <pre><code><span class="comment">// No consistency check at all</span>
+<span class="keyword">await</span> store.<span class="function">append</span>(events, <span class="const">null</span>);</code></pre>
+        <div class="flow-note" style="margin-top:0.5rem">
+          <strong>Use case:</strong> First write, or events where conflicts don't matter.<br>
+          No checks performed, event is always appended.
+        </div>
+      </div>
     </div>
   </div>
   
@@ -742,18 +826,33 @@ appendCondition = {
   </footer>
   
   <script>
-    // Tab switching
-    document.querySelectorAll('.tab-btn').forEach(btn => {
+    // Tab switching (hero section) - only tabs with data-tab attribute
+    document.querySelectorAll('.tab-btn[data-tab]').forEach(btn => {
       btn.addEventListener('click', () => {
         const tabId = btn.dataset.tab;
         
-        // Update buttons
-        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        // Update buttons (only hero tabs)
+        document.querySelectorAll('.tab-btn[data-tab]').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         
         // Update content
         document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
         document.getElementById('tab-' + tabId).classList.add('active');
+      });
+    });
+    
+    // Case tabs (AppendCondition section) - only tabs with data-case attribute
+    document.querySelectorAll('.case-tab[data-case]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const caseId = btn.dataset.case;
+        
+        // Update buttons (only case tabs)
+        document.querySelectorAll('.case-tab[data-case]').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        
+        // Update content
+        document.querySelectorAll('.case-content').forEach(c => c.classList.remove('active'));
+        document.getElementById('case-' + caseId).classList.add('active');
       });
     });
   </script>

@@ -212,7 +212,7 @@ export class EventStore {
       return {
         conflict: false,
         position,
-        appendCondition: { position, conditions: condition?.conditions ?? [] },
+        appendCondition: { failIfEventsMatch: condition?.failIfEventsMatch ?? [], after: position },
       };
     }
 
@@ -221,9 +221,13 @@ export class EventStore {
 
     // Check for conflicts if condition provided
     if (condition !== null) {
+      // If 'after' is undefined, check ALL events (position 0n)
+      // If 'after' is specified, check only events after that position
+      const checkFromPosition = condition.after ?? 0n;
+      
       const conflictingEvents = await this.storage.getEventsSince(
-        condition.conditions,
-        condition.position
+        condition.failIfEventsMatch,
+        checkFromPosition
       );
 
       if (conflictingEvents.length > 0) {
@@ -233,7 +237,7 @@ export class EventStore {
         return {
           conflict: true,
           conflictingEvents: conflictingEvents as StoredEvent<E>[],
-          appendCondition: { position: latestPosition, conditions: condition.conditions },
+          appendCondition: { failIfEventsMatch: condition.failIfEventsMatch, after: latestPosition },
         };
       }
     }
@@ -257,7 +261,7 @@ export class EventStore {
     return {
       conflict: false,
       position,
-      appendCondition: { position, conditions: newConditions },
+      appendCondition: { failIfEventsMatch: newConditions, after: position },
     };
   }
 
@@ -273,7 +277,7 @@ export class EventStore {
     const conditions = new Map<string, ConstrainedCondition>();
 
     if (originalCondition !== null) {
-      for (const cond of originalCondition.conditions) {
+      for (const cond of originalCondition.failIfEventsMatch) {
         if (isConstrainedCondition(cond)) {
           const key = `${cond.type}:${cond.key}:${cond.value}`;
           conditions.set(key, cond);

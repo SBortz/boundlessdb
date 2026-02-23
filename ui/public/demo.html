@@ -1268,7 +1268,7 @@
         navigator.clipboard.writeText(JSON.stringify(currentLiveCondition, (k, v) => typeof v === 'bigint' ? v.toString() : v, 2));
         document.getElementById('live-token').textContent = '✅ Copied!';
         setTimeout(() => {
-          document.getElementById('live-token').textContent = `Position: #${currentLiveCondition.position}`;
+          document.getElementById('live-token').textContent = `Position: #${currentLiveCondition.after}`;
         }, 1000);
       }
     };
@@ -1289,11 +1289,11 @@
       
       // Load condition from live query
       const payload = {
-        position: currentLiveCondition.position.toString(),
-        conditions: currentLiveCondition.conditions
+        after: currentLiveCondition.after.toString(),
+        failIfEventsMatch: currentLiveCondition.failIfEventsMatch
       };
       document.getElementById('token-payload').value = JSON.stringify(payload, null, 2);
-      setTokenStatus(`✅ Condition geladen (pos=${currentLiveCondition.position})`, 'success');
+      setTokenStatus(`✅ Condition geladen (after=${currentLiveCondition.after})`, 'success');
     };
 
     window.clearAppendToken = function() {
@@ -1335,12 +1335,12 @@
       } else {
         try {
           const editedPayload = JSON.parse(conditionPayloadStr);
-          // Convert to AppendCondition format (position as bigint)
+          // Convert to AppendCondition format (DCB spec compliant)
           conditionToUse = {
-            position: BigInt(editedPayload.position || editedPayload.pos || '0'),
-            conditions: editedPayload.conditions || editedPayload.q || []
+            failIfEventsMatch: editedPayload.failIfEventsMatch || editedPayload.conditions || editedPayload.q || [],
+            after: BigInt(editedPayload.after || editedPayload.position || editedPayload.pos || '0')
           };
-          console.log('📝 Created condition from edited payload, pos=' + conditionToUse.position);
+          console.log('📝 Created condition from edited payload, after=' + conditionToUse.after);
         } catch (e) {
           console.warn('Could not parse edited condition payload:', e);
         }
@@ -1381,11 +1381,11 @@
           showJsonResult('append-json', conflictData);
           // Update condition for retry
           const newCondition = {
-            position: result.appendCondition.position.toString(),
-            conditions: result.appendCondition.conditions
+            after: result.appendCondition.after.toString(),
+            failIfEventsMatch: result.appendCondition.failIfEventsMatch
           };
           document.getElementById('token-payload').value = JSON.stringify(newCondition, null, 2);
-          setTokenStatus(`⚠️ Neue Condition (pos=${result.appendCondition.position}) - retry möglich`, 'error');
+          setTokenStatus(`⚠️ Neue Condition (after=${result.appendCondition.after}) - retry möglich`, 'error');
         } else {
           showFeedback('append-result', `✅ Event #${result.position} erfolgreich gespeichert!${noConditionWarning}`, 'success');
           // Keep old condition - user should learn they need a fresh one!
