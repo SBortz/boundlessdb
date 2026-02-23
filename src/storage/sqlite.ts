@@ -145,73 +145,73 @@ export class SqliteStorage implements EventStorage {
     const keyOnly = conditions.filter(isKeyOnlyCondition);
     const unconstrained = conditions.filter(c => !isConstrainedCondition(c) && !isKeyOnlyCondition(c)) as Array<{ type: string }>;
 
-    const whereClauses: string[] = [];
-    const whereParams: (string | number)[] = [];
+    // Build CTE-based query with UNION for better index utilization
+    const ctes: string[] = [];
+    const cteNames: string[] = [];
+    const params: (string | number)[] = [];
 
-    // Unconstrained: match by type only (no join needed)
+    const positionFilter = fromPosition !== undefined ? Number(fromPosition) : null;
+
+    // CTE for unconstrained conditions (type-only, no join needed)
     if (unconstrained.length > 0) {
       const typePlaceholders = unconstrained.map(() => '?').join(', ');
-      whereClauses.push(`e.event_type IN (${typePlaceholders})`);
-      whereParams.push(...unconstrained.map(c => c.type));
+      let cteSql = `
+        SELECT position, event_id, event_type, data, metadata, timestamp
+        FROM events
+        WHERE event_type IN (${typePlaceholders})`;
+      if (positionFilter !== null) {
+        cteSql += ' AND position > ?';
+      }
+      ctes.push(`unconstrained_matches AS (${cteSql})`);
+      cteNames.push('unconstrained_matches');
+      params.push(...unconstrained.map(c => c.type));
+      if (positionFilter !== null) params.push(positionFilter);
     }
 
-    // Constrained: match by type + key + value
+    // CTE for constrained conditions (type + key + value)
     if (constrained.length > 0) {
       const constrainedClauses = constrained.map(
         () => '(e.event_type = ? AND k.key_name = ? AND k.key_value = ?)'
       );
-      whereClauses.push(`(${constrainedClauses.join(' OR ')})`);
-      whereParams.push(...constrained.flatMap(c => [c.type, c.key, c.value]));
+      let cteSql = `
+        SELECT DISTINCT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
+        FROM events e
+        INNER JOIN event_keys k ON e.position = k.position
+        WHERE (${constrainedClauses.join(' OR ')})`;
+      if (positionFilter !== null) {
+        cteSql += ' AND e.position > ?';
+      }
+      ctes.push(`constrained_matches AS (${cteSql})`);
+      cteNames.push('constrained_matches');
+      params.push(...constrained.flatMap(c => [c.type, c.key, c.value]));
+      if (positionFilter !== null) params.push(positionFilter);
     }
 
-    // Key-only: match by key + value only (any event type)
+    // CTE for key-only conditions (key + value, any type)
     if (keyOnly.length > 0) {
       const keyOnlyClauses = keyOnly.map(
         () => '(k.key_name = ? AND k.key_value = ?)'
       );
-      whereClauses.push(`(${keyOnlyClauses.join(' OR ')})`);
-      whereParams.push(...keyOnly.flatMap(c => [c.key, c.value]));
-    }
-
-    // Build SQL - need JOIN if we have constrained or key-only conditions
-    const needsJoin = constrained.length > 0 || keyOnly.length > 0;
-    let sql: string;
-    if (needsJoin) {
-      sql = `
-        SELECT DISTINCT
-          e.position,
-          e.event_id,
-          e.event_type,
-          e.data,
-          e.metadata,
-          e.timestamp
+      let cteSql = `
+        SELECT DISTINCT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
         FROM events e
-        LEFT JOIN event_keys k ON e.position = k.position
-        WHERE (${whereClauses.join(' OR ')})
-      `;
-    } else {
-      // No constrained or key-only conditions, no JOIN needed
-      sql = `
-        SELECT
-          position,
-          event_id,
-          event_type,
-          data,
-          metadata,
-          timestamp
-        FROM events e
-        WHERE (${whereClauses.join(' OR ')})
-      `;
+        INNER JOIN event_keys k ON e.position = k.position
+        WHERE (${keyOnlyClauses.join(' OR ')})`;
+      if (positionFilter !== null) {
+        cteSql += ' AND e.position > ?';
+      }
+      ctes.push(`key_only_matches AS (${cteSql})`);
+      cteNames.push('key_only_matches');
+      params.push(...keyOnly.flatMap(c => [c.key, c.value]));
+      if (positionFilter !== null) params.push(positionFilter);
     }
 
-    const params: (string | number)[] = [...whereParams];
-
-    if (fromPosition !== undefined) {
-      sql += ' AND e.position > ?';
-      params.push(Number(fromPosition));
-    }
-
-    sql += ' ORDER BY e.position';
+    // Build final query with UNION
+    const unionParts = cteNames.map(name => `SELECT * FROM ${name}`);
+    
+    let sql = `WITH ${ctes.join(',\n')}
+SELECT * FROM (${unionParts.join(' UNION ')}) AS combined
+ORDER BY position`;
 
     if (limit !== undefined) {
       sql += ' LIMIT ?';
