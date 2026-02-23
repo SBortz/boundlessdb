@@ -409,27 +409,7 @@
       line-height: 1.7;
     }
     
-    /* Case tabs (AppendCondition section) */
-    .tab-btn-cases {
-      background: transparent;
-      border: none;
-      color: #666;
-      padding: 0.5rem 1rem;
-      cursor: pointer;
-      font-size: 0.85rem;
-      transition: all 0.2s;
-      border-bottom: 2px solid transparent;
-    }
-    
-    .tab-btn-cases:hover {
-      color: #888;
-    }
-    
-    .tab-btn-cases.active {
-      color: #0cf;
-      border-bottom-color: #0cf;
-    }
-    
+    /* Case content (AppendCondition section) */
     .case-content {
       display: none;
     }
@@ -662,10 +642,10 @@ appendCondition = {
     <p style="color:#888; margin-bottom:1rem;">The <code>AppendCondition</code> controls when a conflict is detected. Four patterns cover all use cases:</p>
     
     <div class="tabs" style="margin-bottom:1rem;">
-      <button class="tab-btn-cases active" data-case="read">1. Read → Append</button>
-      <button class="tab-btn-cases" data-case="manual">2. Manual Position</button>
-      <button class="tab-btn-cases" data-case="uniqueness">3. Uniqueness Check</button>
-      <button class="tab-btn-cases" data-case="blind">4. Blind Append</button>
+      <button class="tab-btn case-tab active" data-case="read">1. Read → Append</button>
+      <button class="tab-btn case-tab" data-case="manual">2. Manual Position</button>
+      <button class="tab-btn case-tab" data-case="uniqueness">3. Uniqueness Check</button>
+      <button class="tab-btn case-tab" data-case="blind">4. Blind Append</button>
     </div>
     
     <div class="case-content active" id="case-read">
@@ -860,12 +840,12 @@ appendCondition = {
     });
     
     // Case tabs (AppendCondition section)
-    document.querySelectorAll('.tab-btn-cases').forEach(btn => {
+    document.querySelectorAll('.case-tab').forEach(btn => {
       btn.addEventListener('click', () => {
         const caseId = btn.dataset.case;
         
-        // Update buttons
-        document.querySelectorAll('.tab-btn-cases').forEach(b => b.classList.remove('active'));
+        // Update buttons (only case tabs)
+        document.querySelectorAll('.case-tab').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         
         // Update content
