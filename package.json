@@ -44,7 +44,8 @@
     "build:browser": "node scripts/build-browser.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:postgres": "vitest run postgres-storage"
+    "test:postgres": "vitest run postgres-storage",
+    "benchmark": "npx tsx benchmark/sqlite-query.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.0.0",
