@@ -86,13 +86,37 @@ All notable changes to BoundlessDB will be documented in this file.
 
 #### Fluent Query API
 - Chainable query builder: `store.query<E>()`
-- Methods: `matchType()`, `matchKey()`, `fromPosition()`, `limit()`, `read()`
+- Methods:
+  - `matchType('X')` — all events of type X (unconstrained)
+  - `matchTypeAndKey('X', 'k', 'v')` — events of type X where k=v (constrained)
+  - `matchKey('k', 'v')` — ALL events where k=v, any type (key-only)
+  - `fromPosition(n)`, `limit(n)`, `read()`
   ```typescript
-  const { events, appendCondition } = await store.query<CourseEvent>()
+  const result = await store.query<CourseEvent>()
     .matchType('CourseCreated')
-    .matchKey('StudentSubscribed', 'course', 'cs101')
+    .matchTypeAndKey('StudentSubscribed', 'course', 'cs101')
+    .matchKey('student', 'alice')  // all events for alice!
     .read();
   ```
+
+#### Key-only Queries
+- New `QueryCondition` type: `{ key, value }` (no type!)
+- Query ALL events with a specific key, regardless of event type
+- Use case: Aggregate queries ("all events for student alice")
+  ```typescript
+  // Get everything for a specific student
+  const result = await store.query()
+    .matchKey('student', 'alice')
+    .read();
+  // Returns: StudentEnrolled, LessonCompleted, CertificateIssued, etc.
+  ```
+
+#### AppendCondition Cases
+Four patterns for consistency checks:
+1. **Read → Append**: Use `result.appendCondition` from read
+2. **Manual Position**: `{ failIfEventsMatch: [...], after: 42n }`
+3. **Uniqueness Check**: `{ failIfEventsMatch: [...] }` (no `after` = check ALL)
+4. **Blind Append**: Pass `null` (no consistency check)
 
 ### Changed
 
