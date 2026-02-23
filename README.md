@@ -206,13 +206,19 @@ This is a simple, transparent object — no encoding, no magic:
 const result = await store.read({ conditions });
 await store.append(newEvents, result.appendCondition);
 
-// Option 2: Create conditions manually (DCB spec compliant)
+// Option 2: Create conditions manually (from specific position)
 await store.append(newEvents, {
   failIfEventsMatch: [{ type: 'UserCreated', key: 'username', value: 'alice' }],
-  after: 42n  // optional: if omitted, checks ALL events
+  after: 42n
 });
 
-// Option 3: Skip consistency check entirely
+// Option 3: Check ALL events (omit 'after' for uniqueness checks)
+await store.append(newEvents, {
+  failIfEventsMatch: [{ type: 'UserCreated', key: 'username', value: 'alice' }]
+  // no 'after' → fails if ANY matching event exists
+});
+
+// Option 4: Skip consistency check entirely
 await store.append(newEvents, null);
 ```
 
