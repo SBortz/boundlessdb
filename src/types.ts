@@ -66,19 +66,9 @@ export interface ConstrainedCondition {
 }
 
 /**
- * Key-only condition: matches ALL events with specific key-value, regardless of type.
- * Useful for aggregate queries (e.g., "all events for course cs101").
- */
-export interface KeyOnlyCondition {
-  key: string;
-  value: string;
-}
-
-/**
  * A single query condition:
  * - Unconstrained: `{ type }` - all events of type
  * - Constrained: `{ type, key, value }` - events of type with specific key
- * - Key-only: `{ key, value }` - all events with specific key, any type
  * 
  * @example
  * ```typescript
@@ -87,25 +77,15 @@ export interface KeyOnlyCondition {
  * 
  * // Unconstrained: Match all events of type
  * { type: 'ProductItemAdded' }
- * 
- * // Key-only: Match all events with key, regardless of type
- * { key: 'cart', value: 'cart-123' }
  * ```
  */
-export type QueryCondition = UnconstrainedCondition | ConstrainedCondition | KeyOnlyCondition;
+export type QueryCondition = UnconstrainedCondition | ConstrainedCondition;
 
 /**
  * Type guard: check if condition is constrained (has type + key + value)
  */
 export function isConstrainedCondition(c: QueryCondition): c is ConstrainedCondition {
   return 'type' in c && 'key' in c && 'value' in c;
-}
-
-/**
- * Type guard: check if condition is key-only (has key + value, no type)
- */
-export function isKeyOnlyCondition(c: QueryCondition): c is KeyOnlyCondition {
-  return !('type' in c) && 'key' in c && 'value' in c;
 }
 
 /**

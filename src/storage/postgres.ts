@@ -3,7 +3,7 @@
  */
 
 import { Pool, PoolClient, type PoolConfig } from 'pg';
-import { isConstrainedCondition, isKeyOnlyCondition, type ExtractedKey, type QueryCondition, type StoredEvent } from '../types.js';
+import { isConstrainedCondition, type ExtractedKey, type QueryCondition, type StoredEvent } from '../types.js';
 import type { EventStorage, EventToStore } from './interface.js';
 
 const SCHEMA = `
@@ -199,8 +199,7 @@ export class PostgresStorage implements EventStorage {
 
     // Separate conditions by type
     const constrained = conditions.filter(isConstrainedCondition);
-    const keyOnly = conditions.filter(isKeyOnlyCondition);
-    const unconstrained = conditions.filter(c => !isConstrainedCondition(c) && !isKeyOnlyCondition(c)) as Array<{ type: string }>;
+    const unconstrained = conditions.filter(c => !isConstrainedCondition(c)) as Array<{ type: string }>;
 
     // Build CTE-based query with UNION for better index utilization
     const ctes: string[] = [];
@@ -251,29 +250,6 @@ export class PostgresStorage implements EventStorage {
       }
       ctes.push(`constrained_matches AS (${cteSql})`);
       cteNames.push('constrained_matches');
-    }
-
-    // CTE for key-only conditions (key + value, any type)
-    if (keyOnly.length > 0) {
-      const keyOnlyClauses = keyOnly.map(c => {
-        const clause = `(k.key_name = $${paramIndex} AND k.key_value = $${paramIndex + 1})`;
-        params.push(c.key, c.value);
-        paramIndex += 2;
-        return clause;
-      });
-      let cteSql = `
-        SELECT DISTINCT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
-        FROM events e
-        INNER JOIN event_keys k ON e.position = k.position
-        WHERE (${keyOnlyClauses.join(' OR ')})`;
-      
-      if (positionFilter !== null) {
-        cteSql += ` AND e.position > $${paramIndex}`;
-        params.push(positionFilter);
-        paramIndex++;
-      }
-      ctes.push(`key_only_matches AS (${cteSql})`);
-      cteNames.push('key_only_matches');
     }
 
     // Build final query with UNION
