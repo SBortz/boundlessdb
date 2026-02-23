@@ -3,7 +3,7 @@
  */
 
 import Database from 'better-sqlite3';
-import { isConstrainedCondition, isKeyOnlyCondition, type ExtractedKey, type QueryCondition, type StoredEvent } from '../types.js';
+import { isConstrainedCondition, type ExtractedKey, type QueryCondition, type StoredEvent } from '../types.js';
 import type { EventStorage, EventToStore } from './interface.js';
 
 const SCHEMA = `
@@ -142,8 +142,7 @@ export class SqliteStorage implements EventStorage {
 
     // Separate conditions by type
     const constrained = conditions.filter(isConstrainedCondition);
-    const keyOnly = conditions.filter(isKeyOnlyCondition);
-    const unconstrained = conditions.filter(c => !isConstrainedCondition(c) && !isKeyOnlyCondition(c)) as Array<{ type: string }>;
+    const unconstrained = conditions.filter(c => !isConstrainedCondition(c)) as Array<{ type: string }>;
 
     // Build CTE-based query with UNION for better index utilization
     const ctes: string[] = [];
@@ -184,25 +183,6 @@ export class SqliteStorage implements EventStorage {
       ctes.push(`constrained_matches AS (${cteSql})`);
       cteNames.push('constrained_matches');
       params.push(...constrained.flatMap(c => [c.type, c.key, c.value]));
-      if (positionFilter !== null) params.push(positionFilter);
-    }
-
-    // CTE for key-only conditions (key + value, any type)
-    if (keyOnly.length > 0) {
-      const keyOnlyClauses = keyOnly.map(
-        () => '(k.key_name = ? AND k.key_value = ?)'
-      );
-      let cteSql = `
-        SELECT DISTINCT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
-        FROM events e
-        INNER JOIN event_keys k ON e.position = k.position
-        WHERE (${keyOnlyClauses.join(' OR ')})`;
-      if (positionFilter !== null) {
-        cteSql += ' AND e.position > ?';
-      }
-      ctes.push(`key_only_matches AS (${cteSql})`);
-      cteNames.push('key_only_matches');
-      params.push(...keyOnly.flatMap(c => [c.key, c.value]));
       if (positionFilter !== null) params.push(positionFilter);
     }
 

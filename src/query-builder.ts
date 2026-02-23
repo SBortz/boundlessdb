@@ -19,7 +19,7 @@ export interface QueryExecutor<E extends Event> {
  * ```typescript
  * const result = await store.query<CourseEvent>()
  *   .matchType('CourseCreated')
- *   .matchKey('StudentSubscribed', 'course', 'cs101')
+ *   .matchTypeAndKey('StudentSubscribed', 'course', 'cs101')
  *   .fromPosition(100n)
  *   .limit(50)
  *   .read();
@@ -55,20 +55,6 @@ export class QueryBuilder<E extends Event> {
    */
   matchTypeAndKey(type: string, key: string, value: string): this {
     this.conditions.push({ type, key, value });
-    return this;
-  }
-
-  /**
-   * Add a key-only condition (match ALL events with key=value, regardless of type).
-   * Useful for aggregate queries.
-   * 
-   * @example
-   * ```typescript
-   * .matchKey('course', 'cs101')  // matches ALL events where course=cs101
-   * ```
-   */
-  matchKey(key: string, value: string): this {
-    this.conditions.push({ key, value });
     return this;
   }
 

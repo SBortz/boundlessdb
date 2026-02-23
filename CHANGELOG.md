@@ -2,6 +2,51 @@
 
 All notable changes to BoundlessDB will be documented in this file.
 
+## [0.3.0] - Unreleased
+
+### Breaking Changes
+
+#### Removed: Key-Only Queries
+
+Key-only queries (`{ key, value }` without `type`) have been removed.
+
+**Why?** The feature assumed that the same key name has consistent semantics and transforms across all event types. In practice, this isn't guaranteed:
+
+```typescript
+// Problem: Different transforms for the same key name
+consistency: {
+  CourseCreated: [{ key: 'course', path: '$.id' }],
+  StudentSubscribed: [{ key: 'course', path: '$.courseId', transform: 'toLowerCase' }]
+}
+
+// Query { key: 'course', value: 'CS101' } would only match CourseCreated,
+// because StudentSubscribed stores 'cs101' (lowercase).
+// This is confusing and error-prone.
+```
+
+**Migration:** Replace key-only conditions with explicit type-based conditions:
+
+```typescript
+// Before
+const result = await store.read({
+  conditions: [{ key: 'course', value: 'cs101' }]
+});
+
+// After
+const result = await store.read({
+  conditions: [
+    { type: 'CourseCreated', key: 'course', value: 'cs101' },
+    { type: 'StudentSubscribed', key: 'course', value: 'cs101' },
+    { type: 'StudentUnsubscribed', key: 'course', value: 'cs101' }
+  ]
+});
+```
+
+**Removed:**
+- `KeyOnlyCondition` type
+- `isKeyOnlyCondition()` type guard  
+- `matchKey()` from QueryBuilder
+
 ## [0.2.0] - 2026-02-23
 
 ### Performance
