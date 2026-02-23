@@ -4,6 +4,14 @@ All notable changes to BoundlessDB will be documented in this file.
 
 ## [Unreleased]
 
+### Performance
+
+#### Query Optimization with CTEs
+- SQLite and PostgreSQL now use Common Table Expressions (CTEs) with UNION instead of OR clauses
+- **~90% faster** for mixed queries (unconstrained + constrained + key-only)
+- Each condition type uses optimal index independently
+- Benchmarks available: `npm run benchmark` (SQLite) and `npm run benchmark:postgres` (PostgreSQL)
+
 ### Breaking Changes
 
 #### Changed: AppendCondition now DCB Spec Compliant
