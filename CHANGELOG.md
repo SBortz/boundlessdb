@@ -2,7 +2,7 @@
 
 All notable changes to BoundlessDB will be documented in this file.
 
-## [0.3.0] - Unreleased
+## [0.3.0] - 2026-02-23
 
 ### Breaking Changes
 
