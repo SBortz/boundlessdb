@@ -2141,7 +2141,10 @@ var require_sql_wasm_browser = __commonJS({
 
 // src/types.ts
 function isConstrainedCondition(c) {
-  return "key" in c && "value" in c;
+  return "type" in c && "key" in c && "value" in c;
+}
+function isKeyOnlyCondition(c) {
+  return !("type" in c) && "key" in c && "value" in c;
 }
 var QueryResult = class {
   constructor(events, position, conditions) {
@@ -2170,7 +2173,7 @@ var QueryResult = class {
   }
   /** Get the append condition for use with store.append() */
   get appendCondition() {
-    return { position: this.position, conditions: this.conditions };
+    return { failIfEventsMatch: this.conditions, after: this.position };
   }
 };
 function isConflict(result) {
@@ -2516,7 +2519,8 @@ var SqlJsStorage = class {
       });
     }
     const constrained = conditions.filter(isConstrainedCondition);
-    const unconstrained = conditions.filter((c) => !isConstrainedCondition(c));
+    const keyOnly = conditions.filter(isKeyOnlyCondition);
+    const unconstrained = conditions.filter((c) => !isConstrainedCondition(c) && !isKeyOnlyCondition(c));
     const whereClauses = [];
     if (unconstrained.length > 0) {
       const typeList = unconstrained.map((c) => escapeSql(c.type)).join(", ");
@@ -2528,8 +2532,15 @@ var SqlJsStorage = class {
       );
       whereClauses.push(`(${constrainedClauses.join(" OR ")})`);
     }
+    if (keyOnly.length > 0) {
+      const keyOnlyClauses = keyOnly.map(
+        (c) => `(k.key_name = ${escapeSql(c.key)} AND k.key_value = ${escapeSql(c.value)})`
+      );
+      whereClauses.push(`(${keyOnlyClauses.join(" OR ")})`);
+    }
+    const needsJoin = constrained.length > 0 || keyOnly.length > 0;
     let sql;
-    if (constrained.length > 0) {
+    if (needsJoin) {
       sql = `
         SELECT DISTINCT
           e.position,
@@ -2839,7 +2850,7 @@ var EventStore = class {
     await this.ensureInitialized();
     console.log("\u{1F4D6} READ: Querying events...");
     console.log("   Conditions:", query.conditions.map(
-      (c) => isConstrainedCondition(c) ? `${c.type}[${c.key}=${c.value}]` : `${c.type}[*]`
+      (c) => isConstrainedCondition(c) ? `${c.type}[${c.key}=${c.value}]` : isKeyOnlyCondition(c) ? `*[${c.key}=${c.value}]` : `${c.type}[*]`
     ).join(", ") || "(none)");
     const events = await this.storage.query(
       query.conditions,
@@ -2876,7 +2887,7 @@ var EventStore = class {
       return {
         conflict: false,
         position: position2,
-        appendCondition: { position: position2, conditions: condition?.conditions ?? [] }
+        appendCondition: { failIfEventsMatch: condition?.failIfEventsMatch ?? [], after: position2 }
       };
     }
     const keysPerEvent = events.map((event) => this.keyExtractor.extract(event));
@@ -2885,28 +2896,31 @@ var EventStore = class {
       console.log(`   Event ${i}: ${keys.map((k) => `${k.name}="${k.value}"`).join(", ")}`);
     });
     if (condition !== null) {
-      const conditionsStr = condition.conditions.map(
-        (c) => isConstrainedCondition(c) ? `${c.type}[${c.key}=${c.value}]` : `${c.type}[*]`
+      const conditionsStr = condition.failIfEventsMatch.map(
+        (c) => isConstrainedCondition(c) ? `${c.type}[${c.key}=${c.value}]` : isKeyOnlyCondition(c) ? `*[${c.key}=${c.value}]` : `${c.type}[*]`
       ).join(", ");
-      console.log(`\u{1F50D} CONFLICT CHECK: Looking for events since position #${condition.position}`);
+      const checkFromPosition = condition.after ?? 0n;
+      console.log(`\u{1F50D} CONFLICT CHECK: Looking for events since position #${checkFromPosition}`);
       console.log(`   Checking conditions: ${conditionsStr || "(none)"}`);
       const conflictingEvents = await this.storage.getEventsSince(
-        condition.conditions,
-        condition.position
+        condition.failIfEventsMatch,
+        checkFromPosition
       );
-      console.log(`   Result: ${conflictingEvents.length} matching event(s) found since #${condition.position}`);
+      console.log(`   Result: ${conflictingEvents.length} matching event(s) found since #${checkFromPosition}`);
       if (conflictingEvents.length > 0) {
         console.log("");
         console.log("\u274C \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
         console.log("   CONFLICT DETECTED");
         console.log("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
         console.log("");
-        console.log("\u{1F4CD} Your position: #" + condition.position);
+        console.log("\u{1F4CD} Your position: #" + (condition.after ?? "0 (all events)"));
         console.log("");
         console.log("\u{1F50D} Query conditions you checked:");
-        condition.conditions.forEach((c) => {
+        condition.failIfEventsMatch.forEach((c) => {
           if (isConstrainedCondition(c)) {
             console.log(`   \u2022 ${c.type} where ${c.key}="${c.value}"`);
+          } else if (isKeyOnlyCondition(c)) {
+            console.log(`   \u2022 ANY type where ${c.key}="${c.value}"`);
           } else {
             console.log(`   \u2022 ${c.type} (all)`);
           }
@@ -2929,7 +2943,7 @@ var EventStore = class {
         return {
           conflict: true,
           conflictingEvents,
-          appendCondition: { position: latestPosition, conditions: condition.conditions }
+          appendCondition: { failIfEventsMatch: condition.failIfEventsMatch, after: latestPosition }
         };
       }
     }
@@ -2954,7 +2968,7 @@ var EventStore = class {
     return {
       conflict: false,
       position,
-      appendCondition: { position, conditions: newConditions }
+      appendCondition: { failIfEventsMatch: newConditions, after: position }
     };
   }
   /**
@@ -2963,7 +2977,7 @@ var EventStore = class {
   buildConditionsFromEvents(events, originalCondition) {
     const conditions = /* @__PURE__ */ new Map();
     if (originalCondition !== null) {
-      for (const cond of originalCondition.conditions) {
+      for (const cond of originalCondition.failIfEventsMatch) {
         if (isConstrainedCondition(cond)) {
           const key = `${cond.type}:${cond.key}:${cond.value}`;
           conditions.set(key, cond);
@@ -3035,6 +3049,11 @@ var InMemoryStorage = class {
     }
     matching = matching.filter((event) => {
       return conditions.some((cond) => {
+        if (isKeyOnlyCondition(cond)) {
+          return event.keys.some(
+            (key) => key.name === cond.key && key.value === cond.value
+          );
+        }
         if (event.type !== cond.type) {
           return false;
         }
