@@ -45,7 +45,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:postgres": "vitest run postgres-storage",
-    "benchmark": "npx tsx benchmark/sqlite-query.ts"
+    "benchmark": "npx tsx benchmark/sqlite-query.ts",
+    "benchmark:postgres": "npx tsx benchmark/postgres-query.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.0.0",
