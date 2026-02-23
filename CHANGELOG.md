@@ -2,7 +2,7 @@
 
 All notable changes to BoundlessDB will be documented in this file.
 
-## [Unreleased]
+## [0.2.0] - 2026-02-23
 
 ### Performance
 
