@@ -599,14 +599,14 @@
   
   <div class="code-section">
     <h2>How Conflict Detection Works</h2>
-    <pre><code><span class="comment">// The appendCondition captures your exact query scope:</span>
+    <pre><code><span class="comment">// The appendCondition captures your exact query scope (DCB spec):</span>
 appendCondition = {
-  conditions: [{ type: <span class="string">'StudentSubscribed'</span>, key: <span class="string">'course'</span>, value: <span class="string">'cs101'</span> }],
-  position: <span class="const">5n</span>  <span class="comment">// Position at time of read</span>
+  failIfEventsMatch: [{ type: <span class="string">'StudentSubscribed'</span>, key: <span class="string">'course'</span>, value: <span class="string">'cs101'</span> }],
+  after: <span class="const">5n</span>  <span class="comment">// Position at time of read (optional)</span>
 }
 
 <span class="comment">// On append, BoundlessDB checks:</span>
-<span class="comment">// "Are there NEW events (pos > 5) that MATCH these conditions?"</span>
+<span class="comment">// "Are there NEW events (after pos 5) that MATCH these conditions?"</span>
 
 <span class="comment">// ✅ NO conflict if someone wrote:</span>
 <span class="comment">//    - StudentSubscribed for course='math201' (different key value)</span>

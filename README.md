@@ -206,10 +206,10 @@ This is a simple, transparent object — no encoding, no magic:
 const result = await store.read({ conditions });
 await store.append(newEvents, result.appendCondition);
 
-// Option 2: Create conditions manually
+// Option 2: Create conditions manually (DCB spec compliant)
 await store.append(newEvents, {
-  position: 42n,
-  conditions: [{ type: 'UserCreated', key: 'username', value: 'alice' }]
+  failIfEventsMatch: [{ type: 'UserCreated', key: 'username', value: 'alice' }],
+  after: 42n  // optional: if omitted, checks ALL events
 });
 
 // Option 3: Skip consistency check entirely
@@ -532,10 +532,10 @@ result.last()           // StoredEvent<E> | undefined
 const readResult = await store.read<CartEvents>({ conditions });
 const result = await store.append<CartEvents>([newEvent], readResult.appendCondition);
 
-// With manual AppendCondition
+// With manual AppendCondition (DCB spec compliant)
 const result = await store.append<CartEvents>([newEvent], {
-  position: 42n,
-  conditions: [{ type: 'UserCreated', key: 'username', value: 'alice' }]
+  failIfEventsMatch: [{ type: 'UserCreated', key: 'username', value: 'alice' }],
+  after: 42n  // optional
 });
 
 // Without consistency check

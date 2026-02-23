@@ -108,8 +108,8 @@ describe('QueryBuilder (Fluent API)', () => {
       .read();
 
     expect(result.appendCondition).toBeDefined();
-    expect(result.appendCondition.conditions).toHaveLength(1);
-    expect(result.appendCondition.conditions[0]).toEqual({
+    expect(result.appendCondition.failIfEventsMatch).toHaveLength(1);
+    expect(result.appendCondition.failIfEventsMatch[0]).toEqual({
       type: 'StudentSubscribed',
       key: 'course',
       value: 'cs101'

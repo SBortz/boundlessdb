@@ -161,7 +161,7 @@ export class QueryResult<E extends Event = Event> {
 
   /** Get the append condition for use with store.append() */
   get appendCondition(): AppendCondition {
-    return { position: this.position, conditions: this.conditions };
+    return { failIfEventsMatch: this.conditions, after: this.position };
   }
 }
 
@@ -243,19 +243,28 @@ export function isConflict<E extends Event = Event>(
 }
 
 // ============================================================
-// Append Condition
+// Append Condition (DCB Spec compliant)
 // ============================================================
 
 /**
  * Condition for optimistic concurrency check on append.
  * Pass to store.append() to ensure no conflicting events were written
  * since your read.
+ * 
+ * @see https://dcb.events/specification/#append-condition
  */
 export interface AppendCondition {
-  /** Position from which to check for conflicts */
-  position: bigint;
-  /** Conditions that define what constitutes a conflict */
-  conditions: QueryCondition[];
+  /** 
+   * Query that defines what constitutes a conflict.
+   * If any events match this query (after the specified position), append fails.
+   */
+  failIfEventsMatch: QueryCondition[];
+  
+  /** 
+   * Position from which to check for conflicts (optional).
+   * If omitted, ALL events are checked against failIfEventsMatch.
+   */
+  after?: bigint;
 }
 
 // ============================================================

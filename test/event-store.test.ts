@@ -349,8 +349,8 @@ describe('EventStore', () => {
         const appendResult = await store.append(
           [{ type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } }],
           {
-            position: latestPosition,
-            conditions: [{ type: 'StudentSubscribed', key: 'course', value: 'cs101' }],
+            after: latestPosition,
+            failIfEventsMatch: [{ type: 'StudentSubscribed', key: 'course', value: 'cs101' }],
           }
         );
 
@@ -366,8 +366,8 @@ describe('EventStore', () => {
 
         // Alice reads at position 0 (before any subscriptions)
         const aliceCondition = {
-          position: 1n, // After CourseCreated
-          conditions: [{ type: 'StudentSubscribed', key: 'course', value: 'cs101' }],
+          after: 1n, // After CourseCreated
+          failIfEventsMatch: [{ type: 'StudentSubscribed', key: 'course', value: 'cs101' }],
         };
 
         // Bob subscribes
@@ -394,8 +394,8 @@ describe('EventStore', () => {
         
         // Manually create a condition from position 0
         const condition = {
-          position: 0n,
-          conditions: [{ type: 'CourseCreated', key: 'course', value: 'cs101' }],
+          after: 0n,
+          failIfEventsMatch: [{ type: 'CourseCreated', key: 'course', value: 'cs101' }],
         };
 
         // First create should succeed
