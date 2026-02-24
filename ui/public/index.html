@@ -839,44 +839,50 @@ appendCondition = {
         <tbody>
           <tr style="border-bottom:1px solid #1e3a5f;">
             <td style="padding:0.75rem 1rem; color:#ccc;">Single type</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">24,939</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#4db8ff;">116.86 ms</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">24,941</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#4db8ff;">117.58 ms</td>
             <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">—</td>
           </tr>
           <tr style="border-bottom:1px solid #1e3a5f;">
             <td style="padding:0.75rem 1rem; color:#ccc;">Constrained (type + key)</td>
             <td style="padding:0.75rem 1rem; text-align:right; color:#666;">167</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#4db8ff; font-weight:600;">0.42 ms</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#4db8ff; font-weight:600;">0.49 ms</td>
             <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">—</td>
           </tr>
           <tr style="border-bottom:1px solid #1e3a5f;">
             <td style="padding:0.75rem 1rem; color:#ccc;">Highly selective</td>
             <td style="padding:0.75rem 1rem; text-align:right; color:#666;">10</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#4db8ff; font-weight:600;">0.08 ms</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#4db8ff; font-weight:600;">0.14 ms</td>
             <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">—</td>
           </tr>
           <tr style="border-bottom:1px solid #1e3a5f;">
             <td style="padding:0.75rem 1rem; color:#ccc;">Mixed (2 types, 1 key)</td>
             <td style="padding:0.75rem 1rem; text-align:right; color:#666;">334</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#4db8ff; font-weight:600;">0.96 ms</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#4db8ff; font-weight:600;">1.41 ms</td>
             <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">—</td>
           </tr>
           <tr style="border-bottom:1px solid #1e3a5f;">
             <td style="padding:0.75rem 1rem; color:#ccc;">Full aggregate (3 types)</td>
             <td style="padding:0.75rem 1rem; text-align:right; color:#666;">2,004</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#4db8ff; font-weight:600;">4.40 ms</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#4db8ff;">4.59 ms</td>
             <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">—</td>
           </tr>
           <tr style="border-bottom:1px solid #1e3a5f;">
-            <td style="padding:0.75rem 1rem; color:#ccc;">Append (recent read)</td>
+            <td style="padding:0.75rem 1rem; color:#ccc;">Append (single event)</td>
             <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#4db8ff; font-weight:600;">0.36 ms</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#4db8ff;">1.39 ms</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">—</td>
+          </tr>
+          <tr style="border-bottom:1px solid #1e3a5f;">
+            <td style="padding:0.75rem 1rem; color:#ccc;">Read + Append (recent)</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#4db8ff;">1.93 ms</td>
             <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">—</td>
           </tr>
           <tr>
-            <td style="padding:0.75rem 1rem; color:#ccc;">Append (cold read)</td>
+            <td style="padding:0.75rem 1rem; color:#ccc;">Read + Append (cold)</td>
             <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#4db8ff;">2,019 ms</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#4db8ff;">1.12 ms</td>
             <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">—</td>
           </tr>
         </tbody>
@@ -902,7 +908,7 @@ appendCondition = {
 
     <div class="flow-note" style="margin-top:1rem;">
       💡 <strong>Sub-millisecond queries</strong> for selective lookups, even with 50M events in the store.
-      SQLite on disk (LUKS-encrypted). PostgreSQL results pending. Bold = sub-millisecond.
+      SQLite on LUKS-encrypted disk. Shuffled execution order (no cache bias). PostgreSQL results pending. Bold = sub-millisecond.
       <a href="https://github.com/SBortz/boundless/tree/main/benchmark" style="color:#0cf; text-decoration:none;">Run benchmarks yourself →</a>
     </div>
   </div>
