@@ -1,6 +1,6 @@
 {
   "name": "boundlessdb",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "license": "MIT",
   "description": "A DCB-inspired event store library for TypeScript — with support for SQLite, PostgreSQL, in-memory",
   "author": "Sebastian Bortz",
