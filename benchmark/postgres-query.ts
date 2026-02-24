@@ -224,6 +224,7 @@ const datasets = [
   { courses: 15, students: 55, lessons: 10, label: '~10k' },
   { courses: 150, students: 55, lessons: 10, label: '~100k' },
   { courses: 500, students: 167, lessons: 10, label: '~1M' },
+  { courses: 2500, students: 167, lessons: 10, label: '~5M' },
 ];
 
 // --- DB cleanup ---
