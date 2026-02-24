@@ -1,124 +1,75 @@
 /**
- * PostgreSQL Query Performance Benchmark
+ * PostgreSQL Throughput Benchmark
  * 
- * Tests query performance with different condition types:
- * - Unconstrained (type-only)
- * - Constrained (type + key)
- * - Key-only
- * - Mixed (all three)
+ * Tests whether query performance degrades as the event store grows.
+ * Generates data ONCE per scale, then runs all queries on the same store.
+ * Mirrors the SQLite benchmark for apples-to-apples comparison.
  * 
- * Requires: PostgreSQL running with DATABASE_URL env var set
- * Run: DATABASE_URL=postgresql://... npm run benchmark:postgres
+ * Run: npx tsx benchmark/postgres-query.ts
  */
 
 import { EventStore } from '../src/event-store.js';
 import { PostgresStorage } from '../src/storage/postgres.js';
+import { Pool } from 'pg';
 import type { Event } from '../src/types.js';
 
-// Event types for benchmark
 type CourseCreated = Event<'CourseCreated', { courseId: string; title: string }>;
 type StudentEnrolled = Event<'StudentEnrolled', { courseId: string; studentId: string }>;
 type LessonCompleted = Event<'LessonCompleted', { courseId: string; studentId: string; lessonId: string }>;
 type CertificateIssued = Event<'CertificateIssued', { courseId: string; studentId: string }>;
-
 type BenchmarkEvent = CourseCreated | StudentEnrolled | LessonCompleted | CertificateIssued;
 
-interface BenchmarkResult {
-  name: string;
-  eventCount: number;
-  queryTimeMs: number;
-  resultCount: number;
-}
+const DB_URL = process.env.DATABASE_URL || 'postgresql://postgres:bench@localhost:5433/bench';
+const ITERATIONS = 20;
 
-async function runBenchmark() {
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) {
-    console.error('❌ DATABASE_URL environment variable required');
-    console.error('   Example: DATABASE_URL=postgresql://user:pass@localhost/boundless npm run benchmark:postgres');
-    process.exit(1);
-  }
-
-  console.log('🚀 PostgreSQL Query Benchmark\n');
-  console.log('='.repeat(60));
-
-  // Config
-  const NUM_COURSES = 100;
-  const STUDENTS_PER_COURSE = 50;
-  const LESSONS_PER_STUDENT = 10;
-  const ITERATIONS = 10;
-
-  // Calculate expected events
-  const expectedEvents = 
-    NUM_COURSES +                                    // CourseCreated
-    NUM_COURSES * STUDENTS_PER_COURSE +             // StudentEnrolled
-    NUM_COURSES * STUDENTS_PER_COURSE * LESSONS_PER_STUDENT + // LessonCompleted
-    NUM_COURSES * STUDENTS_PER_COURSE;              // CertificateIssued
-
-  console.log(`\n📊 Dataset: ${expectedEvents.toLocaleString()} events`);
-  console.log(`   - ${NUM_COURSES} courses`);
-  console.log(`   - ${STUDENTS_PER_COURSE} students per course`);
-  console.log(`   - ${LESSONS_PER_STUDENT} lessons per student`);
-  console.log(`   - ${ITERATIONS} iterations per query\n`);
-
-  // Create store
-  const storage = new PostgresStorage(databaseUrl);
-  await storage.init();
-  
-  // Clear any existing data
-  console.log('🧹 Clearing existing data...');
-  await storage.clear();
-
-  const store = new EventStore({
-    storage,
-    consistency: {
-      eventTypes: {
-        CourseCreated: {
-          keys: [{ path: 'data.courseId', name: 'course' }],
-        },
-        StudentEnrolled: {
-          keys: [
-            { path: 'data.courseId', name: 'course' },
-            { path: 'data.studentId', name: 'student' },
-          ],
-        },
-        LessonCompleted: {
-          keys: [
-            { path: 'data.courseId', name: 'course' },
-            { path: 'data.studentId', name: 'student' },
-            { path: 'data.lessonId', name: 'lesson' },
-          ],
-        },
-        CertificateIssued: {
-          keys: [
-            { path: 'data.courseId', name: 'course' },
-            { path: 'data.studentId', name: 'student' },
-          ],
-        },
+const STORE_CONFIG = {
+  consistency: {
+    eventTypes: {
+      CourseCreated: {
+        keys: [{ path: 'data.courseId', name: 'course' }],
+      },
+      StudentEnrolled: {
+        keys: [
+          { path: 'data.courseId', name: 'course' },
+          { path: 'data.studentId', name: 'student' },
+        ],
+      },
+      LessonCompleted: {
+        keys: [
+          { path: 'data.courseId', name: 'course' },
+          { path: 'data.studentId', name: 'student' },
+          { path: 'data.lessonId', name: 'lesson' },
+        ],
+      },
+      CertificateIssued: {
+        keys: [
+          { path: 'data.courseId', name: 'course' },
+          { path: 'data.studentId', name: 'student' },
+        ],
       },
     },
-  });
+  },
+};
 
-  // Generate data
-  console.log('⏳ Generating events...');
-  const startGen = performance.now();
-
-  for (let c = 0; c < NUM_COURSES; c++) {
+async function generateEvents(store: EventStore, numCourses: number, studentsPerCourse: number, lessonsPerStudent: number): Promise<number> {
+  let totalEvents = 0;
+  
+  for (let c = 0; c < numCourses; c++) {
     const courseId = `course-${c}`;
     
-    // Create course
     await store.append([
       { type: 'CourseCreated', data: { courseId, title: `Course ${c}` } },
     ], null);
+    totalEvents++;
 
-    // Enroll students and complete lessons
-    for (let s = 0; s < STUDENTS_PER_COURSE; s++) {
+    for (let s = 0; s < studentsPerCourse; s++) {
       const studentId = `student-${c}-${s}`;
       
-      const events: Array<{ type: string; data: unknown }> = [
+      const events: BenchmarkEvent[] = [
         { type: 'StudentEnrolled', data: { courseId, studentId } },
       ];
 
-      for (let l = 0; l < LESSONS_PER_STUDENT; l++) {
+      for (let l = 0; l < lessonsPerStudent; l++) {
         events.push({
           type: 'LessonCompleted',
           data: { courseId, studentId, lessonId: `lesson-${l}` },
@@ -127,199 +78,161 @@ async function runBenchmark() {
 
       events.push({ type: 'CertificateIssued', data: { courseId, studentId } });
 
-      await store.append(events as BenchmarkEvent[], null);
+      await store.append(events, null);
+      totalEvents += events.length;
     }
 
-    // Progress
     if ((c + 1) % 10 === 0) {
-      process.stdout.write(`\r   Generated ${c + 1}/${NUM_COURSES} courses...`);
+      process.stdout.write(`\r   ${c + 1}/${numCourses} courses...`);
     }
   }
-
-  const genTime = performance.now() - startGen;
-  console.log(`\r✅ Generated ${expectedEvents.toLocaleString()} events in ${(genTime / 1000).toFixed(2)}s\n`);
-
-  // Run benchmarks
-  const results: BenchmarkResult[] = [];
-
-  // 1. Unconstrained query (type only)
-  console.log('🔍 Running benchmarks...\n');
   
-  results.push(await benchmark(
-    'Unconstrained (all CourseCreated)',
-    ITERATIONS,
-    async () => {
-      return store.query()
-        .matchType('CourseCreated')
-        .read();
-    }
-  ));
-
-  results.push(await benchmark(
-    'Unconstrained (2 types)',
-    ITERATIONS,
-    async () => {
-      return store.query()
-        .matchType('CourseCreated')
-        .matchType('CertificateIssued')
-        .read();
-    }
-  ));
-
-  // 2. Constrained query (type + key)
-  results.push(await benchmark(
-    'Constrained (StudentEnrolled for course-50)',
-    ITERATIONS,
-    async () => {
-      return store.query()
-        .matchTypeAndKey('StudentEnrolled', 'course', 'course-50')
-        .read();
-    }
-  ));
-
-  results.push(await benchmark(
-    'Constrained (LessonCompleted for student)',
-    ITERATIONS,
-    async () => {
-      return store.query()
-        .matchTypeAndKey('LessonCompleted', 'student', 'student-50-25')
-        .read();
-    }
-  ));
-
-  // 3. Key-only query
-  results.push(await benchmark(
-    'Key-only (all events for course-50)',
-    ITERATIONS,
-    async () => {
-      return store.query()
-        .matchKey('course', 'course-50')
-        .read();
-    }
-  ));
-
-  results.push(await benchmark(
-    'Key-only (all events for student)',
-    ITERATIONS,
-    async () => {
-      return store.query()
-        .matchKey('student', 'student-50-25')
-        .read();
-    }
-  ));
-
-  // 4. Mixed queries
-  results.push(await benchmark(
-    'Mixed (unconstrained + constrained)',
-    ITERATIONS,
-    async () => {
-      return store.query()
-        .matchType('CourseCreated')
-        .matchTypeAndKey('StudentEnrolled', 'course', 'course-50')
-        .read();
-    }
-  ));
-
-  results.push(await benchmark(
-    'Mixed (all three types)',
-    ITERATIONS,
-    async () => {
-      return store.query()
-        .matchType('CourseCreated')
-        .matchTypeAndKey('StudentEnrolled', 'course', 'course-50')
-        .matchKey('student', 'student-50-25')
-        .read();
-    }
-  ));
-
-  results.push(await benchmark(
-    'Mixed (constrained + key-only)',
-    ITERATIONS,
-    async () => {
-      return store.query()
-        .matchTypeAndKey('LessonCompleted', 'course', 'course-50')
-        .matchKey('student', 'student-25-10')
-        .read();
-    }
-  ));
-
-  // 5. With position filter
-  results.push(await benchmark(
-    'With fromPosition (last 10%)',
-    ITERATIONS,
-    async () => {
-      const pos = BigInt(Math.floor(expectedEvents * 0.9));
-      return store.query()
-        .matchType('LessonCompleted')
-        .fromPosition(pos)
-        .read();
-    }
-  ));
-
-  // 6. With limit
-  results.push(await benchmark(
-    'With limit (first 100)',
-    ITERATIONS,
-    async () => {
-      return store.query()
-        .matchType('LessonCompleted')
-        .limit(100)
-        .read();
-    }
-  ));
-
-  // Print results
-  console.log('\n' + '='.repeat(60));
-  console.log('📈 RESULTS\n');
-  console.log('Query'.padEnd(45) + 'Time (ms)'.padStart(10) + 'Results'.padStart(10));
-  console.log('-'.repeat(65));
-  
-  for (const r of results) {
-    console.log(
-      r.name.padEnd(45) +
-      r.queryTimeMs.toFixed(2).padStart(10) +
-      r.resultCount.toString().padStart(10)
-    );
-  }
-
-  console.log('\n' + '='.repeat(60));
-  console.log(`Total events: ${expectedEvents.toLocaleString()}`);
-  console.log(`Iterations per query: ${ITERATIONS}`);
-  console.log('Times shown are averages per query execution.\n');
-
-  await store.close();
+  return totalEvents;
 }
 
-async function benchmark(
-  name: string,
-  iterations: number,
-  fn: () => Promise<{ count: number }>
-): Promise<BenchmarkResult> {
+async function benchmark(name: string, fn: () => Promise<{ count: number }>): Promise<{ avgMs: number; results: number }> {
   // Warmup
   await fn();
 
-  // Measure
   const times: number[] = [];
   let resultCount = 0;
 
-  for (let i = 0; i < iterations; i++) {
+  for (let i = 0; i < ITERATIONS; i++) {
     const start = performance.now();
     const result = await fn();
-    const elapsed = performance.now() - start;
-    times.push(elapsed);
+    times.push(performance.now() - start);
     resultCount = result.count;
   }
 
-  const avgTime = times.reduce((a, b) => a + b, 0) / times.length;
-
-  process.stdout.write(`   ✓ ${name}: ${avgTime.toFixed(2)}ms avg (${resultCount} results)\n`);
-
-  return {
-    name,
-    eventCount: resultCount,
-    queryTimeMs: avgTime,
-    resultCount,
-  };
+  const avgMs = times.reduce((a, b) => a + b, 0) / times.length;
+  return { avgMs, results: resultCount };
 }
 
-runBenchmark().catch(console.error);
+interface QueryDef {
+  name: string;
+  fn: (store: EventStore) => () => Promise<{ count: number }>;
+}
+
+const queries: QueryDef[] = [
+  {
+    name: 'Single type (CourseCreated)',
+    fn: (store) => () => store.query().matchType('CourseCreated').read(),
+  },
+  {
+    name: 'Constrained (Enrollments/course)',
+    fn: (store) => () => store.query().matchTypeAndKey('StudentEnrolled', 'course', 'course-50').read(),
+  },
+  {
+    name: 'Constrained (Lessons/student)',
+    fn: (store) => () => store.query().matchTypeAndKey('LessonCompleted', 'student', 'student-50-5').read(),
+  },
+  {
+    name: 'Mixed (2 types/course)',
+    fn: (store) => () => store.query()
+      .matchTypeAndKey('StudentEnrolled', 'course', 'course-50')
+      .matchTypeAndKey('CertificateIssued', 'course', 'course-50')
+      .read(),
+  },
+  {
+    name: 'Full course aggregate (3 types)',
+    fn: (store) => () => store.query()
+      .matchTypeAndKey('StudentEnrolled', 'course', 'course-50')
+      .matchTypeAndKey('LessonCompleted', 'course', 'course-50')
+      .matchTypeAndKey('CertificateIssued', 'course', 'course-50')
+      .read(),
+  },
+  {
+    name: 'Append (single event)',
+    fn: (store) => {
+      let counter = 0;
+      return async () => {
+        await store.append([
+          { type: 'LessonCompleted', data: { courseId: 'course-bench', studentId: 'student-bench', lessonId: `lesson-${counter++}` } },
+        ], null);
+        return { count: 1 };
+      };
+    },
+  },
+  {
+    name: 'Append with condition',
+    fn: (store) => {
+      let counter = 0;
+      return async () => {
+        const read = await store.query()
+          .matchTypeAndKey('StudentEnrolled', 'course', 'course-50')
+          .read();
+        await store.append([
+          { type: 'LessonCompleted', data: { courseId: 'course-bench2', studentId: 'student-bench2', lessonId: `lesson-${counter++}` } },
+        ], read.appendCondition);
+        return { count: 1 };
+      };
+    },
+  },
+];
+
+// Dataset configs - keep small for 2GB RAM machine
+const datasets = [
+  { courses: 150, students: 55, lessons: 10, label: '~100k' },
+  { courses: 500, students: 167, lessons: 10, label: '~1M' },
+];
+
+async function cleanDb() {
+  const pool = new Pool({ connectionString: DB_URL });
+  await pool.query('DROP TABLE IF EXISTS event_keys CASCADE');
+  await pool.query('DROP TABLE IF EXISTS events CASCADE');
+  await pool.query('DROP TABLE IF EXISTS metadata CASCADE');
+  await pool.end();
+}
+
+async function main() {
+  console.log('PostgreSQL Throughput Benchmark');
+  console.log(`${ITERATIONS} iterations per query, averaged\n`);
+
+  // Collect all results: results[queryIndex][datasetIndex]
+  const allResults: Array<Array<{ avgMs: number; results: number }>> = queries.map(() => []);
+
+  for (let d = 0; d < datasets.length; d++) {
+    const ds = datasets[d];
+
+    // Clean DB for each scale
+    await cleanDb();
+
+    const storage = new PostgresStorage({ connectionString: DB_URL, max: 1 });
+    await storage.init();
+    const store = new EventStore({ storage, ...STORE_CONFIG });
+
+    const genStart = performance.now();
+    const totalEvents = await generateEvents(store, ds.courses, ds.students, ds.lessons);
+    const genTime = ((performance.now() - genStart) / 1000).toFixed(1);
+    console.log(`\rGenerated ${ds.label} (${totalEvents.toLocaleString()} events) in ${genTime}s`);
+
+    // Run all queries on this store
+    for (let q = 0; q < queries.length; q++) {
+      const result = await benchmark(queries[q].name, queries[q].fn(store));
+      allResults[q].push(result);
+    }
+
+    await store.close();
+  }
+
+  // Print results table
+  const col = 14;
+  console.log('\n' + '='.repeat(70));
+  console.log('Query'.padEnd(38) + datasets.map(d => d.label.padStart(col)).join('') + '  Results');
+  console.log('-'.repeat(70));
+
+  for (let q = 0; q < queries.length; q++) {
+    let line = queries[q].name.padEnd(38);
+    for (let d = 0; d < datasets.length; d++) {
+      const r = allResults[q][d];
+      line += (r.avgMs.toFixed(2) + 'ms').padStart(col);
+    }
+    line += allResults[q][allResults[q].length - 1].results.toString().padStart(8);
+    console.log(line);
+  }
+
+  console.log('='.repeat(70));
+  console.log('Times in ms (avg). Results = count at largest scale.');
+}
+
+main().catch(console.error);
