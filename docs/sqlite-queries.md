@@ -44,6 +44,14 @@ Queries can combine multiple conditions. Each condition becomes its own CTE, and
 
 **Use case**: "Give me all `CourseCreated` events."
 
+```typescript
+const result = await store.query()
+  .matchType('CourseCreated')
+  .read();
+```
+
+**Generated SQL**:
+
 ```sql
 SELECT position, event_id, event_type, data, metadata, timestamp
 FROM events
@@ -63,6 +71,12 @@ Straightforward index scan. Performance scales with result count, not store size
 ## 2. Constrained Query (type + key)
 
 **Use case**: "Give me all `StudentEnrolled` events for `course-50`."
+
+```typescript
+const result = await store.query()
+  .matchTypeAndKey('StudentEnrolled', 'course', 'course-50')
+  .read();
+```
 
 ### The naive query (broken at scale)
 
@@ -144,6 +158,26 @@ Keys first, events second. The index does the heavy lifting.
 
 **Use case**: Condition check during append — "Are there any `StudentEnrolled` events for `course-0` after position 2005?"
 
+This query runs internally when appending with an `AppendCondition`. The position filter comes from the `after` field:
+
+```typescript
+// Read current state
+const result = await store.query()
+  .matchTypeAndKey('StudentEnrolled', 'course', 'course-0')
+  .read();
+// result.appendCondition = {
+//   failIfEventsMatch: [{ type: 'StudentEnrolled', key: 'course', value: 'course-0' }],
+//   after: 2005n  ← position of the last matching event
+// }
+
+// Append with condition — triggers the position-filtered query internally
+await store.append([
+  { type: 'StudentEnrolled', data: { courseId: 'course-0', studentId: 'new-student' } }
+], result.appendCondition);
+```
+
+**Generated SQL** (conflict check inside `append`):
+
 ```sql
 WITH keys_0 AS MATERIALIZED (
   SELECT position
@@ -167,6 +201,15 @@ This is the critical path for `AppendCondition` conflict checks. Without `MATERI
 ## 4. Mixed Query (multiple conditions)
 
 **Use case**: "Give me enrollments and certificates for `course-50`."
+
+```typescript
+const result = await store.query()
+  .matchTypeAndKey('StudentEnrolled', 'course', 'course-50')
+  .matchTypeAndKey('CertificateIssued', 'course', 'course-50')
+  .read();
+```
+
+**Generated SQL**:
 
 ```sql
 WITH keys_0 AS MATERIALIZED (
@@ -211,6 +254,16 @@ Why separate CTEs per condition instead of one CTE with `OR`?
 ## 5. Full Aggregate Query (3 types, same key)
 
 **Use case**: "Give me the full course state — enrollments, lessons, and certificates for `course-50`."
+
+```typescript
+const result = await store.query()
+  .matchTypeAndKey('StudentEnrolled', 'course', 'course-50')
+  .matchTypeAndKey('LessonCompleted', 'course', 'course-50')
+  .matchTypeAndKey('CertificateIssued', 'course', 'course-50')
+  .read();
+```
+
+**Generated SQL**:
 
 ```sql
 WITH keys_0 AS MATERIALIZED (
@@ -263,6 +316,15 @@ Same pattern as #4. The key index is scanned 3 times (once per type), but each s
 ## 6. Mixed Constrained + Unconstrained
 
 **Use case**: "Give me all `CourseCreated` events (any course) plus all enrollments for `course-50`."
+
+```typescript
+const result = await store.query()
+  .matchType('CourseCreated')
+  .matchTypeAndKey('StudentEnrolled', 'course', 'course-50')
+  .read();
+```
+
+**Generated SQL**:
 
 ```sql
 WITH unconstrained_matches AS (
