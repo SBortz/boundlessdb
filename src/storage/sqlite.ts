@@ -191,7 +191,21 @@ export class SqliteStorage implements EventStorage {
       if (positionFilter !== null) params.push(positionFilter);
     }
 
-    // CTEs for constrained conditions
+    // CTEs for constrained conditions (keys-first via INDEXED BY)
+    //
+    // Two strategies depending on whether a position filter is active:
+    //
+    // WITHOUT position filter (normal queries):
+    //   Flat CTE with INDEXED BY. SQLite may choose idx_event_type as the
+    //   driving index, but this is acceptable: it scans index pages (compact,
+    //   cache-friendly) and does covering checks on idx_key_position. Only
+    //   matching rows read data pages. At 50M events with warm cache: <1ms.
+    //
+    // WITH position filter (AppendCondition conflict checks):
+    //   MATERIALIZED CTE forces key-index-first execution. Without this,
+    //   SQLite scans ALL events of a type after the position (up to millions
+    //   of index entries). With MATERIALIZED, it scans only key positions
+    //   after the threshold — often zero rows. Fixes 2019ms → <1ms at 50M.
     if (constrained.length > 0) {
       constrained.forEach((c, i) => {
         if (positionFilter !== null) {
