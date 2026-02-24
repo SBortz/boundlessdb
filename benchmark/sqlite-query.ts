@@ -1,311 +1,312 @@
 /**
- * SQLite Query Performance Benchmark
+ * SQLite Throughput Benchmark
  * 
- * Tests query performance with different condition types:
- * - Unconstrained (type-only)
- * - Constrained (type + key)
- * - Key-only
- * - Mixed (all three)
- * 
- * Run: npx tsx benchmark/sqlite-query.ts
+ * Tests query performance as the event store grows.
+ * Run: npx tsx benchmark/sqlite-query.ts [--disk]
  */
 
 import { EventStore } from '../src/event-store.js';
 import { SqliteStorage } from '../src/storage/sqlite.js';
 import type { Event } from '../src/types.js';
 
-// Event types for benchmark
 type CourseCreated = Event<'CourseCreated', { courseId: string; title: string }>;
 type StudentEnrolled = Event<'StudentEnrolled', { courseId: string; studentId: string }>;
 type LessonCompleted = Event<'LessonCompleted', { courseId: string; studentId: string; lessonId: string }>;
 type CertificateIssued = Event<'CertificateIssued', { courseId: string; studentId: string }>;
-
 type BenchmarkEvent = CourseCreated | StudentEnrolled | LessonCompleted | CertificateIssued;
 
-interface BenchmarkResult {
-  name: string;
-  eventCount: number;
-  queryTimeMs: number;
-  resultCount: number;
-}
+const ITERATIONS = 20;
+const useDisk = process.argv.includes('--disk');
+const DB_PATH = '/tmp/boundless-bench.sqlite';
 
-async function runBenchmark() {
-  console.log('🚀 SQLite Query Benchmark\n');
-  console.log('='.repeat(60));
-
-  // Config
-  const NUM_COURSES = 100;
-  const STUDENTS_PER_COURSE = 50;
-  const LESSONS_PER_STUDENT = 10;
-  const ITERATIONS = 10;
-
-  // Calculate expected events
-  const expectedEvents = 
-    NUM_COURSES +                                    // CourseCreated
-    NUM_COURSES * STUDENTS_PER_COURSE +             // StudentEnrolled
-    NUM_COURSES * STUDENTS_PER_COURSE * LESSONS_PER_STUDENT + // LessonCompleted
-    NUM_COURSES * STUDENTS_PER_COURSE;              // CertificateIssued
-
-  console.log(`\n📊 Dataset: ${expectedEvents.toLocaleString()} events`);
-  console.log(`   - ${NUM_COURSES} courses`);
-  console.log(`   - ${STUDENTS_PER_COURSE} students per course`);
-  console.log(`   - ${LESSONS_PER_STUDENT} lessons per student`);
-  console.log(`   - ${ITERATIONS} iterations per query\n`);
-
-  // Create store
-  const storage = new SqliteStorage(':memory:');
-  const store = new EventStore({
-    storage,
-    consistency: {
-      eventTypes: {
-        CourseCreated: {
-          keys: [{ path: 'data.courseId', name: 'course' }],
-        },
-        StudentEnrolled: {
-          keys: [
-            { path: 'data.courseId', name: 'course' },
-            { path: 'data.studentId', name: 'student' },
-          ],
-        },
-        LessonCompleted: {
-          keys: [
-            { path: 'data.courseId', name: 'course' },
-            { path: 'data.studentId', name: 'student' },
-            { path: 'data.lessonId', name: 'lesson' },
-          ],
-        },
-        CertificateIssued: {
-          keys: [
-            { path: 'data.courseId', name: 'course' },
-            { path: 'data.studentId', name: 'student' },
-          ],
-        },
+const STORE_CONFIG = {
+  consistency: {
+    eventTypes: {
+      CourseCreated: {
+        keys: [{ path: 'data.courseId', name: 'course' }],
+      },
+      StudentEnrolled: {
+        keys: [
+          { path: 'data.courseId', name: 'course' },
+          { path: 'data.studentId', name: 'student' },
+        ],
+      },
+      LessonCompleted: {
+        keys: [
+          { path: 'data.courseId', name: 'course' },
+          { path: 'data.studentId', name: 'student' },
+          { path: 'data.lessonId', name: 'lesson' },
+        ],
+      },
+      CertificateIssued: {
+        keys: [
+          { path: 'data.courseId', name: 'course' },
+          { path: 'data.studentId', name: 'student' },
+        ],
       },
     },
-  });
+  },
+};
 
-  // Generate data
-  console.log('⏳ Generating events...');
-  const startGen = performance.now();
+// --- Progress helpers ---
 
-  for (let c = 0; c < NUM_COURSES; c++) {
+function formatNum(n: number): string {
+  return n.toLocaleString('en-US');
+}
+
+function formatMs(ms: number): string {
+  if (ms < 1000) return `${ms.toFixed(0)}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function progressBar(pct: number, width = 30): string {
+  const filled = Math.round(pct * width);
+  const empty = width - filled;
+  return `[${'█'.repeat(filled)}${'░'.repeat(empty)}]`;
+}
+
+// --- Generation with live progress ---
+
+async function generateEvents(
+  store: EventStore,
+  numCourses: number,
+  studentsPerCourse: number,
+  lessonsPerStudent: number,
+  label: string,
+): Promise<number> {
+  const eventsPerCourse = 1 + studentsPerCourse * (1 + lessonsPerStudent + 1);
+  const totalExpected = numCourses * eventsPerCourse;
+  let totalEvents = 0;
+  const genStart = performance.now();
+  let lastUpdate = genStart;
+
+  for (let c = 0; c < numCourses; c++) {
     const courseId = `course-${c}`;
-    
-    // Create course
+
     await store.append([
       { type: 'CourseCreated', data: { courseId, title: `Course ${c}` } },
     ], null);
+    totalEvents++;
 
-    // Enroll students and complete lessons
-    for (let s = 0; s < STUDENTS_PER_COURSE; s++) {
+    for (let s = 0; s < studentsPerCourse; s++) {
       const studentId = `student-${c}-${s}`;
-      
-      const events: Array<{ type: string; data: unknown }> = [
+      const events: BenchmarkEvent[] = [
         { type: 'StudentEnrolled', data: { courseId, studentId } },
       ];
-
-      for (let l = 0; l < LESSONS_PER_STUDENT; l++) {
+      for (let l = 0; l < lessonsPerStudent; l++) {
         events.push({
           type: 'LessonCompleted',
           data: { courseId, studentId, lessonId: `lesson-${l}` },
         });
       }
-
       events.push({ type: 'CertificateIssued', data: { courseId, studentId } });
-
-      await store.append(events as BenchmarkEvent[], null);
+      await store.append(events, null);
+      totalEvents += events.length;
     }
 
-    // Progress
-    if ((c + 1) % 10 === 0) {
-      process.stdout.write(`\r   Generated ${c + 1}/${NUM_COURSES} courses...`);
+    const now = performance.now();
+    if (now - lastUpdate > 100) { // update ~10x/sec
+      lastUpdate = now;
+      const elapsed = now - genStart;
+      const pct = totalEvents / totalExpected;
+      const evtPerSec = totalEvents / (elapsed / 1000);
+      const eta = (totalExpected - totalEvents) / evtPerSec;
+      process.stdout.write(
+        `\r  ${label} ${progressBar(pct)} ${(pct * 100).toFixed(0)}%  ` +
+        `${formatNum(totalEvents)} / ${formatNum(totalExpected)} events  ` +
+        `${formatNum(Math.round(evtPerSec))} evt/s  ` +
+        `ETA ${formatMs(eta * 1000)}   `
+      );
     }
   }
 
-  const genTime = performance.now() - startGen;
-  console.log(`\r✅ Generated ${expectedEvents.toLocaleString()} events in ${(genTime / 1000).toFixed(2)}s\n`);
+  const elapsed = performance.now() - genStart;
+  const evtPerSec = totalEvents / (elapsed / 1000);
+  process.stdout.write(
+    `\r  ${label} ${progressBar(1)} 100%  ` +
+    `${formatNum(totalEvents)} events in ${formatMs(elapsed)}  ` +
+    `(${formatNum(Math.round(evtPerSec))} evt/s)       \n`
+  );
 
-  // Run benchmarks
-  const results: BenchmarkResult[] = [];
-
-  // 1. Unconstrained query (type only)
-  console.log('🔍 Running benchmarks...\n');
-  
-  results.push(await benchmark(
-    'Unconstrained (all CourseCreated)',
-    ITERATIONS,
-    async () => {
-      return store.query()
-        .matchType('CourseCreated')
-        .read();
-    }
-  ));
-
-  results.push(await benchmark(
-    'Unconstrained (2 types)',
-    ITERATIONS,
-    async () => {
-      return store.query()
-        .matchType('CourseCreated')
-        .matchType('CertificateIssued')
-        .read();
-    }
-  ));
-
-  // 2. Constrained query (type + key)
-  results.push(await benchmark(
-    'Constrained (StudentEnrolled for course-50)',
-    ITERATIONS,
-    async () => {
-      return store.query()
-        .matchTypeAndKey('StudentEnrolled', 'course', 'course-50')
-        .read();
-    }
-  ));
-
-  results.push(await benchmark(
-    'Constrained (LessonCompleted for student)',
-    ITERATIONS,
-    async () => {
-      return store.query()
-        .matchTypeAndKey('LessonCompleted', 'student', 'student-50-25')
-        .read();
-    }
-  ));
-
-  // 3. Key-only query
-  results.push(await benchmark(
-    'Key-only (all events for course-50)',
-    ITERATIONS,
-    async () => {
-      return store.query()
-        .matchKey('course', 'course-50')
-        .read();
-    }
-  ));
-
-  results.push(await benchmark(
-    'Key-only (all events for student)',
-    ITERATIONS,
-    async () => {
-      return store.query()
-        .matchKey('student', 'student-50-25')
-        .read();
-    }
-  ));
-
-  // 4. Mixed queries
-  results.push(await benchmark(
-    'Mixed (unconstrained + constrained)',
-    ITERATIONS,
-    async () => {
-      return store.query()
-        .matchType('CourseCreated')
-        .matchTypeAndKey('StudentEnrolled', 'course', 'course-50')
-        .read();
-    }
-  ));
-
-  results.push(await benchmark(
-    'Mixed (all three types)',
-    ITERATIONS,
-    async () => {
-      return store.query()
-        .matchType('CourseCreated')
-        .matchTypeAndKey('StudentEnrolled', 'course', 'course-50')
-        .matchKey('student', 'student-50-25')
-        .read();
-    }
-  ));
-
-  results.push(await benchmark(
-    'Mixed (constrained + key-only)',
-    ITERATIONS,
-    async () => {
-      return store.query()
-        .matchTypeAndKey('LessonCompleted', 'course', 'course-50')
-        .matchKey('student', 'student-25-10')
-        .read();
-    }
-  ));
-
-  // 5. With position filter
-  results.push(await benchmark(
-    'With fromPosition (last 10%)',
-    ITERATIONS,
-    async () => {
-      const pos = BigInt(Math.floor(expectedEvents * 0.9));
-      return store.query()
-        .matchType('LessonCompleted')
-        .fromPosition(pos)
-        .read();
-    }
-  ));
-
-  // 6. With limit
-  results.push(await benchmark(
-    'With limit (first 100)',
-    ITERATIONS,
-    async () => {
-      return store.query()
-        .matchType('LessonCompleted')
-        .limit(100)
-        .read();
-    }
-  ));
-
-  // Print results
-  console.log('\n' + '='.repeat(60));
-  console.log('📈 RESULTS\n');
-  console.log('Query'.padEnd(45) + 'Time (ms)'.padStart(10) + 'Results'.padStart(10));
-  console.log('-'.repeat(65));
-  
-  for (const r of results) {
-    console.log(
-      r.name.padEnd(45) +
-      r.queryTimeMs.toFixed(2).padStart(10) +
-      r.resultCount.toString().padStart(10)
-    );
-  }
-
-  console.log('\n' + '='.repeat(60));
-  console.log(`Total events: ${expectedEvents.toLocaleString()}`);
-  console.log(`Iterations per query: ${ITERATIONS}`);
-  console.log('Times shown are averages per query execution.\n');
-
-  await store.close();
+  return totalEvents;
 }
 
-async function benchmark(
-  name: string,
-  iterations: number,
-  fn: () => Promise<{ count: number }>
-): Promise<BenchmarkResult> {
-  // Warmup
-  await fn();
+// --- Benchmark runner ---
 
-  // Measure
+async function benchmark(name: string, fn: () => Promise<{ count: number }>): Promise<{ avgMs: number; p50Ms: number; p99Ms: number; results: number }> {
+  await fn(); // warmup
+
   const times: number[] = [];
   let resultCount = 0;
 
-  for (let i = 0; i < iterations; i++) {
+  for (let i = 0; i < ITERATIONS; i++) {
     const start = performance.now();
     const result = await fn();
-    const elapsed = performance.now() - start;
-    times.push(elapsed);
+    times.push(performance.now() - start);
     resultCount = result.count;
   }
 
-  const avgTime = times.reduce((a, b) => a + b, 0) / times.length;
+  times.sort((a, b) => a - b);
+  const avgMs = times.reduce((a, b) => a + b, 0) / times.length;
+  const p50Ms = times[Math.floor(times.length * 0.5)];
+  const p99Ms = times[Math.floor(times.length * 0.99)];
 
-  process.stdout.write(`   ✓ ${name}: ${avgTime.toFixed(2)}ms avg (${resultCount} results)\n`);
-
-  return {
-    name,
-    eventCount: resultCount,
-    queryTimeMs: avgTime,
-    resultCount,
-  };
+  return { avgMs, p50Ms, p99Ms, results: resultCount };
 }
 
-runBenchmark().catch(console.error);
+// --- Query definitions ---
+
+interface QueryDef {
+  name: string;
+  fn: (store: EventStore) => () => Promise<{ count: number }>;
+}
+
+const queries: QueryDef[] = [
+  {
+    name: 'Single type (CourseCreated)',
+    fn: (store) => () => store.query().matchType('CourseCreated').read(),
+  },
+  {
+    name: 'Constrained (Enrollments/course)',
+    fn: (store) => () => store.query().matchTypeAndKey('StudentEnrolled', 'course', 'course-50').read(),
+  },
+  {
+    name: 'Constrained (Lessons/student)',
+    fn: (store) => () => store.query().matchTypeAndKey('LessonCompleted', 'student', 'student-50-5').read(),
+  },
+  {
+    name: 'Mixed (2 types/course)',
+    fn: (store) => () => store.query()
+      .matchTypeAndKey('StudentEnrolled', 'course', 'course-50')
+      .matchTypeAndKey('CertificateIssued', 'course', 'course-50')
+      .read(),
+  },
+  {
+    name: 'Full course aggregate (3 types)',
+    fn: (store) => () => store.query()
+      .matchTypeAndKey('StudentEnrolled', 'course', 'course-50')
+      .matchTypeAndKey('LessonCompleted', 'course', 'course-50')
+      .matchTypeAndKey('CertificateIssued', 'course', 'course-50')
+      .read(),
+  },
+  {
+    name: 'Append (single event)',
+    fn: (store) => {
+      let counter = 0;
+      return async () => {
+        await store.append([
+          { type: 'LessonCompleted', data: { courseId: 'course-bench', studentId: 'student-bench', lessonId: `lesson-${counter++}` } },
+        ], null);
+        return { count: 1 };
+      };
+    },
+  },
+  {
+    name: 'Append with condition',
+    fn: (store) => {
+      let counter = 0;
+      return async () => {
+        const read = await store.query()
+          .matchTypeAndKey('StudentEnrolled', 'course', 'course-50')
+          .read();
+        await store.append([
+          { type: 'LessonCompleted', data: { courseId: 'course-bench2', studentId: 'student-bench2', lessonId: `lesson-${counter++}` } },
+        ], read.appendCondition);
+        return { count: 1 };
+      };
+    },
+  },
+];
+
+// --- Dataset configs ---
+
+const datasets = [
+  { courses: 15, students: 55, lessons: 10, label: '~10k' },
+  { courses: 150, students: 55, lessons: 10, label: '~100k' },
+  { courses: 500, students: 167, lessons: 10, label: '~1M' },
+  { courses: 2500, students: 167, lessons: 10, label: '~5M' },
+];
+
+// --- Main ---
+
+async function main() {
+  const mode = useDisk ? 'on-disk' : 'in-memory';
+  console.log(`\n  ⚡ SQLite Benchmark (${mode})`);
+  console.log(`  ${ITERATIONS} iterations per query\n`);
+
+  const allResults: Array<Array<{ avgMs: number; p50Ms: number; p99Ms: number; results: number }>> = queries.map(() => []);
+
+  for (let d = 0; d < datasets.length; d++) {
+    const ds = datasets[d];
+
+    if (useDisk) {
+      const fs = await import('fs');
+      try { fs.unlinkSync(DB_PATH); } catch {}
+    }
+
+    const storagePath = useDisk ? DB_PATH : ':memory:';
+    const storage = new SqliteStorage(storagePath);
+    const store = new EventStore({ storage, ...STORE_CONFIG });
+
+    await generateEvents(store, ds.courses, ds.students, ds.lessons, ds.label);
+
+    // Run queries
+    for (let q = 0; q < queries.length; q++) {
+      process.stdout.write(`\r  Running: ${queries[q].name}...                         `);
+      const result = await benchmark(queries[q].name, queries[q].fn(store));
+      allResults[q].push(result);
+    }
+    process.stdout.write(`\r  ✓ ${ds.label} queries done                                    \n`);
+
+    await store.close();
+    if (useDisk) {
+      const fs = await import('fs');
+      try { fs.unlinkSync(DB_PATH); } catch {}
+    }
+  }
+
+  // --- Results table ---
+  console.log('');
+  const col = 14;
+  const nameCol = 36;
+  const divider = '─'.repeat(nameCol + col * datasets.length + 10);
+
+  console.log(`  ${divider}`);
+  process.stdout.write(`  ${'Query'.padEnd(nameCol)}`);
+  for (const ds of datasets) {
+    process.stdout.write(`${ds.label.padStart(col)}`);
+  }
+  process.stdout.write('  Results\n');
+  console.log(`  ${divider}`);
+
+  for (let q = 0; q < queries.length; q++) {
+    process.stdout.write(`  ${queries[q].name.padEnd(nameCol)}`);
+    for (let d = 0; d < datasets.length; d++) {
+      const r = allResults[q][d];
+      process.stdout.write(`${(r.avgMs.toFixed(2) + 'ms').padStart(col)}`);
+    }
+    const lastResult = allResults[q][allResults[q].length - 1];
+    process.stdout.write(`${lastResult.results.toString().padStart(8)}\n`);
+  }
+
+  console.log(`  ${divider}`);
+
+  // p50/p99 for largest dataset
+  const lastIdx = datasets.length - 1;
+  console.log(`\n  Latency percentiles at ${datasets[lastIdx].label}:`);
+  console.log(`  ${'Query'.padEnd(nameCol)}${'avg'.padStart(10)}${'p50'.padStart(10)}${'p99'.padStart(10)}`);
+  console.log(`  ${'─'.repeat(nameCol + 30)}`);
+  for (let q = 0; q < queries.length; q++) {
+    const r = allResults[q][lastIdx];
+    console.log(
+      `  ${queries[q].name.padEnd(nameCol)}` +
+      `${(r.avgMs.toFixed(2) + 'ms').padStart(10)}` +
+      `${(r.p50Ms.toFixed(2) + 'ms').padStart(10)}` +
+      `${(r.p99Ms.toFixed(2) + 'ms').padStart(10)}`
+    );
+  }
+
+  console.log(`\n  Mode: ${mode} | Iterations: ${ITERATIONS} | Storage: SQLite (better-sqlite3)\n`);
+}
+
+main().catch(console.error);

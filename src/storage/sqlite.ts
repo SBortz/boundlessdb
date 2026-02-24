@@ -167,23 +167,23 @@ export class SqliteStorage implements EventStorage {
       if (positionFilter !== null) params.push(positionFilter);
     }
 
-    // CTE for constrained conditions (type + key + value)
+    // CTEs for constrained conditions (keys-first via INDEXED BY for optimal index usage)
     if (constrained.length > 0) {
-      const constrainedClauses = constrained.map(
-        () => '(e.event_type = ? AND k.key_name = ? AND k.key_value = ?)'
-      );
-      let cteSql = `
-        SELECT DISTINCT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
-        FROM events e
-        INNER JOIN event_keys k ON e.position = k.position
-        WHERE (${constrainedClauses.join(' OR ')})`;
-      if (positionFilter !== null) {
-        cteSql += ' AND e.position > ?';
-      }
-      ctes.push(`constrained_matches AS (${cteSql})`);
-      cteNames.push('constrained_matches');
-      params.push(...constrained.flatMap(c => [c.type, c.key, c.value]));
-      if (positionFilter !== null) params.push(positionFilter);
+      constrained.forEach((c, i) => {
+        let cteSql = `
+          SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
+          FROM event_keys k INDEXED BY idx_key_position
+          INNER JOIN events e ON e.position = k.position
+          WHERE k.key_name = ? AND k.key_value = ? AND e.event_type = ?`;
+        if (positionFilter !== null) {
+          cteSql += ' AND k.position > ?';
+        }
+        const cteName = `constrained_${i}`;
+        ctes.push(`${cteName} AS (${cteSql})`);
+        cteNames.push(cteName);
+        params.push(c.key, c.value, c.type);
+        if (positionFilter !== null) params.push(positionFilter);
+      });
     }
 
     // Build final query with UNION

@@ -120,37 +120,51 @@ export class PostgresStorage implements EventStorage {
     try {
       await client.query('BEGIN');
 
-      let lastPosition: bigint = 0n;
-
+      // Batch insert all events in one query
+      const eventValues: string[] = [];
+      const eventParams: unknown[] = [];
       for (let i = 0; i < eventsToStore.length; i++) {
         const event = eventsToStore[i];
-        const eventKeys = keys[i];
-
-        // Insert event
-        const result = await client.query<{ position: string }>(
-          `INSERT INTO events (event_id, event_type, data, metadata, timestamp)
-           VALUES ($1, $2, $3, $4, $5)
-           RETURNING position`,
-          [
-            event.id,
-            event.type,
-            JSON.stringify(event.data),
-            event.metadata ? JSON.stringify(event.metadata) : null,
-            event.timestamp.toISOString(),
-          ]
+        const offset = i * 5;
+        eventValues.push(`($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5})`);
+        eventParams.push(
+          event.id,
+          event.type,
+          JSON.stringify(event.data),
+          event.metadata ? JSON.stringify(event.metadata) : null,
+          event.timestamp.toISOString(),
         );
+      }
 
-        const position = BigInt(result.rows[0].position);
-        lastPosition = position;
+      const result = await client.query<{ position: string }>(
+        `INSERT INTO events (event_id, event_type, data, metadata, timestamp)
+         VALUES ${eventValues.join(', ')}
+         RETURNING position`,
+        eventParams
+      );
 
-        // Insert keys
-        for (const key of eventKeys) {
-          await client.query(
-            `INSERT INTO event_keys (position, key_name, key_value)
-             VALUES ($1, $2, $3)`,
-            [position.toString(), key.name, key.value]
-          );
+      const positions = result.rows.map(row => BigInt(row.position));
+      const lastPosition = positions[positions.length - 1];
+
+      // Batch insert all keys in one query
+      const keyValues: string[] = [];
+      const keyParams: unknown[] = [];
+      let keyParamIdx = 1;
+      for (let i = 0; i < keys.length; i++) {
+        const position = positions[i].toString();
+        for (const key of keys[i]) {
+          keyValues.push(`($${keyParamIdx}, $${keyParamIdx + 1}, $${keyParamIdx + 2})`);
+          keyParams.push(position, key.name, key.value);
+          keyParamIdx += 3;
         }
+      }
+
+      if (keyValues.length > 0) {
+        await client.query(
+          `INSERT INTO event_keys (position, key_name, key_value)
+           VALUES ${keyValues.join(', ')}`,
+          keyParams
+        );
       }
 
       await client.query('COMMIT');
@@ -229,34 +243,72 @@ export class PostgresStorage implements EventStorage {
       cteNames.push('unconstrained_matches');
     }
 
-    // CTE for constrained conditions (type + key + value)
+    // Constrained conditions: group by (key_name, key_value) for optimal index usage.
+    // Each group uses a keys-first join with IN() for event types sharing the same key,
+    // then groups are combined with UNION ALL (no duplicates since types differ).
     if (constrained.length > 0) {
-      const constrainedClauses = constrained.map(c => {
-        const clause = `(e.event_type = $${paramIndex} AND k.key_name = $${paramIndex + 1} AND k.key_value = $${paramIndex + 2})`;
-        params.push(c.type, c.key, c.value);
-        paramIndex += 3;
-        return clause;
-      });
-      let cteSql = `
-        SELECT DISTINCT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
-        FROM events e
-        INNER JOIN event_keys k ON e.position = k.position
-        WHERE (${constrainedClauses.join(' OR ')})`;
-      
-      if (positionFilter !== null) {
-        cteSql += ` AND e.position > $${paramIndex}`;
-        params.push(positionFilter);
-        paramIndex++;
+      // Group constrained conditions by (key_name, key_value)
+      const keyGroups = new Map<string, { key: string; value: string; types: string[] }>();
+      for (const c of constrained) {
+        const groupKey = `${c.key}\0${c.value}`;
+        let group = keyGroups.get(groupKey);
+        if (!group) {
+          group = { key: c.key, value: c.value, types: [] };
+          keyGroups.set(groupKey, group);
+        }
+        group.types.push(c.type);
       }
-      ctes.push(`constrained_matches AS (${cteSql})`);
+
+      // Build one sub-select per key group using keys-first join
+      const constrainedParts: string[] = [];
+      for (const group of keyGroups.values()) {
+        // key_name and key_value params
+        const keyNameParam = `$${paramIndex}`;
+        params.push(group.key);
+        paramIndex++;
+
+        const keyValueParam = `$${paramIndex}`;
+        params.push(group.value);
+        paramIndex++;
+
+        // event_type IN (...) params
+        const typeParams = group.types.map(t => {
+          const ph = `$${paramIndex}`;
+          params.push(t);
+          paramIndex++;
+          return ph;
+        });
+
+        let partSql = `
+          SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
+          FROM event_keys k
+          INNER JOIN events e ON e.position = k.position
+          WHERE k.key_name = ${keyNameParam} AND k.key_value = ${keyValueParam}
+            AND e.event_type IN (${typeParams.join(', ')})`;
+
+        if (positionFilter !== null) {
+          partSql += ` AND e.position > $${paramIndex}`;
+          params.push(positionFilter);
+          paramIndex++;
+        }
+        constrainedParts.push(partSql);
+      }
+
+      if (constrainedParts.length === 1) {
+        ctes.push(`constrained_matches AS (${constrainedParts[0]})`);
+      } else {
+        const unionSql = constrainedParts.join('\n          UNION ALL\n        ');
+        ctes.push(`constrained_matches AS (${unionSql})`);
+      }
       cteNames.push('constrained_matches');
     }
 
-    // Build final query with UNION
+    // Build final query with UNION ALL (no duplicates: unconstrained and constrained
+    // conditions are disjoint by type, and within constrained groups types are explicit)
     const unionParts = cteNames.map(name => `SELECT * FROM ${name}`);
     
     let sql = `WITH ${ctes.join(',\n')}
-SELECT * FROM (${unionParts.join(' UNION ')}) AS combined
+SELECT * FROM (${unionParts.join(' UNION ALL ')}) AS combined
 ORDER BY position`;
 
     if (limit !== undefined) {
