@@ -162,6 +162,18 @@ async function generateEvents(
     }
   }
 
+  // Add a "latest" course at the very end for the recent-read benchmark
+  await store.append([
+    { type: 'CourseCreated', data: { courseId: 'course-latest', title: 'Latest Course' } },
+  ], null);
+  totalEvents++;
+  for (let s = 0; s < 5; s++) {
+    await store.append([
+      { type: 'StudentEnrolled', data: { courseId: 'course-latest', studentId: `student-latest-${s}` } },
+    ], null);
+    totalEvents++;
+  }
+
   const elapsed = performance.now() - genStart;
   const evtPerSec = totalEvents / (elapsed / 1000);
   process.stdout.write(
@@ -232,7 +244,7 @@ const queries: QueryDef[] = [
       .read(),
   },
   {
-    name: 'Append (single event)',
+    name: 'Append (no condition)',
     fn: (store) => {
       let counter = 0;
       return async () => {
@@ -244,15 +256,30 @@ const queries: QueryDef[] = [
     },
   },
   {
-    name: 'Append with condition',
+    name: 'Append (recent read)',
     fn: (store) => {
       let counter = 0;
       return async () => {
         const read = await store.query()
-          .matchTypeAndKey('StudentEnrolled', 'course', 'course-50')
+          .matchTypeAndKey('StudentEnrolled', 'course', 'course-latest')
           .read();
         await store.append([
-          { type: 'LessonCompleted', data: { courseId: 'course-bench2', studentId: 'student-bench2', lessonId: `lesson-${counter++}` } },
+          { type: 'LessonCompleted', data: { courseId: 'course-latest', studentId: 'student-bench', lessonId: `lesson-${counter++}` } },
+        ], read.appendCondition);
+        return { count: 1 };
+      };
+    },
+  },
+  {
+    name: 'Append (cold read)',
+    fn: (store) => {
+      let counter = 0;
+      return async () => {
+        const read = await store.query()
+          .matchTypeAndKey('StudentEnrolled', 'course', 'course-0')
+          .read();
+        await store.append([
+          { type: 'LessonCompleted', data: { courseId: 'course-cold', studentId: 'student-bench', lessonId: `lesson-${counter++}` } },
         ], read.appendCondition);
         return { count: 1 };
       };
