@@ -820,6 +820,76 @@ appendCondition = {
     </div>
   </div>
   
+  <div class="code-section" style="margin-top: 4rem;">
+    <h2>⚡ Performance</h2>
+    <p style="color:#888; text-align:center; margin-bottom:1.5rem;">
+      Query performance at <strong style="color:#0cf">1,000,000 events</strong> — small result sets stay fast.
+    </p>
+    
+    <div style="overflow-x:auto;">
+      <table style="width:100%; border-collapse:collapse; background:#0a1628; border:1px solid #0f3460; border-radius:12px; font-size:0.9rem;">
+        <thead>
+          <tr style="border-bottom:2px solid #1e3a5f;">
+            <th style="text-align:left; padding:1rem; color:#0cf;">Query</th>
+            <th style="text-align:right; padding:1rem; color:#888;">Results</th>
+            <th style="text-align:right; padding:1rem; color:#4db8ff;">SQLite</th>
+            <th style="text-align:right; padding:1rem; color:#ff9e64;">PostgreSQL</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="border-bottom:1px solid #1e3a5f;">
+            <td style="padding:0.75rem 1rem; color:#ccc;">Single type</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">500</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#4db8ff;">3.70 ms</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64; font-weight:600;">1.77 ms</td>
+          </tr>
+          <tr style="border-bottom:1px solid #1e3a5f;">
+            <td style="padding:0.75rem 1rem; color:#ccc;">Constrained (type + key)</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">167</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#4db8ff; font-weight:600;">1.57 ms</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">3.30 ms</td>
+          </tr>
+          <tr style="border-bottom:1px solid #1e3a5f;">
+            <td style="padding:0.75rem 1rem; color:#ccc;">Highly selective</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">10</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#4db8ff; font-weight:600;">0.20 ms</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">0.65 ms</td>
+          </tr>
+          <tr style="border-bottom:1px solid #1e3a5f;">
+            <td style="padding:0.75rem 1rem; color:#ccc;">Mixed (2 types, 1 key)</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">334</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#4db8ff;">3.50 ms</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64; font-weight:600;">3.28 ms</td>
+          </tr>
+          <tr style="border-bottom:1px solid #1e3a5f;">
+            <td style="padding:0.75rem 1rem; color:#ccc;">Full aggregate (3 types)</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">2,004</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#4db8ff;">18.10 ms</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64; font-weight:600;">5.75 ms</td>
+          </tr>
+          <tr style="border-bottom:1px solid #1e3a5f;">
+            <td style="padding:0.75rem 1rem; color:#ccc;">Append (single event)</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#4db8ff; font-weight:600;">0.26 ms</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">0.65 ms</td>
+          </tr>
+          <tr>
+            <td style="padding:0.75rem 1rem; color:#ccc;">Read + Append (full cycle)</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#4db8ff;">53.78 ms</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64; font-weight:600;">4.59 ms</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    
+    <div class="flow-note" style="margin-top:1rem;">
+      💡 <strong>Sub-millisecond queries</strong> for selective lookups, even with 1M events in the store.
+      SQLite measured on disk, PostgreSQL via Docker. Bold = faster engine per row.
+      <a href="https://github.com/SBortz/boundless/tree/main/benchmark" style="color:#0cf; text-decoration:none;">Run benchmarks yourself →</a>
+    </div>
+  </div>
+  
   <footer>
     <p>Built with ❤️ for <a href="https://www.eventstore.com/event-sourcing">Event Sourcing</a> · Learn more about <a href="https://dcb.events">Dynamic Consistency Boundaries</a></p>
   </footer>
