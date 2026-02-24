@@ -54,9 +54,12 @@ function buildDataset(target: number) {
   return { courses, students: STUDENTS, lessons: LESSONS, label: formatLabel(target) };
 }
 
-const sizes = sizeArgs.length > 0
-  ? sizeArgs.map(parseSize)
-  : [10_000, 100_000, 1_000_000];
+if (sizeArgs.length === 0) {
+  console.error('Usage: npx tsx benchmark/sqlite-query.ts [--disk] <size> [size...]');
+  console.error('Example: npx tsx benchmark/sqlite-query.ts --disk 100k 1M 5M');
+  process.exit(1);
+}
+const sizes = sizeArgs.map(parseSize);
 
 const datasets = sizes.map(buildDataset);
 
