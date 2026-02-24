@@ -2,14 +2,16 @@
  * SQLite Throughput Benchmark
  * 
  * Usage:
- *   npx tsx benchmark/sqlite-query.ts [--disk] [sizes...]
+ *   npx tsx benchmark/sqlite-query.ts [--disk] [--shuffle] [sizes...]
+ * 
+ * Modes:
+ *   (default)   Run each query N times sequentially, then next query
+ *   --shuffle   Interleave all queries in random order to avoid cache bias
  * 
  * Examples:
- *   npx tsx benchmark/sqlite-query.ts 1M 5M
- *   npx tsx benchmark/sqlite-query.ts --disk 100k 1M
- *   npx tsx benchmark/sqlite-query.ts 10k 100k 1M 5M
- * 
- * Default: 10k 100k 1M
+ *   npx tsx benchmark/sqlite-query.ts --disk 50m
+ *   npx tsx benchmark/sqlite-query.ts --disk --shuffle 50m
+ *   npx tsx benchmark/sqlite-query.ts --disk 100k 1M 5M
  */
 
 import { EventStore } from '../src/event-store.js';
@@ -31,7 +33,8 @@ const EVENTS_PER_COURSE = 1 + STUDENTS * (1 + LESSONS + 1); // 2005
 
 const args = process.argv.slice(2);
 const useDisk = args.includes('--disk');
-const sizeArgs = args.filter(a => a !== '--disk');
+const useShuffle = args.includes('--shuffle');
+const sizeArgs = args.filter(a => !a.startsWith('--'));
 
 function parseSize(s: string): number {
   const m = s.match(/^(\d+(?:\.\d+)?)\s*(k|m)?$/i);
@@ -191,27 +194,81 @@ async function generateEvents(
   return totalEvents;
 }
 
-// --- Benchmark runner ---
+// --- Benchmark runners ---
 
-async function benchmark(name: string, fn: () => Promise<{ count: number }>): Promise<{ avgMs: number; p50Ms: number; p99Ms: number; results: number }> {
-  await fn(); // warmup
-
-  const times: number[] = [];
-  let resultCount = 0;
-
-  for (let i = 0; i < ITERATIONS; i++) {
-    const start = performance.now();
-    const result = await fn();
-    times.push(performance.now() - start);
-    resultCount = result.count;
-  }
-
+function computeStats(times: number[]): { avgMs: number; p50Ms: number; p99Ms: number } {
   times.sort((a, b) => a - b);
   const avgMs = times.reduce((a, b) => a + b, 0) / times.length;
   const p50Ms = times[Math.floor(times.length * 0.5)];
   const p99Ms = times[Math.floor(times.length * 0.99)];
+  return { avgMs, p50Ms, p99Ms };
+}
 
-  return { avgMs, p50Ms, p99Ms, results: resultCount };
+/** Sequential: run all iterations of one query, then next query */
+async function benchmarkSequential(
+  queryDefs: QueryDef[],
+  store: EventStore,
+): Promise<Array<{ avgMs: number; p50Ms: number; p99Ms: number; results: number }>> {
+  const results: Array<{ avgMs: number; p50Ms: number; p99Ms: number; results: number }> = [];
+
+  for (let q = 0; q < queryDefs.length; q++) {
+    process.stdout.write(`\r  Running: ${queryDefs[q].name}...                         `);
+    const fn = queryDefs[q].fn(store);
+    await fn(); // warmup
+
+    const times: number[] = [];
+    let resultCount = 0;
+    for (let i = 0; i < ITERATIONS; i++) {
+      const start = performance.now();
+      const result = await fn();
+      times.push(performance.now() - start);
+      resultCount = result.count;
+    }
+
+    const stats = computeStats(times);
+    results.push({ ...stats, results: resultCount });
+  }
+  return results;
+}
+
+/** Shuffle: interleave all queries in random order to avoid cache bias */
+async function benchmarkShuffled(
+  queryDefs: QueryDef[],
+  store: EventStore,
+): Promise<Array<{ avgMs: number; p50Ms: number; p99Ms: number; results: number }>> {
+  const fns = queryDefs.map(q => q.fn(store));
+  const times: number[][] = queryDefs.map(() => []);
+  const resultCounts: number[] = queryDefs.map(() => 0);
+
+  // Build shuffled schedule: each query appears ITERATIONS times
+  const schedule: number[] = [];
+  for (let i = 0; i < ITERATIONS; i++) {
+    for (let q = 0; q < queryDefs.length; q++) {
+      schedule.push(q);
+    }
+  }
+  // Fisher-Yates shuffle
+  for (let i = schedule.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [schedule[i], schedule[j]] = [schedule[j], schedule[i]];
+  }
+
+  const total = schedule.length;
+  for (let i = 0; i < total; i++) {
+    if (i % 10 === 0) {
+      process.stdout.write(`\r  Shuffled: ${i}/${total} runs...                         `);
+    }
+    const q = schedule[i];
+    const start = performance.now();
+    const result = await fns[q]();
+    times[q].push(performance.now() - start);
+    resultCounts[q] = result.count;
+  }
+
+  return queryDefs.map((_, q) => ({
+    ...computeStats(times[q]),
+    results: resultCounts[q],
+  }));
 }
 
 // --- Query definitions ---
@@ -299,7 +356,8 @@ const queries: QueryDef[] = [
 
 async function main() {
   const mode = useDisk ? 'on-disk' : 'in-memory';
-  console.log(`\n  ⚡ SQLite Benchmark (${mode})`);
+  const runMode = useShuffle ? 'shuffle' : 'sequential';
+  console.log(`\n  ⚡ SQLite Benchmark (${mode}, ${runMode})`);
   console.log(`  ${ITERATIONS} iterations per query`);
   console.log(`  Scales: ${datasets.map(d => d.label).join(', ')}\n`);
 
@@ -364,19 +422,21 @@ async function main() {
       }
     }
 
-    // Warmup pass: run every query once to populate OS page cache
-    // Without this, the first query touching a B-tree region pays the full
-    // disk I/O cost (especially painful on LUKS-encrypted disks at 50M+ events).
-    process.stdout.write(`\r  Warming up page cache...                               `);
-    for (let q = 0; q < queries.length; q++) {
-      try { await queries[q].fn(store!)(); } catch {}
+    // Warmup pass (sequential mode only): populate OS page cache
+    if (!useShuffle) {
+      process.stdout.write(`\r  Warming up page cache...                               `);
+      for (let q = 0; q < queries.length; q++) {
+        try { await queries[q].fn(store!)(); } catch {}
+      }
     }
 
     // Run queries
+    const scaleResults = useShuffle
+      ? await benchmarkShuffled(queries, store!)
+      : await benchmarkSequential(queries, store!);
+
     for (let q = 0; q < queries.length; q++) {
-      process.stdout.write(`\r  Running: ${queries[q].name}...                         `);
-      const result = await benchmark(queries[q].name, queries[q].fn(store!));
-      sortedResults[q].push(result);
+      sortedResults[q].push(scaleResults[q]);
     }
     process.stdout.write(`\r  ✓ ${ds.label} queries done                                    \n`);
 
@@ -435,7 +495,7 @@ async function main() {
     );
   }
 
-  console.log(`\n  Mode: ${mode} | Iterations: ${ITERATIONS} | Storage: SQLite (better-sqlite3)\n`);
+  console.log(`\n  Mode: ${mode} | Order: ${runMode} | Iterations: ${ITERATIONS} | Storage: SQLite (better-sqlite3)\n`);
 }
 
 main().catch(console.error);
