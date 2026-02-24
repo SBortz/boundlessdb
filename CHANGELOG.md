@@ -2,6 +2,29 @@
 
 All notable changes to BoundlessDB will be documented in this file.
 
+## [0.3.1] - 2026-02-24
+
+### Performance
+
+- **SQLite:** `INDEXED BY idx_key_position` forces keys-first query plan. Constrained queries up to 3,386x faster.
+- **PostgreSQL:** Reversed join order (event_keys → events) with separate CTEs per key group for optimal index usage.
+- **PostgreSQL:** Batch inserts — single INSERT for all events + single INSERT for all keys. Always 3 roundtrips per append() regardless of batch size.
+
+### Benchmark results at 5M events
+
+| Query | SQLite (disk) | PostgreSQL |
+|---|---|---|
+| Constrained (167 results) | 0.63ms | 2.97ms |
+| Highly selective (10 results) | 0.07ms | 0.46ms |
+| Full aggregate (2,004 results) | 7.22ms | 7.46ms |
+
+Write throughput: SQLite 26,827 evt/s · PostgreSQL 6,950 evt/s
+
+### Other
+
+- Benchmark CLI with live progress, throughput, ETA, and p50/p99 percentiles
+- Landing page: performance section with 5M benchmark results
+
 ## [0.3.0] - 2026-02-23
 
 ### Breaking Changes
