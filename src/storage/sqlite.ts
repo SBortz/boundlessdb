@@ -167,22 +167,52 @@ export class SqliteStorage implements EventStorage {
       if (positionFilter !== null) params.push(positionFilter);
     }
 
-    // CTEs for constrained conditions (keys-first via INDEXED BY for optimal index usage)
+    // CTEs for constrained conditions (keys-first via INDEXED BY)
+    //
+    // Two strategies depending on whether a position filter is active:
+    //
+    // WITHOUT position filter (normal queries):
+    //   Flat CTE with INDEXED BY. SQLite may choose idx_event_type as the
+    //   driving index, but this is acceptable: it scans index pages (compact,
+    //   cache-friendly) and does covering checks on idx_key_position. Only
+    //   matching rows read data pages. At 50M events with warm cache: <1ms.
+    //
+    // WITH position filter (AppendCondition conflict checks):
+    //   MATERIALIZED CTE forces key-index-first execution. Without this,
+    //   SQLite scans ALL events of a type after the position (up to millions
+    //   of index entries). With MATERIALIZED, it scans only key positions
+    //   after the threshold — often zero rows. Fixes 2019ms → <1ms at 50M.
     if (constrained.length > 0) {
       constrained.forEach((c, i) => {
-        let cteSql = `
-          SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
-          FROM event_keys k INDEXED BY idx_key_position
-          INNER JOIN events e ON e.position = k.position
-          WHERE k.key_name = ? AND k.key_value = ? AND e.event_type = ?`;
         if (positionFilter !== null) {
-          cteSql += ' AND k.position > ?';
+          // MATERIALIZED: key positions first, then join events by PK
+          const keyCteName = `keys_${i}`;
+          const keyCte = `
+            SELECT position FROM event_keys INDEXED BY idx_key_position
+            WHERE key_name = ? AND key_value = ? AND position > ?`;
+          ctes.push(`${keyCteName} AS MATERIALIZED (${keyCte})`);
+
+          const cteName = `constrained_${i}`;
+          const cteSql = `
+            SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
+            FROM ${keyCteName} k
+            INNER JOIN events e ON e.position = k.position
+            WHERE e.event_type = ?`;
+          ctes.push(`${cteName} AS (${cteSql})`);
+          cteNames.push(cteName);
+          params.push(c.key, c.value, positionFilter, c.type);
+        } else {
+          // Flat CTE: let SQLite choose join order, INDEXED BY guides key lookups
+          const cteName = `constrained_${i}`;
+          const cteSql = `
+            SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
+            FROM event_keys k INDEXED BY idx_key_position
+            INNER JOIN events e ON e.position = k.position
+            WHERE k.key_name = ? AND k.key_value = ? AND e.event_type = ?`;
+          ctes.push(`${cteName} AS (${cteSql})`);
+          cteNames.push(cteName);
+          params.push(c.key, c.value, c.type);
         }
-        const cteName = `constrained_${i}`;
-        ctes.push(`${cteName} AS (${cteSql})`);
-        cteNames.push(cteName);
-        params.push(c.key, c.value, c.type);
-        if (positionFilter !== null) params.push(positionFilter);
       });
     }
 

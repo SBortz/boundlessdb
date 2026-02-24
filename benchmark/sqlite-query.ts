@@ -1,8 +1,17 @@
 /**
  * SQLite Throughput Benchmark
  * 
- * Tests query performance as the event store grows.
- * Run: npx tsx benchmark/sqlite-query.ts [--disk]
+ * Usage:
+ *   npx tsx benchmark/sqlite-query.ts [--disk] [--shuffle] [sizes...]
+ * 
+ * Modes:
+ *   (default)   Run each query N times sequentially, then next query
+ *   --shuffle   Interleave all queries in random order to avoid cache bias
+ * 
+ * Examples:
+ *   npx tsx benchmark/sqlite-query.ts --disk 50m
+ *   npx tsx benchmark/sqlite-query.ts --disk --shuffle 50m
+ *   npx tsx benchmark/sqlite-query.ts --disk 100k 1M 5M
  */
 
 import { EventStore } from '../src/event-store.js';
@@ -16,8 +25,48 @@ type CertificateIssued = Event<'CertificateIssued', { courseId: string; studentI
 type BenchmarkEvent = CourseCreated | StudentEnrolled | LessonCompleted | CertificateIssued;
 
 const ITERATIONS = 20;
-const useDisk = process.argv.includes('--disk');
-const DB_PATH = '/tmp/boundless-bench.sqlite';
+const STUDENTS = 167;
+const LESSONS = 10;
+const EVENTS_PER_COURSE = 1 + STUDENTS * (1 + LESSONS + 1); // 2005
+
+// --- CLI args ---
+
+const args = process.argv.slice(2);
+const useDisk = args.includes('--disk');
+const useShuffle = args.includes('--shuffle');
+const sizeArgs = args.filter(a => !a.startsWith('--'));
+
+function parseSize(s: string): number {
+  const m = s.match(/^(\d+(?:\.\d+)?)\s*(k|m)?$/i);
+  if (!m) { console.error(`Invalid size: ${s}`); process.exit(1); }
+  const num = parseFloat(m[1]);
+  const unit = (m[2] || '').toLowerCase();
+  if (unit === 'k') return Math.round(num * 1_000);
+  if (unit === 'm') return Math.round(num * 1_000_000);
+  return Math.round(num);
+}
+
+function formatLabel(target: number): string {
+  if (target >= 1_000_000) return `~${(target / 1_000_000).toFixed(0)}M`;
+  if (target >= 1_000) return `~${(target / 1_000).toFixed(0)}k`;
+  return `~${target}`;
+}
+
+function buildDataset(target: number) {
+  const courses = Math.max(1, Math.round(target / EVENTS_PER_COURSE));
+  return { courses, students: STUDENTS, lessons: LESSONS, label: formatLabel(target) };
+}
+
+if (sizeArgs.length === 0) {
+  console.error('Usage: npx tsx benchmark/sqlite-query.ts [--disk] <size> [size...]');
+  console.error('Example: npx tsx benchmark/sqlite-query.ts --disk 100k 1M 5M');
+  process.exit(1);
+}
+const sizes = sizeArgs.map(parseSize);
+
+const datasets = sizes.map(buildDataset);
+
+const DB_PATH = './boundless-bench.sqlite';
 
 const STORE_CONFIG = {
   consistency: {
@@ -73,14 +122,16 @@ async function generateEvents(
   studentsPerCourse: number,
   lessonsPerStudent: number,
   label: string,
+  startCourse: number = 0,
 ): Promise<number> {
   const eventsPerCourse = 1 + studentsPerCourse * (1 + lessonsPerStudent + 1);
-  const totalExpected = numCourses * eventsPerCourse;
+  const coursesToGenerate = numCourses - startCourse;
+  const totalExpected = coursesToGenerate * eventsPerCourse;
   let totalEvents = 0;
   const genStart = performance.now();
   let lastUpdate = genStart;
 
-  for (let c = 0; c < numCourses; c++) {
+  for (let c = startCourse; c < numCourses; c++) {
     const courseId = `course-${c}`;
 
     await store.append([
@@ -105,7 +156,7 @@ async function generateEvents(
     }
 
     const now = performance.now();
-    if (now - lastUpdate > 100) { // update ~10x/sec
+    if (now - lastUpdate > 100) {
       lastUpdate = now;
       const elapsed = now - genStart;
       const pct = totalEvents / totalExpected;
@@ -120,6 +171,18 @@ async function generateEvents(
     }
   }
 
+  // Add a "latest" course at the very end for the recent-read benchmark
+  await store.append([
+    { type: 'CourseCreated', data: { courseId: 'course-latest', title: 'Latest Course' } },
+  ], null);
+  totalEvents++;
+  for (let s = 0; s < 5; s++) {
+    await store.append([
+      { type: 'StudentEnrolled', data: { courseId: 'course-latest', studentId: `student-latest-${s}` } },
+    ], null);
+    totalEvents++;
+  }
+
   const elapsed = performance.now() - genStart;
   const evtPerSec = totalEvents / (elapsed / 1000);
   process.stdout.write(
@@ -131,27 +194,81 @@ async function generateEvents(
   return totalEvents;
 }
 
-// --- Benchmark runner ---
+// --- Benchmark runners ---
 
-async function benchmark(name: string, fn: () => Promise<{ count: number }>): Promise<{ avgMs: number; p50Ms: number; p99Ms: number; results: number }> {
-  await fn(); // warmup
-
-  const times: number[] = [];
-  let resultCount = 0;
-
-  for (let i = 0; i < ITERATIONS; i++) {
-    const start = performance.now();
-    const result = await fn();
-    times.push(performance.now() - start);
-    resultCount = result.count;
-  }
-
+function computeStats(times: number[]): { avgMs: number; p50Ms: number; p99Ms: number } {
   times.sort((a, b) => a - b);
   const avgMs = times.reduce((a, b) => a + b, 0) / times.length;
   const p50Ms = times[Math.floor(times.length * 0.5)];
   const p99Ms = times[Math.floor(times.length * 0.99)];
+  return { avgMs, p50Ms, p99Ms };
+}
 
-  return { avgMs, p50Ms, p99Ms, results: resultCount };
+/** Sequential: run all iterations of one query, then next query */
+async function benchmarkSequential(
+  queryDefs: QueryDef[],
+  store: EventStore,
+): Promise<Array<{ avgMs: number; p50Ms: number; p99Ms: number; results: number }>> {
+  const results: Array<{ avgMs: number; p50Ms: number; p99Ms: number; results: number }> = [];
+
+  for (let q = 0; q < queryDefs.length; q++) {
+    process.stdout.write(`\r  Running: ${queryDefs[q].name}...                         `);
+    const fn = queryDefs[q].fn(store);
+    await fn(); // warmup
+
+    const times: number[] = [];
+    let resultCount = 0;
+    for (let i = 0; i < ITERATIONS; i++) {
+      const start = performance.now();
+      const result = await fn();
+      times.push(performance.now() - start);
+      resultCount = result.count;
+    }
+
+    const stats = computeStats(times);
+    results.push({ ...stats, results: resultCount });
+  }
+  return results;
+}
+
+/** Shuffle: interleave all queries in random order to avoid cache bias */
+async function benchmarkShuffled(
+  queryDefs: QueryDef[],
+  store: EventStore,
+): Promise<Array<{ avgMs: number; p50Ms: number; p99Ms: number; results: number }>> {
+  const fns = queryDefs.map(q => q.fn(store));
+  const times: number[][] = queryDefs.map(() => []);
+  const resultCounts: number[] = queryDefs.map(() => 0);
+
+  // Build shuffled schedule: each query appears ITERATIONS times
+  const schedule: number[] = [];
+  for (let i = 0; i < ITERATIONS; i++) {
+    for (let q = 0; q < queryDefs.length; q++) {
+      schedule.push(q);
+    }
+  }
+  // Fisher-Yates shuffle
+  for (let i = schedule.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [schedule[i], schedule[j]] = [schedule[j], schedule[i]];
+  }
+
+  const total = schedule.length;
+  for (let i = 0; i < total; i++) {
+    if (i % 10 === 0) {
+      process.stdout.write(`\r  Shuffled: ${i}/${total} runs...                         `);
+    }
+    const q = schedule[i];
+    const start = performance.now();
+    const result = await fns[q]();
+    times[q].push(performance.now() - start);
+    resultCounts[q] = result.count;
+  }
+
+  return queryDefs.map((_, q) => ({
+    ...computeStats(times[q]),
+    results: resultCounts[q],
+  }));
 }
 
 // --- Query definitions ---
@@ -190,7 +307,7 @@ const queries: QueryDef[] = [
       .read(),
   },
   {
-    name: 'Append (single event)',
+    name: 'Append (no condition)',
     fn: (store) => {
       let counter = 0;
       return async () => {
@@ -202,15 +319,32 @@ const queries: QueryDef[] = [
     },
   },
   {
-    name: 'Append with condition',
+    name: 'Append (recent read)',
     fn: (store) => {
       let counter = 0;
       return async () => {
+        // Read the latest course (near end of store) - realistic use case
         const read = await store.query()
-          .matchTypeAndKey('StudentEnrolled', 'course', 'course-50')
+          .matchTypeAndKey('StudentEnrolled', 'course', 'course-latest')
           .read();
         await store.append([
-          { type: 'LessonCompleted', data: { courseId: 'course-bench2', studentId: 'student-bench2', lessonId: `lesson-${counter++}` } },
+          { type: 'LessonCompleted', data: { courseId: 'course-latest', studentId: 'student-bench', lessonId: `lesson-${counter++}` } },
+        ], read.appendCondition);
+        return { count: 1 };
+      };
+    },
+  },
+  {
+    name: 'Append (cold read)',
+    fn: (store) => {
+      let counter = 0;
+      return async () => {
+        // Read an early course (position near 0) - worst case
+        const read = await store.query()
+          .matchTypeAndKey('StudentEnrolled', 'course', 'course-0')
+          .read();
+        await store.append([
+          { type: 'LessonCompleted', data: { courseId: 'course-cold', studentId: 'student-bench', lessonId: `lesson-${counter++}` } },
         ], read.appendCondition);
         return { count: 1 };
       };
@@ -218,51 +352,106 @@ const queries: QueryDef[] = [
   },
 ];
 
-// --- Dataset configs ---
-
-const datasets = [
-  { courses: 15, students: 55, lessons: 10, label: '~10k' },
-  { courses: 150, students: 55, lessons: 10, label: '~100k' },
-  { courses: 500, students: 167, lessons: 10, label: '~1M' },
-  { courses: 2500, students: 167, lessons: 10, label: '~5M' },
-];
-
 // --- Main ---
 
 async function main() {
   const mode = useDisk ? 'on-disk' : 'in-memory';
-  console.log(`\n  ⚡ SQLite Benchmark (${mode})`);
-  console.log(`  ${ITERATIONS} iterations per query\n`);
+  const runMode = useShuffle ? 'shuffle' : 'sequential';
+  console.log(`\n  ⚡ SQLite Benchmark (${mode}, ${runMode})`);
+  console.log(`  ${ITERATIONS} iterations per query`);
+  console.log(`  Scales: ${datasets.map(d => d.label).join(', ')}\n`);
 
+  // Sort datasets ascending so we can extend incrementally
+  const sortedDatasets = [...datasets].sort((a, b) => a.courses - b.courses);
+  // Map back to original order for results
+  const originalOrder = datasets.map(ds => sortedDatasets.indexOf(ds));
+  
   const allResults: Array<Array<{ avgMs: number; p50Ms: number; p99Ms: number; results: number }>> = queries.map(() => []);
+  const sortedResults: Array<Array<{ avgMs: number; p50Ms: number; p99Ms: number; results: number }>> = queries.map(() => []);
 
-  for (let d = 0; d < datasets.length; d++) {
-    const ds = datasets[d];
+  // For on-disk: single file, extended incrementally
+  // For in-memory: fresh store per scale
+  const dbPath = useDisk ? DB_PATH : ':memory:';
+  let storage: SqliteStorage | null = null;
+  let store: EventStore | null = null;
+  let existingCourses = 0;
 
-    if (useDisk) {
-      const fs = await import('fs');
-      try { fs.unlinkSync(DB_PATH); } catch {}
+  if (useDisk) {
+    const fs = await import('fs');
+    if (fs.existsSync(dbPath)) {
+      try {
+        storage = new SqliteStorage(dbPath);
+        store = new EventStore({ storage, ...STORE_CONFIG });
+        const pos = Number(await storage.getLatestPosition());
+        // Estimate existing courses (subtract course-latest extras, divide by events per course)
+        existingCourses = Math.floor(Math.max(0, pos - 10) / EVENTS_PER_COURSE);
+        console.log(`  Cached DB: ${formatNum(pos)} events (~${formatNum(existingCourses)} courses) in ${dbPath}\n`);
+      } catch {
+        console.log(`  Cached file corrupt, starting fresh...\n`);
+        try { fs.unlinkSync(dbPath); } catch {}
+        storage = null;
+        store = null;
+        existingCourses = 0;
+      }
+    }
+  }
+
+  for (let d = 0; d < sortedDatasets.length; d++) {
+    const ds = sortedDatasets[d];
+
+    if (!useDisk) {
+      // In-memory: fresh store per scale
+      storage = new SqliteStorage(':memory:');
+      store = new EventStore({ storage, ...STORE_CONFIG });
+      await generateEvents(store, ds.courses, ds.students, ds.lessons, ds.label);
+    } else {
+      // On-disk: extend if needed
+      if (!storage || !store) {
+        storage = new SqliteStorage(dbPath);
+        store = new EventStore({ storage, ...STORE_CONFIG });
+      }
+
+      if (existingCourses >= ds.courses) {
+        const pos = Number(await storage.getLatestPosition());
+        console.log(`  ${ds.label} cached (${formatNum(pos)} events, ${formatNum(existingCourses)} courses >= ${formatNum(ds.courses)} needed)`);
+      } else {
+        const needed = ds.courses - existingCourses;
+        console.log(`  ${ds.label} extending: ${formatNum(existingCourses)} → ${formatNum(ds.courses)} courses (+${formatNum(needed)})`);
+        await generateEvents(store, ds.courses, ds.students, ds.lessons, ds.label, existingCourses);
+        existingCourses = ds.courses;
+      }
     }
 
-    const storagePath = useDisk ? DB_PATH : ':memory:';
-    const storage = new SqliteStorage(storagePath);
-    const store = new EventStore({ storage, ...STORE_CONFIG });
-
-    await generateEvents(store, ds.courses, ds.students, ds.lessons, ds.label);
+    // Warmup pass (sequential mode only): populate OS page cache
+    if (!useShuffle) {
+      process.stdout.write(`\r  Warming up page cache...                               `);
+      for (let q = 0; q < queries.length; q++) {
+        try { await queries[q].fn(store!)(); } catch {}
+      }
+    }
 
     // Run queries
+    const scaleResults = useShuffle
+      ? await benchmarkShuffled(queries, store!)
+      : await benchmarkSequential(queries, store!);
+
     for (let q = 0; q < queries.length; q++) {
-      process.stdout.write(`\r  Running: ${queries[q].name}...                         `);
-      const result = await benchmark(queries[q].name, queries[q].fn(store));
-      allResults[q].push(result);
+      sortedResults[q].push(scaleResults[q]);
     }
     process.stdout.write(`\r  ✓ ${ds.label} queries done                                    \n`);
 
-    await store.close();
-    if (useDisk) {
-      const fs = await import('fs');
-      try { fs.unlinkSync(DB_PATH); } catch {}
+    if (!useDisk) {
+      await store!.close();
     }
+  }
+
+  if (useDisk && store) {
+    await store.close();
+  }
+
+  // Reorder results back to original dataset order
+  for (let q = 0; q < queries.length; q++) {
+    allResults[q] = originalOrder.map(i => sortedResults[q][i]);
   }
 
   // --- Results table ---
@@ -306,7 +495,7 @@ async function main() {
     );
   }
 
-  console.log(`\n  Mode: ${mode} | Iterations: ${ITERATIONS} | Storage: SQLite (better-sqlite3)\n`);
+  console.log(`\n  Mode: ${mode} | Order: ${runMode} | Iterations: ${ITERATIONS} | Storage: SQLite (better-sqlite3)\n`);
 }
 
 main().catch(console.error);
