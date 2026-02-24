@@ -219,30 +219,7 @@ export class EventStore {
     // Extract keys from all events
     const keysPerEvent = events.map(event => this.keyExtractor.extract(event));
 
-    // Check for conflicts if condition provided
-    if (condition !== null) {
-      // If 'after' is undefined, check ALL events (position 0n)
-      // If 'after' is specified, check only events after that position
-      const checkFromPosition = condition.after ?? 0n;
-      
-      const conflictingEvents = await this.storage.getEventsSince(
-        condition.failIfEventsMatch,
-        checkFromPosition
-      );
-
-      if (conflictingEvents.length > 0) {
-        // Conflict detected — return delta
-        const latestPosition = conflictingEvents[conflictingEvents.length - 1].position;
-
-        return {
-          conflict: true,
-          conflictingEvents: conflictingEvents as StoredEvent<E>[],
-          appendCondition: { failIfEventsMatch: condition.failIfEventsMatch, after: latestPosition },
-        };
-      }
-    }
-
-    // No conflict — prepare events for storage
+    // Prepare events for storage
     const now = new Date();
     const eventsToStore = events.map(event => ({
       id: randomUUID(),
@@ -252,16 +229,38 @@ export class EventStore {
       timestamp: now,
     }));
 
-    // Append atomically
-    const position = await this.storage.append(eventsToStore, keysPerEvent);
+    // Build storage condition (if provided)
+    const storageCondition = condition !== null 
+      ? { failIfEventsMatch: condition.failIfEventsMatch, after: condition.after ?? 0n }
+      : null;
 
-    // Build new appendCondition
+    // Append with atomic conflict check
+    const result = await this.storage.appendWithCondition(
+      eventsToStore,
+      keysPerEvent,
+      storageCondition
+    );
+
+    // Check if conflict detected
+    if (result.conflicting) {
+      const latestPosition = result.conflicting[result.conflicting.length - 1].position;
+      return {
+        conflict: true,
+        conflictingEvents: result.conflicting as StoredEvent<E>[],
+        appendCondition: { 
+          failIfEventsMatch: condition?.failIfEventsMatch ?? [], 
+          after: latestPosition 
+        },
+      };
+    }
+
+    // Success - build new appendCondition
     const newConditions = this.buildConditionsFromEvents(events, condition);
 
     return {
       conflict: false,
-      position,
-      appendCondition: { failIfEventsMatch: newConditions, after: position },
+      position: result.position!,
+      appendCondition: { failIfEventsMatch: newConditions, after: result.position! },
     };
   }
 

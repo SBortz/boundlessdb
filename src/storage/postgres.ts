@@ -4,7 +4,7 @@
 
 import { Pool, PoolClient, type PoolConfig } from 'pg';
 import { isConstrainedCondition, type ExtractedKey, type QueryCondition, type StoredEvent } from '../types.js';
-import type { EventStorage, EventToStore } from './interface.js';
+import type { EventStorage, EventToStore, StorageAppendCondition, AppendWithConditionResult } from './interface.js';
 
 const SCHEMA = `
 -- Events (Append-Only Log)
@@ -105,7 +105,11 @@ export class PostgresStorage implements EventStorage {
     }
   }
 
-  async append(eventsToStore: EventToStore[], keys: ExtractedKey[][]): Promise<bigint> {
+  async appendWithCondition(
+    eventsToStore: EventToStore[],
+    keys: ExtractedKey[][],
+    condition: StorageAppendCondition | null
+  ): Promise<AppendWithConditionResult> {
     this.ensureInitialized();
 
     if (eventsToStore.length !== keys.length) {
@@ -113,68 +117,237 @@ export class PostgresStorage implements EventStorage {
     }
 
     if (eventsToStore.length === 0) {
-      return this.getLatestPosition();
+      const position = await this.getLatestPosition();
+      return { position };
     }
 
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
+    const maxRetries = 3;
+    let attempt = 0;
 
-      // Batch insert all events in one query
-      const eventValues: string[] = [];
-      const eventParams: unknown[] = [];
-      for (let i = 0; i < eventsToStore.length; i++) {
-        const event = eventsToStore[i];
-        const offset = i * 5;
-        eventValues.push(`($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5})`);
-        eventParams.push(
-          event.id,
-          event.type,
-          JSON.stringify(event.data),
-          event.metadata ? JSON.stringify(event.metadata) : null,
-          event.timestamp.toISOString(),
-        );
-      }
+    while (attempt < maxRetries) {
+      attempt++;
+      const client = await this.pool.connect();
 
-      const result = await client.query<{ position: string }>(
-        `INSERT INTO events (event_id, event_type, data, metadata, timestamp)
-         VALUES ${eventValues.join(', ')}
-         RETURNING position`,
-        eventParams
-      );
+      try {
+        // BEGIN with SERIALIZABLE isolation for conflict detection
+        await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
-      const positions = result.rows.map(row => BigInt(row.position));
-      const lastPosition = positions[positions.length - 1];
+        // 1. Conflict check (if condition provided)
+        if (condition !== null) {
+          const conflictingEvents = await this.queryWithClient(
+            client,
+            condition.failIfEventsMatch,
+            condition.after
+          );
 
-      // Batch insert all keys in one query
-      const keyValues: string[] = [];
-      const keyParams: unknown[] = [];
-      let keyParamIdx = 1;
-      for (let i = 0; i < keys.length; i++) {
-        const position = positions[i].toString();
-        for (const key of keys[i]) {
-          keyValues.push(`($${keyParamIdx}, $${keyParamIdx + 1}, $${keyParamIdx + 2})`);
-          keyParams.push(position, key.name, key.value);
-          keyParamIdx += 3;
+          if (conflictingEvents.length > 0) {
+            await client.query('ROLLBACK');
+            return { conflicting: conflictingEvents };
+          }
         }
-      }
 
-      if (keyValues.length > 0) {
-        await client.query(
-          `INSERT INTO event_keys (position, key_name, key_value)
-           VALUES ${keyValues.join(', ')}`,
-          keyParams
+        // 2. Batch insert all events in one query
+        const eventValues: string[] = [];
+        const eventParams: unknown[] = [];
+        for (let i = 0; i < eventsToStore.length; i++) {
+          const event = eventsToStore[i];
+          const offset = i * 5;
+          eventValues.push(`($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5})`);
+          eventParams.push(
+            event.id,
+            event.type,
+            JSON.stringify(event.data),
+            event.metadata ? JSON.stringify(event.metadata) : null,
+            event.timestamp.toISOString(),
+          );
+        }
+
+        const result = await client.query<{ position: string }>(
+          `INSERT INTO events (event_id, event_type, data, metadata, timestamp)
+           VALUES ${eventValues.join(', ')}
+           RETURNING position`,
+          eventParams
         );
+
+        const positions = result.rows.map(row => BigInt(row.position));
+        const lastPosition = positions[positions.length - 1];
+
+        // 3. Batch insert all keys in one query
+        const keyValues: string[] = [];
+        const keyParams: unknown[] = [];
+        let keyParamIdx = 1;
+        for (let i = 0; i < keys.length; i++) {
+          const position = positions[i].toString();
+          for (const key of keys[i]) {
+            keyValues.push(`($${keyParamIdx}, $${keyParamIdx + 1}, $${keyParamIdx + 2})`);
+            keyParams.push(position, key.name, key.value);
+            keyParamIdx += 3;
+          }
+        }
+
+        if (keyValues.length > 0) {
+          await client.query(
+            `INSERT INTO event_keys (position, key_name, key_value)
+             VALUES ${keyValues.join(', ')}`,
+            keyParams
+          );
+        }
+
+        await client.query('COMMIT');
+        return { position: lastPosition };
+      } catch (error: any) {
+        await client.query('ROLLBACK');
+
+        // Retry on serialization failure (PostgreSQL error code 40001)
+        if (error.code === '40001' && attempt < maxRetries) {
+          console.log(`[PostgresStorage] Serialization failure, retrying (attempt ${attempt}/${maxRetries})...`);
+          continue;
+        }
+
+        throw error;
+      } finally {
+        client.release();
+      }
+    }
+
+    throw new Error(`[PostgresStorage] Failed after ${maxRetries} retries`);
+  }
+
+  /**
+   * Query with specific client (for use within transactions)
+   */
+  private async queryWithClient(
+    client: PoolClient,
+    conditions: QueryCondition[],
+    fromPosition?: bigint,
+    limit?: number
+  ): Promise<StoredEvent[]> {
+    const params: (string | number)[] = [];
+    let paramIndex = 1;
+
+    if (conditions.length === 0) {
+      // No conditions = return all events
+      let sql = `
+        SELECT position, event_id, event_type, data, metadata, timestamp
+        FROM events
+      `;
+
+      if (fromPosition !== undefined) {
+        sql += ` WHERE position > $${paramIndex}`;
+        params.push(fromPosition.toString());
+        paramIndex++;
       }
 
-      await client.query('COMMIT');
-      return lastPosition;
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
+      sql += ' ORDER BY position';
+
+      if (limit !== undefined) {
+        sql += ` LIMIT $${paramIndex}`;
+        params.push(limit);
+      }
+
+      const result = await client.query<EventRow>(sql, params);
+      return result.rows.map(row => this.rowToEvent(row));
     }
+
+    // Separate conditions by type
+    const constrained = conditions.filter(isConstrainedCondition);
+    const unconstrained = conditions.filter(c => !isConstrainedCondition(c)) as Array<{ type: string }>;
+
+    // Build CTE-based query with UNION for better index utilization
+    const ctes: string[] = [];
+    const cteNames: string[] = [];
+
+    const positionFilter = fromPosition !== undefined ? fromPosition.toString() : null;
+
+    // CTE for unconstrained conditions
+    if (unconstrained.length > 0) {
+      const typePlaceholders = unconstrained.map(() => {
+        const ph = `$${paramIndex}`;
+        paramIndex++;
+        return ph;
+      });
+      let cteSql = `
+        SELECT position, event_id, event_type, data, metadata, timestamp
+        FROM events
+        WHERE event_type IN (${typePlaceholders.join(', ')})`;
+      params.push(...unconstrained.map(c => c.type));
+      
+      if (positionFilter !== null) {
+        cteSql += ` AND position > $${paramIndex}`;
+        params.push(positionFilter);
+        paramIndex++;
+      }
+      ctes.push(`unconstrained_matches AS (${cteSql})`);
+      cteNames.push('unconstrained_matches');
+    }
+
+    // Constrained conditions
+    if (constrained.length > 0) {
+      const keyGroups = new Map<string, { key: string; value: string; types: string[] }>();
+      for (const c of constrained) {
+        const groupKey = `${c.key}\0${c.value}`;
+        let group = keyGroups.get(groupKey);
+        if (!group) {
+          group = { key: c.key, value: c.value, types: [] };
+          keyGroups.set(groupKey, group);
+        }
+        group.types.push(c.type);
+      }
+
+      const constrainedParts: string[] = [];
+      for (const group of keyGroups.values()) {
+        const keyNameParam = `$${paramIndex}`;
+        params.push(group.key);
+        paramIndex++;
+
+        const keyValueParam = `$${paramIndex}`;
+        params.push(group.value);
+        paramIndex++;
+
+        const typeParams = group.types.map(t => {
+          const ph = `$${paramIndex}`;
+          params.push(t);
+          paramIndex++;
+          return ph;
+        });
+
+        let partSql = `
+          SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
+          FROM event_keys k
+          INNER JOIN events e ON e.position = k.position
+          WHERE k.key_name = ${keyNameParam} AND k.key_value = ${keyValueParam}
+            AND e.event_type IN (${typeParams.join(', ')})`;
+
+        if (positionFilter !== null) {
+          partSql += ` AND e.position > $${paramIndex}`;
+          params.push(positionFilter);
+          paramIndex++;
+        }
+        constrainedParts.push(partSql);
+      }
+
+      if (constrainedParts.length === 1) {
+        ctes.push(`constrained_matches AS (${constrainedParts[0]})`);
+      } else {
+        const unionSql = constrainedParts.join('\n          UNION ALL\n        ');
+        ctes.push(`constrained_matches AS (${unionSql})`);
+      }
+      cteNames.push('constrained_matches');
+    }
+
+    const unionParts = cteNames.map(name => `SELECT * FROM ${name}`);
+    
+    let sql = `WITH ${ctes.join(',\n')}
+SELECT * FROM (${unionParts.join(' UNION ALL ')}) AS combined
+ORDER BY position`;
+
+    if (limit !== undefined) {
+      sql += ` LIMIT $${paramIndex}`;
+      params.push(limit);
+    }
+
+    const result = await client.query<EventRow>(sql, params);
+    return result.rows.map(row => this.rowToEvent(row));
   }
 
   async query(
@@ -318,13 +491,6 @@ ORDER BY position`;
 
     const result = await this.pool.query<EventRow>(sql, params);
     return result.rows.map(row => this.rowToEvent(row));
-  }
-
-  async getEventsSince(
-    conditions: QueryCondition[],
-    sincePosition: bigint
-  ): Promise<StoredEvent[]> {
-    return this.query(conditions, sincePosition);
   }
 
   async getLatestPosition(): Promise<bigint> {

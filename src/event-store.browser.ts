@@ -263,69 +263,8 @@ export class EventStore {
       console.log(`   Event ${i}: ${keys.map(k => `${k.name}="${k.value}"`).join(', ')}`);
     });
 
-    // Check for conflicts if condition provided
-    if (condition !== null) {
-      const conditionsStr = condition.failIfEventsMatch.map((c: QueryCondition) => 
-        isConstrainedCondition(c) ? `${c.type}[${c.key}=${c.value}]` : `${c.type}[*]`
-      ).join(', ');
-      
-      // If 'after' is undefined, check ALL events (position 0n)
-      const checkFromPosition = condition.after ?? 0n;
-      console.log(`🔍 CONFLICT CHECK: Looking for events since position #${checkFromPosition}`);
-      console.log(`   Checking conditions: ${conditionsStr || '(none)'}`);
-      
-      const conflictingEvents = await this.storage.getEventsSince(
-        condition.failIfEventsMatch,
-        checkFromPosition
-      );
-      
-      console.log(`   Result: ${conflictingEvents.length} matching event(s) found since #${checkFromPosition}`);
-
-      if (conflictingEvents.length > 0) {
-        // Conflict detected
-        console.log('');
-        console.log('❌ ═══════════════════════════════════════');
-        console.log('   CONFLICT DETECTED');
-        console.log('═══════════════════════════════════════════');
-        console.log('');
-        console.log('📍 Your position: #' + (condition.after ?? '0 (all events)'));
-        console.log('');
-        console.log('🔍 Query conditions you checked:');
-        condition.failIfEventsMatch.forEach((c: QueryCondition) => {
-          if (isConstrainedCondition(c)) {
-            console.log(`   • ${c.type} where ${c.key}="${c.value}"`);
-          } else {
-            console.log(`   • ${c.type} (all)`);
-          }
-        });
-        console.log('');
-        console.log('⚡ Events written SINCE your read (that match your query):');
-        conflictingEvents.forEach(e => {
-          console.log(`   • Event #${e.position}: ${e.type}`);
-          console.log(`     Data: ${JSON.stringify(e.data)}`);
-        });
-        console.log('');
-        console.log('💡 Why conflict?');
-        console.log('   These events match your query conditions!');
-        console.log('   Your decision was based on stale data.');
-        console.log('');
-        console.log('🔄 Solution: Use result.appendCondition to retry.');
-        console.log('═══════════════════════════════════════════');
-        console.log('');
-        
-        const latestPosition = conflictingEvents[conflictingEvents.length - 1].position;
-
-        return {
-          conflict: true,
-          conflictingEvents: conflictingEvents as StoredEvent<E>[],
-          appendCondition: { failIfEventsMatch: condition.failIfEventsMatch, after: latestPosition },
-        };
-      }
-    }
-
-    // No conflict — prepare events for storage
+    // Prepare events for storage
     const now = new Date();
-    
     const eventsToStore = events.map((event) => {
       const id = generateUUID();
       if (!id) {
@@ -340,20 +279,82 @@ export class EventStore {
       };
     });
 
-    // Append atomically
-    const position = await this.storage.append(eventsToStore, keysPerEvent);
-    
-    console.log(`💾 STORED: Event(s) at position #${position}`);
+    // Build storage condition (if provided)
+    const storageCondition = condition !== null 
+      ? { failIfEventsMatch: condition.failIfEventsMatch, after: condition.after ?? 0n }
+      : null;
+
+    if (condition !== null) {
+      const conditionsStr = condition.failIfEventsMatch.map((c: QueryCondition) => 
+        isConstrainedCondition(c) ? `${c.type}[${c.key}=${c.value}]` : `${c.type}[*]`
+      ).join(', ');
+      const checkFromPosition = condition.after ?? 0n;
+      console.log(`🔍 CONFLICT CHECK: Looking for events since position #${checkFromPosition}`);
+      console.log(`   Checking conditions: ${conditionsStr || '(none)'}`);
+    }
+
+    // Append with atomic conflict check
+    const result = await this.storage.appendWithCondition(
+      eventsToStore,
+      keysPerEvent,
+      storageCondition
+    );
+
+    // Check if conflict detected
+    if (result.conflicting) {
+      console.log(`   Result: ${result.conflicting.length} matching event(s) found - CONFLICT!`);
+      console.log('');
+      console.log('❌ ═══════════════════════════════════════');
+      console.log('   CONFLICT DETECTED');
+      console.log('═══════════════════════════════════════════');
+      console.log('');
+      console.log('📍 Your position: #' + (condition?.after ?? '0 (all events)'));
+      console.log('');
+      console.log('🔍 Query conditions you checked:');
+      condition?.failIfEventsMatch.forEach((c: QueryCondition) => {
+        if (isConstrainedCondition(c)) {
+          console.log(`   • ${c.type} where ${c.key}="${c.value}"`);
+        } else {
+          console.log(`   • ${c.type} (all)`);
+        }
+      });
+      console.log('');
+      console.log('⚡ Events written SINCE your read (that match your query):');
+      result.conflicting.forEach(e => {
+        console.log(`   • Event #${e.position}: ${e.type}`);
+        console.log(`     Data: ${JSON.stringify(e.data)}`);
+      });
+      console.log('');
+      console.log('💡 Why conflict?');
+      console.log('   These events match your query conditions!');
+      console.log('   Your decision was based on stale data.');
+      console.log('');
+      console.log('🔄 Solution: Use result.appendCondition to retry.');
+      console.log('═══════════════════════════════════════════');
+      console.log('');
+
+      const latestPosition = result.conflicting[result.conflicting.length - 1].position;
+      return {
+        conflict: true,
+        conflictingEvents: result.conflicting as StoredEvent<E>[],
+        appendCondition: { 
+          failIfEventsMatch: condition?.failIfEventsMatch ?? [], 
+          after: latestPosition 
+        },
+      };
+    }
+
+    console.log(`💾 STORED: Event(s) at position #${result.position}`);
 
     // Build new appendCondition
     const newConditions = this.buildConditionsFromEvents(events, condition);
     
-    console.log(`✅ SUCCESS: Append complete at position #${position}`);
+    console.log(`✅ SUCCESS: Append complete at position #${result.position}`);
 
     return {
       conflict: false,
-      position,
-      appendCondition: { failIfEventsMatch: newConditions, after: position },
+      position: result.position!,
+      appendCondition: { failIfEventsMatch: newConditions, after: result.position! },
     };
   }
 

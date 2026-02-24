@@ -3,7 +3,7 @@
  */
 
 import { isConstrainedCondition, type ExtractedKey, type QueryCondition, type StoredEvent } from '../types.js';
-import type { EventStorage, EventToStore } from './interface.js';
+import type { EventStorage, EventToStore, StorageAppendCondition, AppendWithConditionResult } from './interface.js';
 
 interface StoredEventInternal extends StoredEvent {
   keys: ExtractedKey[];
@@ -17,11 +17,33 @@ export class InMemoryStorage implements EventStorage {
   private events: StoredEventInternal[] = [];
   private nextPosition: bigint = 1n;
 
-  async append(eventsToStore: EventToStore[], keys: ExtractedKey[][]): Promise<bigint> {
+  async appendWithCondition(
+    eventsToStore: EventToStore[],
+    keys: ExtractedKey[][],
+    condition: StorageAppendCondition | null
+  ): Promise<AppendWithConditionResult> {
     if (eventsToStore.length !== keys.length) {
       throw new Error('Events and keys arrays must have the same length');
     }
 
+    if (eventsToStore.length === 0) {
+      const position = await this.getLatestPosition();
+      return { position };
+    }
+
+    // 1. Conflict check (if condition provided)
+    if (condition !== null) {
+      const conflictingEvents = await this.query(
+        condition.failIfEventsMatch,
+        condition.after
+      );
+
+      if (conflictingEvents.length > 0) {
+        return { conflicting: conflictingEvents };
+      }
+    }
+
+    // 2. Insert events
     let lastPosition: bigint = 0n;
 
     for (let i = 0; i < eventsToStore.length; i++) {
@@ -42,7 +64,7 @@ export class InMemoryStorage implements EventStorage {
       lastPosition = position;
     }
 
-    return lastPosition;
+    return { position: lastPosition };
   }
 
   async query(
@@ -92,13 +114,6 @@ export class InMemoryStorage implements EventStorage {
 
     // Strip internal keys
     return limited.map(({ keys: _keys, ...event }) => event);
-  }
-
-  async getEventsSince(
-    conditions: QueryCondition[],
-    sincePosition: bigint
-  ): Promise<StoredEvent[]> {
-    return this.query(conditions, sincePosition);
   }
 
   async getLatestPosition(): Promise<bigint> {
