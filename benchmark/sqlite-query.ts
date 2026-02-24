@@ -63,7 +63,7 @@ const sizes = sizeArgs.map(parseSize);
 
 const datasets = sizes.map(buildDataset);
 
-const DB_PATH = './boundless-bench.sqlite';
+const DB_DIR = '.';
 
 const STORE_CONFIG = {
   consistency: {
@@ -305,29 +305,57 @@ async function main() {
 
   for (let d = 0; d < datasets.length; d++) {
     const ds = datasets[d];
+    const expectedEvents = ds.courses * EVENTS_PER_COURSE + 6; // +6 for course-latest
+    const dbPath = useDisk ? `${DB_DIR}/boundless-bench-${ds.label.replace('~', '')}.sqlite` : ':memory:';
+
+    let needsGeneration = true;
 
     if (useDisk) {
       const fs = await import('fs');
-      try { fs.unlinkSync(DB_PATH); } catch {}
+      if (fs.existsSync(dbPath)) {
+        // Check if cached DB has expected size
+        try {
+          const checkStorage = new SqliteStorage(dbPath);
+          const checkStore = new EventStore({ storage: checkStorage, ...STORE_CONFIG });
+          const pos = await checkStorage.getLatestPosition();
+          const count = Number(pos);
+          if (count >= expectedEvents * 0.99 && count <= expectedEvents * 1.01) {
+            console.log(`  ${ds.label} cached (${formatNum(count)} events in ${dbPath})`);
+            needsGeneration = false;
+
+            // Run queries on cached store
+            for (let q = 0; q < queries.length; q++) {
+              process.stdout.write(`\r  Running: ${queries[q].name}...                         `);
+              const result = await benchmark(queries[q].name, queries[q].fn(checkStore));
+              allResults[q].push(result);
+            }
+            process.stdout.write(`\r  ✓ ${ds.label} queries done                                    \n`);
+            await checkStore.close();
+          } else {
+            console.log(`  ${ds.label} cached but wrong size (${formatNum(count)} events, expected ~${formatNum(expectedEvents)}), regenerating...`);
+            fs.unlinkSync(dbPath);
+          }
+        } catch {
+          console.log(`  ${ds.label} cached file corrupt, regenerating...`);
+          try { fs.unlinkSync(dbPath); } catch {}
+        }
+      }
     }
 
-    const storagePath = useDisk ? DB_PATH : ':memory:';
-    const storage = new SqliteStorage(storagePath);
-    const store = new EventStore({ storage, ...STORE_CONFIG });
+    if (needsGeneration) {
+      const storage = new SqliteStorage(dbPath);
+      const store = new EventStore({ storage, ...STORE_CONFIG });
 
-    await generateEvents(store, ds.courses, ds.students, ds.lessons, ds.label);
+      await generateEvents(store, ds.courses, ds.students, ds.lessons, ds.label);
 
-    for (let q = 0; q < queries.length; q++) {
-      process.stdout.write(`\r  Running: ${queries[q].name}...                         `);
-      const result = await benchmark(queries[q].name, queries[q].fn(store));
-      allResults[q].push(result);
-    }
-    process.stdout.write(`\r  ✓ ${ds.label} queries done                                    \n`);
+      for (let q = 0; q < queries.length; q++) {
+        process.stdout.write(`\r  Running: ${queries[q].name}...                         `);
+        const result = await benchmark(queries[q].name, queries[q].fn(store));
+        allResults[q].push(result);
+      }
+      process.stdout.write(`\r  ✓ ${ds.label} queries done                                    \n`);
 
-    await store.close();
-    if (useDisk) {
-      const fs = await import('fs');
-      try { fs.unlinkSync(DB_PATH); } catch {}
+      await store.close();
     }
   }
 
