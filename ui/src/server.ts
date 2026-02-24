@@ -79,10 +79,12 @@ app.get('/api/stream', (req: Request, res: Response) => {
   });
 });
 
-// Get all events (direct DB access for UI - not part of DCB API)
+// Get all events (using query API with empty conditions)
 app.get('/api/events', async (_req: Request, res: Response) => {
   try {
-    const allEvents = storage.getAllEvents().map(e => ({
+    // Query with no conditions returns all events
+    const result = await store.read({ conditions: [] });
+    const allEvents = result.events.map(e => ({
       ...e,
       position: Number(e.position)
     }));
@@ -92,15 +94,51 @@ app.get('/api/events', async (_req: Request, res: Response) => {
   }
 });
 
-// Get all keys (direct DB access for UI)
+// Get all keys (using query API - query all events and extract keys)
 app.get('/api/keys', async (_req: Request, res: Response) => {
   try {
-    const allKeys = storage.getAllKeys();
+    // Query all events
+    const result = await store.read({ conditions: [] });
+    
+    // Extract keys from each event using the consistency config
+    const allKeys: Array<{ position: number; key_name: string; key_value: string }> = [];
+    
+    for (const event of result.events) {
+      const eventTypeConfig = consistencyConfig.eventTypes[event.type];
+      if (!eventTypeConfig) continue;
+      
+      // Extract keys for this event based on config
+      for (const keyConfig of eventTypeConfig.keys) {
+        const value = getNestedValue(event.data, keyConfig.path);
+        if (value !== undefined) {
+          allKeys.push({
+            position: Number(event.position),
+            key_name: keyConfig.name,
+            key_value: String(value)
+          });
+        }
+      }
+    }
+    
     res.json({ keys: allKeys });
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
 });
+
+// Helper to get nested property value by path (e.g., "data.courseId")
+function getNestedValue(obj: any, path: string): any {
+  const parts = path.split('.');
+  let current = obj;
+  for (const part of parts) {
+    if (current && typeof current === 'object' && part in current) {
+      current = current[part];
+    } else {
+      return undefined;
+    }
+  }
+  return current;
+}
 
 // Read events with query - uses Event Store API
 app.post('/api/read', async (req: Request, res: Response) => {

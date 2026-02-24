@@ -1470,10 +1470,10 @@ var require_sql_wasm_browser = __commonJS({
             w ? (0 === h && (h = oa()), g[q] = w(d[q])) : g[q] = d[q];
           }
           c = a(...g);
-          return c = function(t) {
+          return c = (function(t) {
             0 !== h && qa(h);
             return "string" === b ? z(t) : "boolean" === b ? !!t : t;
-          }(c);
+          })(c);
         }, ea = (a) => {
           var b = gb(a) + 1, c = ca(b);
           c && J(a, C, c, b);
@@ -2143,9 +2143,6 @@ var require_sql_wasm_browser = __commonJS({
 function isConstrainedCondition(c) {
   return "type" in c && "key" in c && "value" in c;
 }
-function isKeyOnlyCondition(c) {
-  return !("type" in c) && "key" in c && "value" in c;
-}
 var QueryResult = class {
   constructor(events, position, conditions) {
     __publicField(this, "events");
@@ -2519,8 +2516,7 @@ var SqlJsStorage = class {
       });
     }
     const constrained = conditions.filter(isConstrainedCondition);
-    const keyOnly = conditions.filter(isKeyOnlyCondition);
-    const unconstrained = conditions.filter((c) => !isConstrainedCondition(c) && !isKeyOnlyCondition(c));
+    const unconstrained = conditions.filter((c) => !isConstrainedCondition(c));
     const whereClauses = [];
     if (unconstrained.length > 0) {
       const typeList = unconstrained.map((c) => escapeSql(c.type)).join(", ");
@@ -2532,13 +2528,7 @@ var SqlJsStorage = class {
       );
       whereClauses.push(`(${constrainedClauses.join(" OR ")})`);
     }
-    if (keyOnly.length > 0) {
-      const keyOnlyClauses = keyOnly.map(
-        (c) => `(k.key_name = ${escapeSql(c.key)} AND k.key_value = ${escapeSql(c.value)})`
-      );
-      whereClauses.push(`(${keyOnlyClauses.join(" OR ")})`);
-    }
-    const needsJoin = constrained.length > 0 || keyOnly.length > 0;
+    const needsJoin = constrained.length > 0;
     let sql;
     if (needsJoin) {
       sql = `
@@ -2601,9 +2591,9 @@ var SqlJsStorage = class {
     db.close();
     this.db = null;
   }
-  // --- UI Helper Methods (not part of core DCB API) ---
+  // --- Internal Helper Methods ---
   /**
-   * Get all events (for debugging/UI)
+   * Get all events (internal use only - needed for reindex)
    */
   async getAllEvents() {
     const db = await this.ensureInitialized();
@@ -2624,23 +2614,6 @@ var SqlJsStorage = class {
       });
       return this.rowToEvent(obj);
     });
-  }
-  /**
-   * Get all keys (for debugging/UI)
-   */
-  async getAllKeys() {
-    const db = await this.ensureInitialized();
-    const result = db.exec(`
-      SELECT position, key_name, key_value
-      FROM event_keys
-      ORDER BY position ASC
-    `);
-    if (result.length === 0) return [];
-    return result[0].values.map((row) => ({
-      position: row[0],
-      key_name: row[1],
-      key_value: row[2]
-    }));
   }
   /**
    * Clear all data (for testing)
@@ -2799,7 +2772,7 @@ var EventStore = class {
       return;
     }
     try {
-      await this.storage.getAllEvents();
+      await this.storage.getLatestPosition();
       console.log("\u{1F510} HASH: Computing config hash...");
       const currentHash = await hashConfig(this.config);
       if (!currentHash) {
@@ -2850,7 +2823,7 @@ var EventStore = class {
     await this.ensureInitialized();
     console.log("\u{1F4D6} READ: Querying events...");
     console.log("   Conditions:", query.conditions.map(
-      (c) => isConstrainedCondition(c) ? `${c.type}[${c.key}=${c.value}]` : isKeyOnlyCondition(c) ? `*[${c.key}=${c.value}]` : `${c.type}[*]`
+      (c) => isConstrainedCondition(c) ? `${c.type}[${c.key}=${c.value}]` : `${c.type}[*]`
     ).join(", ") || "(none)");
     const events = await this.storage.query(
       query.conditions,
@@ -2897,7 +2870,7 @@ var EventStore = class {
     });
     if (condition !== null) {
       const conditionsStr = condition.failIfEventsMatch.map(
-        (c) => isConstrainedCondition(c) ? `${c.type}[${c.key}=${c.value}]` : isKeyOnlyCondition(c) ? `*[${c.key}=${c.value}]` : `${c.type}[*]`
+        (c) => isConstrainedCondition(c) ? `${c.type}[${c.key}=${c.value}]` : `${c.type}[*]`
       ).join(", ");
       const checkFromPosition = condition.after ?? 0n;
       console.log(`\u{1F50D} CONFLICT CHECK: Looking for events since position #${checkFromPosition}`);
@@ -2919,8 +2892,6 @@ var EventStore = class {
         condition.failIfEventsMatch.forEach((c) => {
           if (isConstrainedCondition(c)) {
             console.log(`   \u2022 ${c.type} where ${c.key}="${c.value}"`);
-          } else if (isKeyOnlyCondition(c)) {
-            console.log(`   \u2022 ANY type where ${c.key}="${c.value}"`);
           } else {
             console.log(`   \u2022 ${c.type} (all)`);
           }
@@ -3049,11 +3020,6 @@ var InMemoryStorage = class {
     }
     matching = matching.filter((event) => {
       return conditions.some((cond) => {
-        if (isKeyOnlyCondition(cond)) {
-          return event.keys.some(
-            (key) => key.name === cond.key && key.value === cond.value
-          );
-        }
         if (event.type !== cond.type) {
           return false;
         }
@@ -3081,7 +3047,8 @@ var InMemoryStorage = class {
   async close() {
   }
   /**
-   * Get all events (for testing)
+   * Get all events (internal/test use only)
+   * Note: Kept as public for test convenience, but not part of public API contract
    */
   getAllEvents() {
     return this.events.map(({ keys: _keys, ...event }) => event);

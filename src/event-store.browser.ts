@@ -139,7 +139,7 @@ export class EventStore {
 
     try {
       // Ensure storage is fully initialized before accessing metadata
-      await this.storage.getAllEvents(); // This awaits the init promise
+      await this.storage.getLatestPosition(); // This awaits the init promise
 
       console.log('🔐 HASH: Computing config hash...');
       const currentHash = await hashConfig(this.config);

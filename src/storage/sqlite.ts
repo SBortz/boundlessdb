@@ -320,12 +320,12 @@ ORDER BY position`;
     this.db.close();
   }
 
-  // --- UI Helper Methods (not part of core DCB API) ---
+  // --- Internal Helper Methods ---
 
   /**
-   * Get all events (for debugging/UI)
+   * Get all events (internal use only - needed for reindex)
    */
-  getAllEvents(): StoredEvent[] {
+  private getAllEvents(): StoredEvent[] {
     const rows = this.db.prepare(`
       SELECT position, event_id, event_type, data, metadata, timestamp
       FROM events
@@ -333,17 +333,6 @@ ORDER BY position`;
     `).all() as EventRow[];
 
     return rows.map(row => this.rowToEvent(row));
-  }
-
-  /**
-   * Get all keys (for debugging/UI)
-   */
-  getAllKeys(): Array<{ position: number; key_name: string; key_value: string }> {
-    return this.db.prepare(`
-      SELECT position, key_name, key_value
-      FROM event_keys
-      ORDER BY position ASC
-    `).all() as Array<{ position: number; key_name: string; key_value: string }>;
   }
 
   /**
