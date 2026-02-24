@@ -364,6 +364,14 @@ async function main() {
       }
     }
 
+    // Warmup pass: run every query once to populate OS page cache
+    // Without this, the first query touching a B-tree region pays the full
+    // disk I/O cost (especially painful on LUKS-encrypted disks at 50M+ events).
+    process.stdout.write(`\r  Warming up page cache...                               `);
+    for (let q = 0; q < queries.length; q++) {
+      try { await queries[q].fn(store!)(); } catch {}
+    }
+
     // Run queries
     for (let q = 0; q < queries.length; q++) {
       process.stdout.write(`\r  Running: ${queries[q].name}...                         `);
