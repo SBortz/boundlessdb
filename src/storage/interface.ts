@@ -16,15 +16,45 @@ export interface EventToStore {
 }
 
 /**
+ * Result of appendWithCondition operation
+ */
+export interface AppendWithConditionResult {
+  /** Position of last appended event (only present if successful) */
+  position?: bigint;
+  /** Conflicting events found (only present if conflict detected) */
+  conflicting?: StoredEvent[];
+}
+
+/**
+ * Condition for atomic append operation
+ */
+export interface StorageAppendCondition {
+  /** Query conditions that define what constitutes a conflict */
+  failIfEventsMatch: QueryCondition[];
+  /** Check for conflicts only after this position */
+  after: bigint;
+}
+
+/**
  * Storage backend interface
  */
 export interface EventStorage {
   /**
-   * Append events to the store with their extracted keys
+   * Atomically append events with optional conflict check
+   * 
    * Must be atomic: either all events are stored, or none
-   * @returns Position of the last appended event
+   * If condition is provided, must check for conflicts before appending
+   * 
+   * @param events Events to append
+   * @param keys Extracted keys for each event (same length as events)
+   * @param condition Optional conflict check condition
+   * @returns Result with position (success) or conflicting events (conflict)
    */
-  append(events: EventToStore[], keys: ExtractedKey[][]): Promise<bigint>;
+  appendWithCondition(
+    events: EventToStore[],
+    keys: ExtractedKey[][],
+    condition: StorageAppendCondition | null
+  ): Promise<AppendWithConditionResult>;
 
   /**
    * Query events by conditions
@@ -36,16 +66,6 @@ export interface EventStorage {
     conditions: QueryCondition[],
     fromPosition?: bigint,
     limit?: number
-  ): Promise<StoredEvent[]>;
-
-  /**
-   * Get events since a given position that match the conditions
-   * Used for consistency checks (conflict detection)
-   * @returns Events that match AND have position > sincePosition
-   */
-  getEventsSince(
-    conditions: QueryCondition[],
-    sincePosition: bigint
   ): Promise<StoredEvent[]>;
 
   /**

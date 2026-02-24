@@ -4,7 +4,7 @@
 
 import initSqlJs, { type Database as SqlJsDatabase, type SqlValue } from 'sql.js';
 import { isConstrainedCondition, type ExtractedKey, type QueryCondition, type StoredEvent } from '../types.js';
-import type { EventStorage, EventToStore } from './interface.js';
+import type { EventStorage, EventToStore, StorageAppendCondition, AppendWithConditionResult } from './interface.js';
 
 const SCHEMA = `
 -- Events (Append-Only Log)
@@ -92,7 +92,11 @@ export class SqlJsStorage implements EventStorage {
     return this.db;
   }
 
-  async append(eventsToStore: EventToStore[], keys: ExtractedKey[][]): Promise<bigint> {
+  async appendWithCondition(
+    eventsToStore: EventToStore[],
+    keys: ExtractedKey[][],
+    condition: StorageAppendCondition | null
+  ): Promise<AppendWithConditionResult> {
     const db = await this.ensureInitialized();
 
     if (eventsToStore.length !== keys.length) {
@@ -100,7 +104,8 @@ export class SqlJsStorage implements EventStorage {
     }
 
     if (eventsToStore.length === 0) {
-      return this.getLatestPosition();
+      const position = await this.getLatestPosition();
+      return { position };
     }
 
     let lastPosition: bigint = 0n;
@@ -109,6 +114,20 @@ export class SqlJsStorage implements EventStorage {
     db.run('BEGIN TRANSACTION');
 
     try {
+      // 1. Conflict check (if condition provided)
+      if (condition !== null) {
+        const conflictingEvents = await this.query(
+          condition.failIfEventsMatch,
+          condition.after
+        );
+
+        if (conflictingEvents.length > 0) {
+          db.run('ROLLBACK');
+          return { conflicting: conflictingEvents };
+        }
+      }
+
+      // 2. Insert events
       // sql.js db.run() doesn't support params properly - use escaped SQL
       const escapeSql = (s: string | null): string => {
         if (s === null) return 'NULL';
@@ -153,7 +172,7 @@ export class SqlJsStorage implements EventStorage {
       throw error;
     }
 
-    return lastPosition;
+    return { position: lastPosition };
   }
 
   async query(
@@ -273,13 +292,6 @@ export class SqlJsStorage implements EventStorage {
       });
       return this.rowToEvent(obj as unknown as EventRow);
     });
-  }
-
-  async getEventsSince(
-    conditions: QueryCondition[],
-    sincePosition: bigint
-  ): Promise<StoredEvent[]> {
-    return this.query(conditions, sincePosition);
   }
 
   async getLatestPosition(): Promise<bigint> {

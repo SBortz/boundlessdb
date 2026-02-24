@@ -4,7 +4,7 @@
 
 import Database from 'better-sqlite3';
 import { isConstrainedCondition, type ExtractedKey, type QueryCondition, type StoredEvent } from '../types.js';
-import type { EventStorage, EventToStore } from './interface.js';
+import type { EventStorage, EventToStore, StorageAppendCondition, AppendWithConditionResult } from './interface.js';
 
 const SCHEMA = `
 -- Events (Append-Only Log)
@@ -60,14 +60,22 @@ export class SqliteStorage implements EventStorage {
     this.db.exec(SCHEMA);
   }
 
-  async append(eventsToStore: EventToStore[], keys: ExtractedKey[][]): Promise<bigint> {
+  async appendWithCondition(
+    eventsToStore: EventToStore[],
+    keys: ExtractedKey[][],
+    condition: StorageAppendCondition | null
+  ): Promise<AppendWithConditionResult> {
     if (eventsToStore.length !== keys.length) {
       throw new Error('Events and keys arrays must have the same length');
     }
 
     if (eventsToStore.length === 0) {
-      return this.getLatestPosition();
+      const position = await this.getLatestPosition();
+      return { position };
     }
+
+    let lastPosition: bigint = 0n;
+    let conflicting: StoredEvent[] | undefined;
 
     const insertEvent = this.db.prepare(`
       INSERT INTO events (event_id, event_type, data, metadata, timestamp)
@@ -79,10 +87,19 @@ export class SqliteStorage implements EventStorage {
       VALUES (?, ?, ?)
     `);
 
-    let lastPosition: bigint = 0n;
-
     // Everything in one transaction for atomicity
     const transaction = this.db.transaction(() => {
+      // 1. Conflict check (if condition provided)
+      if (condition !== null) {
+        const rows = this.querySync(condition.failIfEventsMatch, condition.after);
+        
+        if (rows.length > 0) {
+          conflicting = rows;
+          return; // Exit transaction without inserting
+        }
+      }
+
+      // 2. Insert events
       for (let i = 0; i < eventsToStore.length; i++) {
         const event = eventsToStore[i];
         const eventKeys = keys[i];
@@ -108,14 +125,21 @@ export class SqliteStorage implements EventStorage {
 
     transaction();
 
-    return lastPosition;
+    // Return result
+    if (conflicting) {
+      return { conflicting };
+    }
+    return { position: lastPosition };
   }
 
-  async query(
+  /**
+   * Synchronous query for use within transactions
+   */
+  private querySync(
     conditions: QueryCondition[],
     fromPosition?: bigint,
     limit?: number
-  ): Promise<StoredEvent[]> {
+  ): StoredEvent[] {
     if (conditions.length === 0) {
       // No conditions = return all events
       let sql = `
@@ -234,11 +258,12 @@ ORDER BY position`;
     return rows.map(row => this.rowToEvent(row));
   }
 
-  async getEventsSince(
+  async query(
     conditions: QueryCondition[],
-    sincePosition: bigint
+    fromPosition?: bigint,
+    limit?: number
   ): Promise<StoredEvent[]> {
-    return this.query(conditions, sincePosition);
+    return this.querySync(conditions, fromPosition, limit);
   }
 
   async getLatestPosition(): Promise<bigint> {

@@ -33,18 +33,20 @@ describe('Storage', () => {
       await storage.close();
     });
 
-    describe('append', () => {
+    describe('appendWithCondition', () => {
       it('appends single event', async () => {
-        const pos = await storage.append(
+        const result = await storage.appendWithCondition(
           [createTestEvent('e1', 'TestEvent', { value: 1 })],
-          [[{ name: 'key', value: 'a' }]]
+          [[{ name: 'key', value: 'a' }]],
+          null
         );
 
-        expect(pos).toBe(1n);
+        expect(result.position).toBe(1n);
+        expect(result.conflicting).toBeUndefined();
       });
 
       it('appends multiple events atomically', async () => {
-        const pos = await storage.append(
+        const result = await storage.appendWithCondition(
           [
             createTestEvent('e1', 'TestEvent', { value: 1 }),
             createTestEvent('e2', 'TestEvent', { value: 2 }),
@@ -54,40 +56,90 @@ describe('Storage', () => {
             [{ name: 'key', value: 'a' }],
             [{ name: 'key', value: 'b' }],
             [{ name: 'key', value: 'c' }],
-          ]
+          ],
+          null
         );
 
-        expect(pos).toBe(3n);
+        expect(result.position).toBe(3n);
+        expect(result.conflicting).toBeUndefined();
       });
 
       it('increments position correctly', async () => {
-        await storage.append(
+        await storage.appendWithCondition(
           [createTestEvent('e1', 'TestEvent', { value: 1 })],
-          [[{ name: 'key', value: 'a' }]]
+          [[{ name: 'key', value: 'a' }]],
+          null
         );
 
-        const pos = await storage.append(
+        const result = await storage.appendWithCondition(
           [createTestEvent('e2', 'TestEvent', { value: 2 })],
-          [[{ name: 'key', value: 'b' }]]
+          [[{ name: 'key', value: 'b' }]],
+          null
         );
 
-        expect(pos).toBe(2n);
+        expect(result.position).toBe(2n);
       });
 
       it('throws if events and keys arrays have different lengths', async () => {
         await expect(
-          storage.append(
+          storage.appendWithCondition(
             [createTestEvent('e1', 'TestEvent', { value: 1 })],
-            [] // Empty keys array
+            [], // Empty keys array
+            null
           )
         ).rejects.toThrow();
+      });
+
+      it('detects conflicts', async () => {
+        // First append
+        await storage.appendWithCondition(
+          [createTestEvent('e1', 'TestEvent', { value: 1 })],
+          [[{ name: 'key', value: 'a' }]],
+          null
+        );
+
+        // Second append with condition that should conflict
+        const result = await storage.appendWithCondition(
+          [createTestEvent('e2', 'TestEvent', { value: 2 })],
+          [[{ name: 'key', value: 'a' }]],
+          {
+            failIfEventsMatch: [{ type: 'TestEvent', key: 'key', value: 'a' }],
+            after: 0n,
+          }
+        );
+
+        expect(result.position).toBeUndefined();
+        expect(result.conflicting).toBeDefined();
+        expect(result.conflicting).toHaveLength(1);
+      });
+
+      it('succeeds when no conflict', async () => {
+        // First append
+        await storage.appendWithCondition(
+          [createTestEvent('e1', 'TestEvent', { value: 1 })],
+          [[{ name: 'key', value: 'a' }]],
+          null
+        );
+
+        // Second append with condition after first event (no conflict)
+        const result = await storage.appendWithCondition(
+          [createTestEvent('e2', 'TestEvent', { value: 2 })],
+          [[{ name: 'key', value: 'a' }]],
+          {
+            failIfEventsMatch: [{ type: 'TestEvent', key: 'key', value: 'a' }],
+            after: 1n,
+          }
+        );
+
+        expect(result.position).toBe(2n);
+        expect(result.conflicting).toBeUndefined();
       });
     });
 
     describe('query', () => {
       beforeEach(async () => {
         // Set up test data
-        await storage.append(
+        await storage.appendWithCondition(
           [
             createTestEvent('e1', 'TypeA', { value: 1 }),
             createTestEvent('e2', 'TypeB', { value: 2 }),
@@ -99,7 +151,8 @@ describe('Storage', () => {
             [{ name: 'category', value: 'y' }],
             [{ name: 'category', value: 'x' }],
             [{ name: 'category', value: 'z' }],
-          ]
+          ],
+          null
         );
       });
 
@@ -192,9 +245,9 @@ describe('Storage', () => {
       });
     });
 
-    describe('getEventsSince', () => {
+    describe('query (position filter)', () => {
       beforeEach(async () => {
-        await storage.append(
+        await storage.appendWithCondition(
           [
             createTestEvent('e1', 'TestEvent', { value: 1 }),
             createTestEvent('e2', 'TestEvent', { value: 2 }),
@@ -204,12 +257,13 @@ describe('Storage', () => {
             [{ name: 'key', value: 'a' }],
             [{ name: 'key', value: 'a' }],
             [{ name: 'key', value: 'a' }],
-          ]
+          ],
+          null
         );
       });
 
       it('returns events after position', async () => {
-        const events = await storage.getEventsSince(
+        const events = await storage.query(
           [{ type: 'TestEvent', key: 'key', value: 'a' }],
           1n
         );
@@ -220,7 +274,7 @@ describe('Storage', () => {
       });
 
       it('returns empty when no events since position', async () => {
-        const events = await storage.getEventsSince(
+        const events = await storage.query(
           [{ type: 'TestEvent', key: 'key', value: 'a' }],
           3n
         );
@@ -236,13 +290,15 @@ describe('Storage', () => {
       });
 
       it('returns latest position after appends', async () => {
-        await storage.append(
+        await storage.appendWithCondition(
           [createTestEvent('e1', 'TestEvent', {})],
-          [[]]
+          [[]],
+          null
         );
-        await storage.append(
+        await storage.appendWithCondition(
           [createTestEvent('e2', 'TestEvent', {})],
-          [[]]
+          [[]],
+          null
         );
 
         const pos = await storage.getLatestPosition();
@@ -252,12 +308,13 @@ describe('Storage', () => {
 
     describe('multiple keys per event', () => {
       it('indexes all keys for an event', async () => {
-        await storage.append(
+        await storage.appendWithCondition(
           [createTestEvent('e1', 'MultiKey', { a: 1, b: 2 })],
           [[
             { name: 'keyA', value: 'x' },
             { name: 'keyB', value: 'y' },
-          ]]
+          ]],
+          null
         );
 
         // Should find by either key
