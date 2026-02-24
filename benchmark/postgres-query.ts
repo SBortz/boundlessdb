@@ -1,8 +1,15 @@
 /**
  * PostgreSQL Throughput Benchmark
  * 
- * Tests query performance as the event store grows.
- * Run: DATABASE_URL=postgresql://... npx tsx benchmark/postgres-query.ts
+ * Usage:
+ *   npx tsx benchmark/postgres-query.ts [sizes...]
+ * 
+ * Examples:
+ *   npx tsx benchmark/postgres-query.ts 1M 5M
+ *   npx tsx benchmark/postgres-query.ts 100k 1M
+ * 
+ * Default: 10k 100k 1M
+ * Env: DATABASE_URL (default: postgresql://postgres:bench@localhost:5433/bench)
  */
 
 import { EventStore } from '../src/event-store.js';
@@ -18,6 +25,41 @@ type BenchmarkEvent = CourseCreated | StudentEnrolled | LessonCompleted | Certif
 
 const DB_URL = process.env.DATABASE_URL || 'postgresql://postgres:bench@localhost:5433/bench';
 const ITERATIONS = 20;
+const STUDENTS = 167;
+const LESSONS = 10;
+const EVENTS_PER_COURSE = 1 + STUDENTS * (1 + LESSONS + 1); // 2005
+
+// --- CLI args ---
+
+const args = process.argv.slice(2);
+const sizeArgs = args.filter(a => !a.startsWith('--'));
+
+function parseSize(s: string): number {
+  const m = s.match(/^(\d+(?:\.\d+)?)\s*(k|m)?$/i);
+  if (!m) { console.error(`Invalid size: ${s}`); process.exit(1); }
+  const num = parseFloat(m[1]);
+  const unit = (m[2] || '').toLowerCase();
+  if (unit === 'k') return Math.round(num * 1_000);
+  if (unit === 'm') return Math.round(num * 1_000_000);
+  return Math.round(num);
+}
+
+function formatLabel(target: number): string {
+  if (target >= 1_000_000) return `~${(target / 1_000_000).toFixed(0)}M`;
+  if (target >= 1_000) return `~${(target / 1_000).toFixed(0)}k`;
+  return `~${target}`;
+}
+
+function buildDataset(target: number) {
+  const courses = Math.max(1, Math.round(target / EVENTS_PER_COURSE));
+  return { courses, students: STUDENTS, lessons: LESSONS, label: formatLabel(target) };
+}
+
+const sizes = sizeArgs.length > 0
+  ? sizeArgs.map(parseSize)
+  : [10_000, 100_000, 1_000_000];
+
+const datasets = sizes.map(buildDataset);
 
 const STORE_CONFIG = {
   consistency: {
@@ -218,15 +260,6 @@ const queries: QueryDef[] = [
   },
 ];
 
-// --- Dataset configs ---
-
-const datasets = [
-  { courses: 15, students: 55, lessons: 10, label: '~10k' },
-  { courses: 150, students: 55, lessons: 10, label: '~100k' },
-  { courses: 500, students: 167, lessons: 10, label: '~1M' },
-  { courses: 2500, students: 167, lessons: 10, label: '~5M' },
-];
-
 // --- DB cleanup ---
 
 async function cleanDb() {
@@ -242,7 +275,8 @@ async function cleanDb() {
 async function main() {
   console.log(`\n  ⚡ PostgreSQL Benchmark`);
   console.log(`  ${ITERATIONS} iterations per query`);
-  console.log(`  ${DB_URL}\n`);
+  console.log(`  ${DB_URL}`);
+  console.log(`  Scales: ${datasets.map(d => d.label).join(', ')}\n`);
 
   const allResults: Array<Array<{ avgMs: number; p50Ms: number; p99Ms: number; results: number }>> = queries.map(() => []);
 

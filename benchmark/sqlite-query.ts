@@ -1,8 +1,15 @@
 /**
  * SQLite Throughput Benchmark
  * 
- * Tests query performance as the event store grows.
- * Run: npx tsx benchmark/sqlite-query.ts [--disk]
+ * Usage:
+ *   npx tsx benchmark/sqlite-query.ts [--disk] [sizes...]
+ * 
+ * Examples:
+ *   npx tsx benchmark/sqlite-query.ts 1M 5M
+ *   npx tsx benchmark/sqlite-query.ts --disk 100k 1M
+ *   npx tsx benchmark/sqlite-query.ts 10k 100k 1M 5M
+ * 
+ * Default: 10k 100k 1M
  */
 
 import { EventStore } from '../src/event-store.js';
@@ -16,7 +23,43 @@ type CertificateIssued = Event<'CertificateIssued', { courseId: string; studentI
 type BenchmarkEvent = CourseCreated | StudentEnrolled | LessonCompleted | CertificateIssued;
 
 const ITERATIONS = 20;
-const useDisk = process.argv.includes('--disk');
+const STUDENTS = 167;
+const LESSONS = 10;
+const EVENTS_PER_COURSE = 1 + STUDENTS * (1 + LESSONS + 1); // 2005
+
+// --- CLI args ---
+
+const args = process.argv.slice(2);
+const useDisk = args.includes('--disk');
+const sizeArgs = args.filter(a => a !== '--disk');
+
+function parseSize(s: string): number {
+  const m = s.match(/^(\d+(?:\.\d+)?)\s*(k|m)?$/i);
+  if (!m) { console.error(`Invalid size: ${s}`); process.exit(1); }
+  const num = parseFloat(m[1]);
+  const unit = (m[2] || '').toLowerCase();
+  if (unit === 'k') return Math.round(num * 1_000);
+  if (unit === 'm') return Math.round(num * 1_000_000);
+  return Math.round(num);
+}
+
+function formatLabel(target: number): string {
+  if (target >= 1_000_000) return `~${(target / 1_000_000).toFixed(0)}M`;
+  if (target >= 1_000) return `~${(target / 1_000).toFixed(0)}k`;
+  return `~${target}`;
+}
+
+function buildDataset(target: number) {
+  const courses = Math.max(1, Math.round(target / EVENTS_PER_COURSE));
+  return { courses, students: STUDENTS, lessons: LESSONS, label: formatLabel(target) };
+}
+
+const sizes = sizeArgs.length > 0
+  ? sizeArgs.map(parseSize)
+  : [10_000, 100_000, 1_000_000];
+
+const datasets = sizes.map(buildDataset);
+
 const DB_PATH = '/tmp/boundless-bench.sqlite';
 
 const STORE_CONFIG = {
@@ -105,7 +148,7 @@ async function generateEvents(
     }
 
     const now = performance.now();
-    if (now - lastUpdate > 100) { // update ~10x/sec
+    if (now - lastUpdate > 100) {
       lastUpdate = now;
       const elapsed = now - genStart;
       const pct = totalEvents / totalExpected;
@@ -218,21 +261,13 @@ const queries: QueryDef[] = [
   },
 ];
 
-// --- Dataset configs ---
-
-const datasets = [
-  { courses: 15, students: 55, lessons: 10, label: '~10k' },
-  { courses: 150, students: 55, lessons: 10, label: '~100k' },
-  { courses: 500, students: 167, lessons: 10, label: '~1M' },
-  { courses: 2500, students: 167, lessons: 10, label: '~5M' },
-];
-
 // --- Main ---
 
 async function main() {
   const mode = useDisk ? 'on-disk' : 'in-memory';
   console.log(`\n  ⚡ SQLite Benchmark (${mode})`);
-  console.log(`  ${ITERATIONS} iterations per query\n`);
+  console.log(`  ${ITERATIONS} iterations per query`);
+  console.log(`  Scales: ${datasets.map(d => d.label).join(', ')}\n`);
 
   const allResults: Array<Array<{ avgMs: number; p50Ms: number; p99Ms: number; results: number }>> = queries.map(() => []);
 
@@ -250,7 +285,6 @@ async function main() {
 
     await generateEvents(store, ds.courses, ds.students, ds.lessons, ds.label);
 
-    // Run queries
     for (let q = 0; q < queries.length; q++) {
       process.stdout.write(`\r  Running: ${queries[q].name}...                         `);
       const result = await benchmark(queries[q].name, queries[q].fn(store));
