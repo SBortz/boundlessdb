@@ -2,13 +2,16 @@
  * PostgreSQL Throughput Benchmark
  * 
  * Usage:
- *   npx tsx benchmark/postgres-query.ts [sizes...]
+ *   npx tsx benchmark/postgres-query.ts [--shuffle] [sizes...]
+ * 
+ * Modes:
+ *   (default)   Run each query N times sequentially, then next query
+ *   --shuffle   Interleave all queries in random order to avoid cache bias
  * 
  * Examples:
  *   npx tsx benchmark/postgres-query.ts 1M 5M
- *   npx tsx benchmark/postgres-query.ts 100k 1M
+ *   npx tsx benchmark/postgres-query.ts --shuffle 100k 1M
  * 
- * Default: 10k 100k 1M
  * Env: DATABASE_URL (default: postgresql://postgres:bench@localhost:5433/bench)
  */
 
@@ -32,6 +35,7 @@ const EVENTS_PER_COURSE = 1 + STUDENTS * (1 + LESSONS + 1); // 2005
 // --- CLI args ---
 
 const args = process.argv.slice(2);
+const useShuffle = args.includes('--shuffle');
 const sizeArgs = args.filter(a => !a.startsWith('--'));
 
 function parseSize(s: string): number {
@@ -56,8 +60,8 @@ function buildDataset(target: number) {
 }
 
 if (sizeArgs.length === 0) {
-  console.error('Usage: npx tsx benchmark/postgres-query.ts <size> [size...]');
-  console.error('Example: npx tsx benchmark/postgres-query.ts 100k 1M 5M');
+  console.error('Usage: npx tsx benchmark/postgres-query.ts [--shuffle] <size> [size...]');
+  console.error('Example: npx tsx benchmark/postgres-query.ts --shuffle 100k 1M 5M');
   process.exit(1);
 }
 const sizes = sizeArgs.map(parseSize);
@@ -118,14 +122,16 @@ async function generateEvents(
   studentsPerCourse: number,
   lessonsPerStudent: number,
   label: string,
+  startCourse: number = 0,
 ): Promise<number> {
   const eventsPerCourse = 1 + studentsPerCourse * (1 + lessonsPerStudent + 1);
-  const totalExpected = numCourses * eventsPerCourse;
+  const coursesToGenerate = numCourses - startCourse;
+  const totalExpected = coursesToGenerate * eventsPerCourse;
   let totalEvents = 0;
   const genStart = performance.now();
   let lastUpdate = genStart;
 
-  for (let c = 0; c < numCourses; c++) {
+  for (let c = startCourse; c < numCourses; c++) {
     const courseId = `course-${c}`;
 
     await store.append([
@@ -188,27 +194,81 @@ async function generateEvents(
   return totalEvents;
 }
 
-// --- Benchmark runner ---
+// --- Benchmark runners ---
 
-async function benchmark(name: string, fn: () => Promise<{ count: number }>): Promise<{ avgMs: number; p50Ms: number; p99Ms: number; results: number }> {
-  await fn(); // warmup
-
-  const times: number[] = [];
-  let resultCount = 0;
-
-  for (let i = 0; i < ITERATIONS; i++) {
-    const start = performance.now();
-    const result = await fn();
-    times.push(performance.now() - start);
-    resultCount = result.count;
-  }
-
+function computeStats(times: number[]): { avgMs: number; p50Ms: number; p99Ms: number } {
   times.sort((a, b) => a - b);
   const avgMs = times.reduce((a, b) => a + b, 0) / times.length;
   const p50Ms = times[Math.floor(times.length * 0.5)];
   const p99Ms = times[Math.floor(times.length * 0.99)];
+  return { avgMs, p50Ms, p99Ms };
+}
 
-  return { avgMs, p50Ms, p99Ms, results: resultCount };
+/** Sequential: run all iterations of one query, then next query */
+async function benchmarkSequential(
+  queryDefs: QueryDef[],
+  store: EventStore,
+): Promise<Array<{ avgMs: number; p50Ms: number; p99Ms: number; results: number }>> {
+  const results: Array<{ avgMs: number; p50Ms: number; p99Ms: number; results: number }> = [];
+
+  for (let q = 0; q < queryDefs.length; q++) {
+    process.stdout.write(`\r  Running: ${queryDefs[q].name}...                         `);
+    const fn = queryDefs[q].fn(store);
+    await fn(); // warmup
+
+    const times: number[] = [];
+    let resultCount = 0;
+    for (let i = 0; i < ITERATIONS; i++) {
+      const start = performance.now();
+      const result = await fn();
+      times.push(performance.now() - start);
+      resultCount = result.count;
+    }
+
+    const stats = computeStats(times);
+    results.push({ ...stats, results: resultCount });
+  }
+  return results;
+}
+
+/** Shuffle: interleave all queries in random order to avoid cache bias */
+async function benchmarkShuffled(
+  queryDefs: QueryDef[],
+  store: EventStore,
+): Promise<Array<{ avgMs: number; p50Ms: number; p99Ms: number; results: number }>> {
+  const fns = queryDefs.map(q => q.fn(store));
+  const times: number[][] = queryDefs.map(() => []);
+  const resultCounts: number[] = queryDefs.map(() => 0);
+
+  // Build shuffled schedule: each query appears ITERATIONS times
+  const schedule: number[] = [];
+  for (let i = 0; i < ITERATIONS; i++) {
+    for (let q = 0; q < queryDefs.length; q++) {
+      schedule.push(q);
+    }
+  }
+  // Fisher-Yates shuffle
+  for (let i = schedule.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [schedule[i], schedule[j]] = [schedule[j], schedule[i]];
+  }
+
+  const total = schedule.length;
+  for (let i = 0; i < total; i++) {
+    if (i % 10 === 0) {
+      process.stdout.write(`\r  Shuffled: ${i}/${total} runs...                         `);
+    }
+    const q = schedule[i];
+    const start = performance.now();
+    const result = await fns[q]();
+    times[q].push(performance.now() - start);
+    resultCounts[q] = result.count;
+  }
+
+  return queryDefs.map((_, q) => ({
+    ...computeStats(times[q]),
+    results: resultCounts[q],
+  }));
 }
 
 // --- Query definitions ---
@@ -290,7 +350,19 @@ const queries: QueryDef[] = [
   },
 ];
 
-// --- DB cleanup ---
+// --- DB helpers ---
+
+async function getEventCount(): Promise<number> {
+  const pool = new Pool({ connectionString: DB_URL });
+  try {
+    const result = await pool.query('SELECT COUNT(*) as count FROM events');
+    return parseInt(result.rows[0].count, 10);
+  } catch {
+    return 0; // table doesn't exist
+  } finally {
+    await pool.end();
+  }
+}
 
 async function cleanDb() {
   const pool = new Pool({ connectionString: DB_URL });
@@ -303,32 +375,83 @@ async function cleanDb() {
 // --- Main ---
 
 async function main() {
-  console.log(`\n  ⚡ PostgreSQL Benchmark`);
+  const runMode = useShuffle ? 'shuffle' : 'sequential';
+  console.log(`\n  ⚡ PostgreSQL Benchmark (${runMode})`);
   console.log(`  ${ITERATIONS} iterations per query`);
   console.log(`  ${DB_URL}`);
   console.log(`  Scales: ${datasets.map(d => d.label).join(', ')}\n`);
 
+  // Sort datasets ascending so we can extend incrementally
+  const sortedDatasets = [...datasets].sort((a, b) => a.courses - b.courses);
+  const originalOrder = datasets.map(ds => sortedDatasets.indexOf(ds));
+  
   const allResults: Array<Array<{ avgMs: number; p50Ms: number; p99Ms: number; results: number }>> = queries.map(() => []);
+  const sortedResults: Array<Array<{ avgMs: number; p50Ms: number; p99Ms: number; results: number }>> = queries.map(() => []);
 
-  for (let d = 0; d < datasets.length; d++) {
-    const ds = datasets[d];
+  // Check existing data in PostgreSQL
+  let existingEvents = await getEventCount();
+  let existingCourses = Math.floor(Math.max(0, existingEvents - 10) / EVENTS_PER_COURSE);
 
-    await cleanDb();
+  if (existingEvents > 0) {
+    console.log(`  Cached DB: ${formatNum(existingEvents)} events (~${formatNum(existingCourses)} courses)\n`);
+  }
 
-    const storage = new PostgresStorage({ connectionString: DB_URL, max: 1 });
-    await storage.init();
-    const store = new EventStore({ storage, ...STORE_CONFIG });
+  let storage: PostgresStorage | null = null;
+  let store: EventStore | null = null;
 
-    await generateEvents(store, ds.courses, ds.students, ds.lessons, ds.label);
+  for (let d = 0; d < sortedDatasets.length; d++) {
+    const ds = sortedDatasets[d];
+
+    if (!storage || !store) {
+      storage = new PostgresStorage({ connectionString: DB_URL, max: 1 });
+      await storage.init();
+      store = new EventStore({ storage, ...STORE_CONFIG });
+    }
+
+    if (existingCourses >= ds.courses) {
+      console.log(`  ${ds.label} cached (${formatNum(existingEvents)} events, ${formatNum(existingCourses)} courses >= ${formatNum(ds.courses)} needed)`);
+    } else {
+      if (existingCourses === 0 && d === 0) {
+        // Fresh start — clean DB to ensure schema is correct
+        await store.close();
+        await cleanDb();
+        storage = new PostgresStorage({ connectionString: DB_URL, max: 1 });
+        await storage.init();
+        store = new EventStore({ storage, ...STORE_CONFIG });
+      }
+      const needed = ds.courses - existingCourses;
+      console.log(`  ${ds.label} extending: ${formatNum(existingCourses)} → ${formatNum(ds.courses)} courses (+${formatNum(needed)})`);
+      await generateEvents(store, ds.courses, ds.students, ds.lessons, ds.label, existingCourses);
+      existingCourses = ds.courses;
+      existingEvents = ds.courses * EVENTS_PER_COURSE + 6;
+    }
+
+    // Warmup pass (sequential mode only)
+    if (!useShuffle) {
+      process.stdout.write(`\r  Warming up...                                          `);
+      for (let q = 0; q < queries.length; q++) {
+        try { await queries[q].fn(store!)(); } catch {}
+      }
+    }
+
+    // Run queries
+    const scaleResults = useShuffle
+      ? await benchmarkShuffled(queries, store!)
+      : await benchmarkSequential(queries, store!);
 
     for (let q = 0; q < queries.length; q++) {
-      process.stdout.write(`\r  Running: ${queries[q].name}...                         `);
-      const result = await benchmark(queries[q].name, queries[q].fn(store));
-      allResults[q].push(result);
+      sortedResults[q].push(scaleResults[q]);
     }
     process.stdout.write(`\r  ✓ ${ds.label} queries done                                    \n`);
+  }
 
+  if (store) {
     await store.close();
+  }
+
+  // Reorder results back to original dataset order
+  for (let q = 0; q < queries.length; q++) {
+    allResults[q] = originalOrder.map(i => sortedResults[q][i]);
   }
 
   // --- Results table ---
@@ -372,7 +495,7 @@ async function main() {
     );
   }
 
-  console.log(`\n  Iterations: ${ITERATIONS} | Storage: PostgreSQL\n`);
+  console.log(`\n  Order: ${runMode} | Iterations: ${ITERATIONS} | Storage: PostgreSQL\n`);
 }
 
 main().catch(console.error);
