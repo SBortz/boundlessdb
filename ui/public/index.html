@@ -883,6 +883,23 @@ appendCondition = {
       </table>
     </div>
     
+    <div style="display:flex; gap:1.5rem; margin-top:1.5rem; flex-wrap:wrap;">
+      <div style="flex:1; min-width:200px; background:#0a1628; border:1px solid #0f3460; border-radius:12px; padding:1.25rem; text-align:center;">
+        <div style="color:#888; font-size:0.85rem; margin-bottom:0.5rem;">Write Throughput</div>
+        <div style="font-size:1.5rem; font-weight:700;">
+          <span style="color:#4db8ff;">26,827</span> <span style="color:#888; font-size:0.85rem;">evt/s</span>
+        </div>
+        <div style="color:#4db8ff; font-size:0.8rem; margin-top:0.25rem;">SQLite on disk</div>
+      </div>
+      <div style="flex:1; min-width:200px; background:#0a1628; border:1px solid #0f3460; border-radius:12px; padding:1.25rem; text-align:center;">
+        <div style="color:#888; font-size:0.85rem; margin-bottom:0.5rem;">Write Throughput</div>
+        <div style="font-size:1.5rem; font-weight:700;">
+          <span style="color:#ff9e64;">6,950</span> <span style="color:#888; font-size:0.85rem;">evt/s</span>
+        </div>
+        <div style="color:#ff9e64; font-size:0.8rem; margin-top:0.25rem;">PostgreSQL 16</div>
+      </div>
+    </div>
+
     <div class="flow-note" style="margin-top:1rem;">
       💡 <strong>Sub-millisecond queries</strong> for selective lookups, even with 5M events in the store.
       Tested on a 4-core Intel Pentium G7400T with 11 GB RAM. SQLite on disk, PostgreSQL 16 via Docker. Bold = faster engine per row.
