@@ -63,7 +63,7 @@ const sizes = sizeArgs.map(parseSize);
 
 const datasets = sizes.map(buildDataset);
 
-const DB_PATH = '/tmp/boundless-bench.sqlite';
+const DB_PATH = './boundless-bench.sqlite';
 
 const STORE_CONFIG = {
   consistency: {
