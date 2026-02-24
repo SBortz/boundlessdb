@@ -1,11 +1,8 @@
 /**
  * PostgreSQL Throughput Benchmark
  * 
- * Tests whether query performance degrades as the event store grows.
- * Generates data ONCE per scale, then runs all queries on the same store.
- * Mirrors the SQLite benchmark for apples-to-apples comparison.
- * 
- * Run: npx tsx benchmark/postgres-query.ts
+ * Tests query performance as the event store grows.
+ * Run: DATABASE_URL=postgresql://... npx tsx benchmark/postgres-query.ts
  */
 
 import { EventStore } from '../src/event-store.js';
@@ -51,12 +48,41 @@ const STORE_CONFIG = {
   },
 };
 
-async function generateEvents(store: EventStore, numCourses: number, studentsPerCourse: number, lessonsPerStudent: number): Promise<number> {
+// --- Progress helpers ---
+
+function formatNum(n: number): string {
+  return n.toLocaleString('en-US');
+}
+
+function formatMs(ms: number): string {
+  if (ms < 1000) return `${ms.toFixed(0)}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function progressBar(pct: number, width = 30): string {
+  const filled = Math.round(pct * width);
+  const empty = width - filled;
+  return `[${'█'.repeat(filled)}${'░'.repeat(empty)}]`;
+}
+
+// --- Generation with live progress ---
+
+async function generateEvents(
+  store: EventStore,
+  numCourses: number,
+  studentsPerCourse: number,
+  lessonsPerStudent: number,
+  label: string,
+): Promise<number> {
+  const eventsPerCourse = 1 + studentsPerCourse * (1 + lessonsPerStudent + 1);
+  const totalExpected = numCourses * eventsPerCourse;
   let totalEvents = 0;
-  
+  const genStart = performance.now();
+  let lastUpdate = genStart;
+
   for (let c = 0; c < numCourses; c++) {
     const courseId = `course-${c}`;
-    
+
     await store.append([
       { type: 'CourseCreated', data: { courseId, title: `Course ${c}` } },
     ], null);
@@ -64,35 +90,51 @@ async function generateEvents(store: EventStore, numCourses: number, studentsPer
 
     for (let s = 0; s < studentsPerCourse; s++) {
       const studentId = `student-${c}-${s}`;
-      
       const events: BenchmarkEvent[] = [
         { type: 'StudentEnrolled', data: { courseId, studentId } },
       ];
-
       for (let l = 0; l < lessonsPerStudent; l++) {
         events.push({
           type: 'LessonCompleted',
           data: { courseId, studentId, lessonId: `lesson-${l}` },
         });
       }
-
       events.push({ type: 'CertificateIssued', data: { courseId, studentId } });
-
       await store.append(events, null);
       totalEvents += events.length;
     }
 
-    if ((c + 1) % 10 === 0) {
-      process.stdout.write(`\r   ${c + 1}/${numCourses} courses...`);
+    const now = performance.now();
+    if (now - lastUpdate > 100) {
+      lastUpdate = now;
+      const elapsed = now - genStart;
+      const pct = totalEvents / totalExpected;
+      const evtPerSec = totalEvents / (elapsed / 1000);
+      const eta = (totalExpected - totalEvents) / evtPerSec;
+      process.stdout.write(
+        `\r  ${label} ${progressBar(pct)} ${(pct * 100).toFixed(0)}%  ` +
+        `${formatNum(totalEvents)} / ${formatNum(totalExpected)} events  ` +
+        `${formatNum(Math.round(evtPerSec))} evt/s  ` +
+        `ETA ${formatMs(eta * 1000)}   `
+      );
     }
   }
-  
+
+  const elapsed = performance.now() - genStart;
+  const evtPerSec = totalEvents / (elapsed / 1000);
+  process.stdout.write(
+    `\r  ${label} ${progressBar(1)} 100%  ` +
+    `${formatNum(totalEvents)} events in ${formatMs(elapsed)}  ` +
+    `(${formatNum(Math.round(evtPerSec))} evt/s)       \n`
+  );
+
   return totalEvents;
 }
 
-async function benchmark(name: string, fn: () => Promise<{ count: number }>): Promise<{ avgMs: number; results: number }> {
-  // Warmup
-  await fn();
+// --- Benchmark runner ---
+
+async function benchmark(name: string, fn: () => Promise<{ count: number }>): Promise<{ avgMs: number; p50Ms: number; p99Ms: number; results: number }> {
+  await fn(); // warmup
 
   const times: number[] = [];
   let resultCount = 0;
@@ -104,9 +146,15 @@ async function benchmark(name: string, fn: () => Promise<{ count: number }>): Pr
     resultCount = result.count;
   }
 
+  times.sort((a, b) => a - b);
   const avgMs = times.reduce((a, b) => a + b, 0) / times.length;
-  return { avgMs, results: resultCount };
+  const p50Ms = times[Math.floor(times.length * 0.5)];
+  const p99Ms = times[Math.floor(times.length * 0.99)];
+
+  return { avgMs, p50Ms, p99Ms, results: resultCount };
 }
+
+// --- Query definitions ---
 
 interface QueryDef {
   name: string;
@@ -170,11 +218,15 @@ const queries: QueryDef[] = [
   },
 ];
 
-// Dataset configs - keep small for 2GB RAM machine
+// --- Dataset configs ---
+
 const datasets = [
+  { courses: 15, students: 55, lessons: 10, label: '~10k' },
   { courses: 150, students: 55, lessons: 10, label: '~100k' },
   { courses: 500, students: 167, lessons: 10, label: '~1M' },
 ];
+
+// --- DB cleanup ---
 
 async function cleanDb() {
   const pool = new Pool({ connectionString: DB_URL });
@@ -184,55 +236,78 @@ async function cleanDb() {
   await pool.end();
 }
 
-async function main() {
-  console.log('PostgreSQL Throughput Benchmark');
-  console.log(`${ITERATIONS} iterations per query, averaged\n`);
+// --- Main ---
 
-  // Collect all results: results[queryIndex][datasetIndex]
-  const allResults: Array<Array<{ avgMs: number; results: number }>> = queries.map(() => []);
+async function main() {
+  console.log(`\n  ⚡ PostgreSQL Benchmark`);
+  console.log(`  ${ITERATIONS} iterations per query`);
+  console.log(`  ${DB_URL}\n`);
+
+  const allResults: Array<Array<{ avgMs: number; p50Ms: number; p99Ms: number; results: number }>> = queries.map(() => []);
 
   for (let d = 0; d < datasets.length; d++) {
     const ds = datasets[d];
 
-    // Clean DB for each scale
     await cleanDb();
 
     const storage = new PostgresStorage({ connectionString: DB_URL, max: 1 });
     await storage.init();
     const store = new EventStore({ storage, ...STORE_CONFIG });
 
-    const genStart = performance.now();
-    const totalEvents = await generateEvents(store, ds.courses, ds.students, ds.lessons);
-    const genTime = ((performance.now() - genStart) / 1000).toFixed(1);
-    console.log(`\rGenerated ${ds.label} (${totalEvents.toLocaleString()} events) in ${genTime}s`);
+    await generateEvents(store, ds.courses, ds.students, ds.lessons, ds.label);
 
-    // Run all queries on this store
     for (let q = 0; q < queries.length; q++) {
+      process.stdout.write(`\r  Running: ${queries[q].name}...                         `);
       const result = await benchmark(queries[q].name, queries[q].fn(store));
       allResults[q].push(result);
     }
+    process.stdout.write(`\r  ✓ ${ds.label} queries done                                    \n`);
 
     await store.close();
   }
 
-  // Print results table
+  // --- Results table ---
+  console.log('');
   const col = 14;
-  console.log('\n' + '='.repeat(70));
-  console.log('Query'.padEnd(38) + datasets.map(d => d.label.padStart(col)).join('') + '  Results');
-  console.log('-'.repeat(70));
+  const nameCol = 36;
+  const divider = '─'.repeat(nameCol + col * datasets.length + 10);
+
+  console.log(`  ${divider}`);
+  process.stdout.write(`  ${'Query'.padEnd(nameCol)}`);
+  for (const ds of datasets) {
+    process.stdout.write(`${ds.label.padStart(col)}`);
+  }
+  process.stdout.write('  Results\n');
+  console.log(`  ${divider}`);
 
   for (let q = 0; q < queries.length; q++) {
-    let line = queries[q].name.padEnd(38);
+    process.stdout.write(`  ${queries[q].name.padEnd(nameCol)}`);
     for (let d = 0; d < datasets.length; d++) {
       const r = allResults[q][d];
-      line += (r.avgMs.toFixed(2) + 'ms').padStart(col);
+      process.stdout.write(`${(r.avgMs.toFixed(2) + 'ms').padStart(col)}`);
     }
-    line += allResults[q][allResults[q].length - 1].results.toString().padStart(8);
-    console.log(line);
+    const lastResult = allResults[q][allResults[q].length - 1];
+    process.stdout.write(`${lastResult.results.toString().padStart(8)}\n`);
   }
 
-  console.log('='.repeat(70));
-  console.log('Times in ms (avg). Results = count at largest scale.');
+  console.log(`  ${divider}`);
+
+  // p50/p99 for largest dataset
+  const lastIdx = datasets.length - 1;
+  console.log(`\n  Latency percentiles at ${datasets[lastIdx].label}:`);
+  console.log(`  ${'Query'.padEnd(nameCol)}${'avg'.padStart(10)}${'p50'.padStart(10)}${'p99'.padStart(10)}`);
+  console.log(`  ${'─'.repeat(nameCol + 30)}`);
+  for (let q = 0; q < queries.length; q++) {
+    const r = allResults[q][lastIdx];
+    console.log(
+      `  ${queries[q].name.padEnd(nameCol)}` +
+      `${(r.avgMs.toFixed(2) + 'ms').padStart(10)}` +
+      `${(r.p50Ms.toFixed(2) + 'ms').padStart(10)}` +
+      `${(r.p99Ms.toFixed(2) + 'ms').padStart(10)}`
+    );
+  }
+
+  console.log(`\n  Iterations: ${ITERATIONS} | Storage: PostgreSQL\n`);
 }
 
 main().catch(console.error);
