@@ -167,22 +167,32 @@ export class SqliteStorage implements EventStorage {
       if (positionFilter !== null) params.push(positionFilter);
     }
 
-    // CTEs for constrained conditions (keys-first via INDEXED BY for optimal index usage)
+    // CTEs for constrained conditions (keys-first via MATERIALIZED + INDEXED BY)
+    // Two-step approach: first materialize key positions, then join events by PK.
+    // Without MATERIALIZED, SQLite flattens the CTE and chooses idx_event_type
+    // (scanning many rows) over idx_key_position (very selective).
     if (constrained.length > 0) {
       constrained.forEach((c, i) => {
-        let cteSql = `
-          SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
-          FROM event_keys k INDEXED BY idx_key_position
-          INNER JOIN events e ON e.position = k.position
-          WHERE k.key_name = ? AND k.key_value = ? AND e.event_type = ?`;
+        const keyCteName = `keys_${i}`;
+        let keyCte = `
+          SELECT position FROM event_keys INDEXED BY idx_key_position
+          WHERE key_name = ? AND key_value = ?`;
         if (positionFilter !== null) {
-          cteSql += ' AND k.position > ?';
+          keyCte += ' AND position > ?';
         }
+        ctes.push(`${keyCteName} AS MATERIALIZED (${keyCte})`);
+
         const cteName = `constrained_${i}`;
+        const cteSql = `
+          SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
+          FROM ${keyCteName} k
+          INNER JOIN events e ON e.position = k.position
+          WHERE e.event_type = ?`;
         ctes.push(`${cteName} AS (${cteSql})`);
         cteNames.push(cteName);
-        params.push(c.key, c.value, c.type);
+        params.push(c.key, c.value);
         if (positionFilter !== null) params.push(positionFilter);
+        params.push(c.type);
       });
     }
 
