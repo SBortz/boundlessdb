@@ -2,6 +2,28 @@
 
 All notable changes to BoundlessDB will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- **Atomic conflict detection**: `appendWithCondition()` performs conflict check and write in a single transaction. Enables safe multi-node deployments (e.g. Supabase Edge Functions).
+- **PostgreSQL SERIALIZABLE isolation**: Concurrent appends with overlapping consistency keys are detected automatically. Auto-retry on serialization failure (max 3 attempts).
+- **PostgreSQL 50M benchmark results** on landing page.
+
+### Changed
+
+- **Storage interface**: `append()` + `getEventsSince()` replaced by `appendWithCondition()`. Public API (`store.read()`, `store.append()`, `store.query()`) is unchanged.
+- Conflict check logic moved from EventStore into Storage layer for atomicity.
+
+### Performance
+
+- **50M events (PostgreSQL 16, shuffled):**
+  - Constrained (167 results): 3.73ms
+  - Highly selective (10 results): 1.14ms
+  - Mixed 2 types (334 results): 3.83ms
+  - Full aggregate (2,004 results): 7.96ms
+  - Write throughput: 3,797 evt/s (LUKS encrypted)
+
 ## [0.3.1] - 2026-02-24
 
 ### Performance

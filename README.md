@@ -367,6 +367,30 @@ npm run build:browser
 # → ui/public/boundless.browser.js (~100KB)
 ```
 
+## Multi-Node Safety
+
+BoundlessDB supports concurrent access from multiple processes (e.g. Supabase Edge Functions, multiple server instances) when using PostgreSQL.
+
+The conflict check and write happen **atomically in a single SERIALIZABLE transaction**. PostgreSQL detects overlapping reads and aborts one transaction if two processes try to append with conflicting consistency keys. The library retries automatically.
+
+```typescript
+// Edge Function A and B run simultaneously:
+// Both read, both decide, both try to append.
+// PostgreSQL ensures only one succeeds — the other gets a conflict result.
+
+const result = await store.append(newEvents, appendCondition);
+if (result.conflict) {
+  // Retry with fresh state
+}
+```
+
+**Key behavior:**
+- Appends with **different keys** proceed in parallel (no conflict)
+- Appends with **overlapping keys** are serialized (one wins, one retries)
+- This maps directly to DCB's Dynamic Consistency Boundaries
+
+**No configuration needed** — atomic conflict detection is built into all storage engines.
+
 ## Storage Backends
 
 | Backend | Environment | Persistence |
