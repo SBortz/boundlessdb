@@ -63,7 +63,7 @@ const sizes = sizeArgs.map(parseSize);
 
 const datasets = sizes.map(buildDataset);
 
-const DB_DIR = '.';
+const DB_PATH = './boundless-bench.sqlite';
 
 const STORE_CONFIG = {
   consistency: {
@@ -119,14 +119,16 @@ async function generateEvents(
   studentsPerCourse: number,
   lessonsPerStudent: number,
   label: string,
+  startCourse: number = 0,
 ): Promise<number> {
   const eventsPerCourse = 1 + studentsPerCourse * (1 + lessonsPerStudent + 1);
-  const totalExpected = numCourses * eventsPerCourse;
+  const coursesToGenerate = numCourses - startCourse;
+  const totalExpected = coursesToGenerate * eventsPerCourse;
   let totalEvents = 0;
   const genStart = performance.now();
   let lastUpdate = genStart;
 
-  for (let c = 0; c < numCourses; c++) {
+  for (let c = startCourse; c < numCourses; c++) {
     const courseId = `course-${c}`;
 
     await store.append([
@@ -301,62 +303,87 @@ async function main() {
   console.log(`  ${ITERATIONS} iterations per query`);
   console.log(`  Scales: ${datasets.map(d => d.label).join(', ')}\n`);
 
+  // Sort datasets ascending so we can extend incrementally
+  const sortedDatasets = [...datasets].sort((a, b) => a.courses - b.courses);
+  // Map back to original order for results
+  const originalOrder = datasets.map(ds => sortedDatasets.indexOf(ds));
+  
   const allResults: Array<Array<{ avgMs: number; p50Ms: number; p99Ms: number; results: number }>> = queries.map(() => []);
+  const sortedResults: Array<Array<{ avgMs: number; p50Ms: number; p99Ms: number; results: number }>> = queries.map(() => []);
 
-  for (let d = 0; d < datasets.length; d++) {
-    const ds = datasets[d];
-    const expectedEvents = ds.courses * EVENTS_PER_COURSE + 6; // +6 for course-latest
-    const dbPath = useDisk ? `${DB_DIR}/boundless-bench-${ds.label.replace('~', '')}.sqlite` : ':memory:';
+  // For on-disk: single file, extended incrementally
+  // For in-memory: fresh store per scale
+  const dbPath = useDisk ? DB_PATH : ':memory:';
+  let storage: SqliteStorage | null = null;
+  let store: EventStore | null = null;
+  let existingCourses = 0;
 
-    let needsGeneration = true;
-
-    if (useDisk) {
-      const fs = await import('fs');
-      if (fs.existsSync(dbPath)) {
-        // Check if cached DB has expected size
-        try {
-          const checkStorage = new SqliteStorage(dbPath);
-          const checkStore = new EventStore({ storage: checkStorage, ...STORE_CONFIG });
-          const pos = await checkStorage.getLatestPosition();
-          const count = Number(pos);
-          if (count >= expectedEvents * 0.99 && count <= expectedEvents * 1.01) {
-            console.log(`  ${ds.label} cached (${formatNum(count)} events in ${dbPath})`);
-            needsGeneration = false;
-
-            // Run queries on cached store
-            for (let q = 0; q < queries.length; q++) {
-              process.stdout.write(`\r  Running: ${queries[q].name}...                         `);
-              const result = await benchmark(queries[q].name, queries[q].fn(checkStore));
-              allResults[q].push(result);
-            }
-            process.stdout.write(`\r  ✓ ${ds.label} queries done                                    \n`);
-            await checkStore.close();
-          } else {
-            console.log(`  ${ds.label} cached but wrong size (${formatNum(count)} events, expected ~${formatNum(expectedEvents)}), regenerating...`);
-            fs.unlinkSync(dbPath);
-          }
-        } catch {
-          console.log(`  ${ds.label} cached file corrupt, regenerating...`);
-          try { fs.unlinkSync(dbPath); } catch {}
-        }
+  if (useDisk) {
+    const fs = await import('fs');
+    if (fs.existsSync(dbPath)) {
+      try {
+        storage = new SqliteStorage(dbPath);
+        store = new EventStore({ storage, ...STORE_CONFIG });
+        const pos = Number(await storage.getLatestPosition());
+        // Estimate existing courses (subtract course-latest extras, divide by events per course)
+        existingCourses = Math.floor(Math.max(0, pos - 10) / EVENTS_PER_COURSE);
+        console.log(`  Cached DB: ${formatNum(pos)} events (~${formatNum(existingCourses)} courses) in ${dbPath}\n`);
+      } catch {
+        console.log(`  Cached file corrupt, starting fresh...\n`);
+        try { fs.unlinkSync(dbPath); } catch {}
+        storage = null;
+        store = null;
+        existingCourses = 0;
       }
     }
+  }
 
-    if (needsGeneration) {
-      const storage = new SqliteStorage(dbPath);
-      const store = new EventStore({ storage, ...STORE_CONFIG });
+  for (let d = 0; d < sortedDatasets.length; d++) {
+    const ds = sortedDatasets[d];
 
+    if (!useDisk) {
+      // In-memory: fresh store per scale
+      storage = new SqliteStorage(':memory:');
+      store = new EventStore({ storage, ...STORE_CONFIG });
       await generateEvents(store, ds.courses, ds.students, ds.lessons, ds.label);
-
-      for (let q = 0; q < queries.length; q++) {
-        process.stdout.write(`\r  Running: ${queries[q].name}...                         `);
-        const result = await benchmark(queries[q].name, queries[q].fn(store));
-        allResults[q].push(result);
+    } else {
+      // On-disk: extend if needed
+      if (!storage || !store) {
+        storage = new SqliteStorage(dbPath);
+        store = new EventStore({ storage, ...STORE_CONFIG });
       }
-      process.stdout.write(`\r  ✓ ${ds.label} queries done                                    \n`);
 
-      await store.close();
+      if (existingCourses >= ds.courses) {
+        const pos = Number(await storage.getLatestPosition());
+        console.log(`  ${ds.label} cached (${formatNum(pos)} events, ${formatNum(existingCourses)} courses >= ${formatNum(ds.courses)} needed)`);
+      } else {
+        const needed = ds.courses - existingCourses;
+        console.log(`  ${ds.label} extending: ${formatNum(existingCourses)} → ${formatNum(ds.courses)} courses (+${formatNum(needed)})`);
+        await generateEvents(store, ds.courses, ds.students, ds.lessons, ds.label, existingCourses);
+        existingCourses = ds.courses;
+      }
     }
+
+    // Run queries
+    for (let q = 0; q < queries.length; q++) {
+      process.stdout.write(`\r  Running: ${queries[q].name}...                         `);
+      const result = await benchmark(queries[q].name, queries[q].fn(store!));
+      sortedResults[q].push(result);
+    }
+    process.stdout.write(`\r  ✓ ${ds.label} queries done                                    \n`);
+
+    if (!useDisk) {
+      await store!.close();
+    }
+  }
+
+  if (useDisk && store) {
+    await store.close();
+  }
+
+  // Reorder results back to original dataset order
+  for (let q = 0; q < queries.length; q++) {
+    allResults[q] = originalOrder.map(i => sortedResults[q][i]);
   }
 
   // --- Results table ---
