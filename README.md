@@ -776,6 +776,8 @@ npx tsx scripts/reindex.ts --config ./benchmark/consistency.config.ts \
 
 Skipping the reindex step will throw an error — just like in production.
 
+For a detailed walkthrough of how config changes affect the key index, see [docs/benchmark-reindex-workflow.md](docs/benchmark-reindex-workflow.md).
+
 ## Development
 
 ```bash
