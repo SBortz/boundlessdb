@@ -414,5 +414,163 @@ describe('EventStore', () => {
       });
     });
 
+    describe('multi-key AND queries', () => {
+      it('returns only events matching ALL keys', async () => {
+        // Append events with multiple keys
+        await store.append([
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } },
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'bob' } },
+          { type: 'StudentSubscribed', data: { courseId: 'math201', studentId: 'alice' } },
+        ], null);
+
+        // Query for alice in cs101 (multi-key AND)
+        const result = await store.read({
+          conditions: [
+            { type: 'StudentSubscribed', keys: [
+              { name: 'course', value: 'cs101' },
+              { name: 'student', value: 'alice' },
+            ] },
+          ],
+        });
+
+        expect(result.events).toHaveLength(1);
+        expect(result.events[0].data).toEqual({ courseId: 'cs101', studentId: 'alice' });
+      });
+
+      it('multi-key with single key behaves like legacy constrained', async () => {
+        await store.append([
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } },
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'bob' } },
+        ], null);
+
+        // Single key in keys[] format
+        const multiKeyResult = await store.read({
+          conditions: [
+            { type: 'StudentSubscribed', keys: [{ name: 'course', value: 'cs101' }] },
+          ],
+        });
+
+        // Legacy format
+        const legacyResult = await store.read({
+          conditions: [
+            { type: 'StudentSubscribed', key: 'course', value: 'cs101' },
+          ],
+        });
+
+        expect(multiKeyResult.events).toHaveLength(legacyResult.events.length);
+        expect(multiKeyResult.events.map(e => e.id)).toEqual(legacyResult.events.map(e => e.id));
+      });
+
+      it('multi-key with AppendCondition detects conflict', async () => {
+        // Initial enrollment
+        await store.append([
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } },
+        ], null);
+
+        // Read with multi-key condition
+        const readResult = await store.read({
+          conditions: [
+            { type: 'StudentSubscribed', keys: [
+              { name: 'course', value: 'cs101' },
+              { name: 'student', value: 'alice' },
+            ] },
+          ],
+        });
+
+        // Someone else adds alice to cs101 again
+        await store.append([
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } },
+        ], null);
+
+        // Try to append with stale condition
+        const appendResult = await store.append(
+          [{ type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } }],
+          readResult.appendCondition
+        );
+
+        expect(isConflict(appendResult)).toBe(true);
+      });
+
+      it('multi-key no conflict with different key values', async () => {
+        // Initial enrollment
+        await store.append([
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } },
+        ], null);
+
+        // Read alice in cs101
+        const readResult = await store.read({
+          conditions: [
+            { type: 'StudentSubscribed', keys: [
+              { name: 'course', value: 'cs101' },
+              { name: 'student', value: 'alice' },
+            ] },
+          ],
+        });
+
+        // Bob enrolls in cs101 (different student key)
+        await store.append([
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'bob' } },
+        ], null);
+
+        // Alice appending should still trigger conflict because bob's event
+        // has course=cs101 AND student=bob, which does NOT match the query
+        // (course=cs101 AND student=alice)
+        const appendResult = await store.append(
+          [{ type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } }],
+          readResult.appendCondition
+        );
+
+        // No conflict because bob's enrollment doesn't have student=alice
+        expect(isConflict(appendResult)).toBe(false);
+      });
+
+      it('mixed multi-key AND + single-key conditions (OR)', async () => {
+        await store.append([
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } },
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'bob' } },
+          { type: 'CourseCreated', data: { courseId: 'cs101', name: 'Intro CS' } },
+          { type: 'StudentSubscribed', data: { courseId: 'math201', studentId: 'alice' } },
+        ], null);
+
+        // alice in cs101 (AND) OR all CourseCreated for cs101
+        const result = await store.read({
+          conditions: [
+            { type: 'StudentSubscribed', keys: [
+              { name: 'course', value: 'cs101' },
+              { name: 'student', value: 'alice' },
+            ] },
+            { type: 'CourseCreated', key: 'course', value: 'cs101' },
+          ],
+        });
+
+        // 1 StudentSubscribed (alice+cs101) + 1 CourseCreated = 2
+        expect(result.events).toHaveLength(2);
+        expect(result.events.map(e => e.type).sort()).toEqual(['CourseCreated', 'StudentSubscribed']);
+      });
+
+      it('fromPosition works with multi-key AND', async () => {
+        const r1 = await store.append([
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } },
+        ], null);
+        const pos = (await store.getStorage().getLatestPosition());
+
+        await store.append([
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } },
+        ], null);
+
+        const result = await store.read({
+          conditions: [
+            { type: 'StudentSubscribed', keys: [
+              { name: 'course', value: 'cs101' },
+              { name: 'student', value: 'alice' },
+            ] },
+          ],
+          fromPosition: pos,
+        });
+
+        expect(result.events).toHaveLength(1);
+      });
+    });
+
   });
 });

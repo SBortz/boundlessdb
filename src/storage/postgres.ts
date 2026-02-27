@@ -3,7 +3,7 @@
  */
 
 import { Pool, PoolClient, type PoolConfig } from 'pg';
-import { isConstrainedCondition, type ExtractedKey, type QueryCondition, type StoredEvent } from '../types.js';
+import { isConstrainedCondition, isMultiKeyCondition, normalizeCondition, hasKeys, type ExtractedKey, type QueryCondition, type StoredEvent, type MultiKeyConstrainedCondition, type UnconstrainedCondition } from '../types.js';
 import type { EventStorage, EventToStore, StorageAppendCondition, AppendWithConditionResult } from './interface.js';
 
 const SCHEMA = `
@@ -214,49 +214,42 @@ export class PostgresStorage implements EventStorage {
   }
 
   /**
-   * Query with specific client (for use within transactions)
+   * Build PostgreSQL query from normalized conditions.
+   * Shared between queryWithClient and query methods.
    */
-  private async queryWithClient(
-    client: PoolClient,
+  private buildPostgresQuery(
     conditions: QueryCondition[],
     fromPosition?: bigint,
     limit?: number
-  ): Promise<StoredEvent[]> {
+  ): { sql: string; params: (string | number)[] } {
     const params: (string | number)[] = [];
     let paramIndex = 1;
 
     if (conditions.length === 0) {
-      // No conditions = return all events
       let sql = `
         SELECT position, event_id, event_type, data, metadata, timestamp
         FROM events
       `;
-
       if (fromPosition !== undefined) {
         sql += ` WHERE position > $${paramIndex}`;
         params.push(fromPosition.toString());
         paramIndex++;
       }
-
       sql += ' ORDER BY position';
-
       if (limit !== undefined) {
         sql += ` LIMIT $${paramIndex}`;
         params.push(limit);
       }
-
-      const result = await client.query<EventRow>(sql, params);
-      return result.rows.map(row => this.rowToEvent(row));
+      return { sql, params };
     }
 
-    // Separate conditions by type
-    const constrained = conditions.filter(isConstrainedCondition);
-    const unconstrained = conditions.filter(c => !isConstrainedCondition(c)) as Array<{ type: string }>;
+    // Normalize all conditions
+    const normalized = conditions.map(normalizeCondition);
+    const constrained = normalized.filter(hasKeys);
+    const unconstrained = normalized.filter(c => !hasKeys(c)) as UnconstrainedCondition[];
 
-    // Build CTE-based query with UNION for better index utilization
     const ctes: string[] = [];
     const cteNames: string[] = [];
-
     const positionFilter = fromPosition !== undefined ? fromPosition.toString() : null;
 
     // CTE for unconstrained conditions
@@ -271,7 +264,6 @@ export class PostgresStorage implements EventStorage {
         FROM events
         WHERE event_type IN (${typePlaceholders.join(', ')})`;
       params.push(...unconstrained.map(c => c.type));
-      
       if (positionFilter !== null) {
         cteSql += ` AND position > $${paramIndex}`;
         params.push(positionFilter);
@@ -281,64 +273,77 @@ export class PostgresStorage implements EventStorage {
       cteNames.push('unconstrained_matches');
     }
 
-    // Constrained conditions
+    // Constrained conditions — each condition is its own CTE
+    // Multi-key conditions use INTERSECT within a CTE
     if (constrained.length > 0) {
-      const keyGroups = new Map<string, { key: string; value: string; types: string[] }>();
-      for (const c of constrained) {
-        const groupKey = `${c.key}\0${c.value}`;
-        let group = keyGroups.get(groupKey);
-        if (!group) {
-          group = { key: c.key, value: c.value, types: [] };
-          keyGroups.set(groupKey, group);
-        }
-        group.types.push(c.type);
-      }
+      constrained.forEach((c, i) => {
+        const isMultiKey = c.keys.length > 1;
+        const cteName = `constrained_${i}`;
 
-      const constrainedParts: string[] = [];
-      for (const group of keyGroups.values()) {
-        const keyNameParam = `$${paramIndex}`;
-        params.push(group.key);
-        paramIndex++;
+        if (isMultiKey) {
+          // Multi-key: INTERSECT sub-selects
+          const intersectParts = c.keys.map(key => {
+            const keyNameParam = `$${paramIndex}`;
+            params.push(key.name);
+            paramIndex++;
+            const keyValueParam = `$${paramIndex}`;
+            params.push(key.value);
+            paramIndex++;
 
-        const keyValueParam = `$${paramIndex}`;
-        params.push(group.value);
-        paramIndex++;
+            let part = `
+          SELECT position FROM event_keys
+          WHERE key_name = ${keyNameParam} AND key_value = ${keyValueParam}`;
+            if (positionFilter !== null) {
+              part += ` AND position > $${paramIndex}`;
+              params.push(positionFilter);
+              paramIndex++;
+            }
+            return part;
+          });
 
-        const typeParams = group.types.map(t => {
-          const ph = `$${paramIndex}`;
-          params.push(t);
+          const typeParam = `$${paramIndex}`;
+          params.push(c.type);
           paramIndex++;
-          return ph;
-        });
 
-        let partSql = `
+          const cteSql = `
+          SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
+          FROM (${intersectParts.join('\n          INTERSECT')}) keys
+          INNER JOIN events e ON e.position = keys.position
+          WHERE e.event_type = ${typeParam}`;
+          ctes.push(`${cteName} AS (${cteSql})`);
+        } else {
+          // Single key: direct join
+          const keyNameParam = `$${paramIndex}`;
+          params.push(c.keys[0].name);
+          paramIndex++;
+          const keyValueParam = `$${paramIndex}`;
+          params.push(c.keys[0].value);
+          paramIndex++;
+          const typeParam = `$${paramIndex}`;
+          params.push(c.type);
+          paramIndex++;
+
+          let cteSql = `
           SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
           FROM event_keys k
           INNER JOIN events e ON e.position = k.position
           WHERE k.key_name = ${keyNameParam} AND k.key_value = ${keyValueParam}
-            AND e.event_type IN (${typeParams.join(', ')})`;
-
-        if (positionFilter !== null) {
-          partSql += ` AND e.position > $${paramIndex}`;
-          params.push(positionFilter);
-          paramIndex++;
+            AND e.event_type = ${typeParam}`;
+          if (positionFilter !== null) {
+            cteSql += ` AND e.position > $${paramIndex}`;
+            params.push(positionFilter);
+            paramIndex++;
+          }
+          ctes.push(`${cteName} AS (${cteSql})`);
         }
-        constrainedParts.push(partSql);
-      }
 
-      if (constrainedParts.length === 1) {
-        ctes.push(`constrained_matches AS (${constrainedParts[0]})`);
-      } else {
-        const unionSql = constrainedParts.join('\n          UNION ALL\n        ');
-        ctes.push(`constrained_matches AS (${unionSql})`);
-      }
-      cteNames.push('constrained_matches');
+        cteNames.push(cteName);
+      });
     }
 
     const unionParts = cteNames.map(name => `SELECT * FROM ${name}`);
-    
     let sql = `WITH ${ctes.join(',\n')}
-SELECT * FROM (${unionParts.join(' UNION ALL ')}) AS combined
+SELECT * FROM (${unionParts.join(' UNION ')}) AS combined
 ORDER BY position`;
 
     if (limit !== undefined) {
@@ -346,6 +351,19 @@ ORDER BY position`;
       params.push(limit);
     }
 
+    return { sql, params };
+  }
+
+  /**
+   * Query with specific client (for use within transactions)
+   */
+  private async queryWithClient(
+    client: PoolClient,
+    conditions: QueryCondition[],
+    fromPosition?: bigint,
+    limit?: number
+  ): Promise<StoredEvent[]> {
+    const { sql, params } = this.buildPostgresQuery(conditions, fromPosition, limit);
     const result = await client.query<EventRow>(sql, params);
     return result.rows.map(row => this.rowToEvent(row));
   }
@@ -357,138 +375,7 @@ ORDER BY position`;
   ): Promise<StoredEvent[]> {
     this.ensureInitialized();
 
-    const params: (string | number)[] = [];
-    let paramIndex = 1;
-
-    if (conditions.length === 0) {
-      // No conditions = return all events
-      let sql = `
-        SELECT position, event_id, event_type, data, metadata, timestamp
-        FROM events
-      `;
-
-      if (fromPosition !== undefined) {
-        sql += ` WHERE position > $${paramIndex}`;
-        params.push(fromPosition.toString());
-        paramIndex++;
-      }
-
-      sql += ' ORDER BY position';
-
-      if (limit !== undefined) {
-        sql += ` LIMIT $${paramIndex}`;
-        params.push(limit);
-      }
-
-      const result = await this.pool.query<EventRow>(sql, params);
-      return result.rows.map(row => this.rowToEvent(row));
-    }
-
-    // Separate conditions by type
-    const constrained = conditions.filter(isConstrainedCondition);
-    const unconstrained = conditions.filter(c => !isConstrainedCondition(c)) as Array<{ type: string }>;
-
-    // Build CTE-based query with UNION for better index utilization
-    const ctes: string[] = [];
-    const cteNames: string[] = [];
-
-    const positionFilter = fromPosition !== undefined ? fromPosition.toString() : null;
-
-    // CTE for unconstrained conditions (type-only, no join needed)
-    if (unconstrained.length > 0) {
-      const typePlaceholders = unconstrained.map(() => {
-        const ph = `$${paramIndex}`;
-        paramIndex++;
-        return ph;
-      });
-      let cteSql = `
-        SELECT position, event_id, event_type, data, metadata, timestamp
-        FROM events
-        WHERE event_type IN (${typePlaceholders.join(', ')})`;
-      params.push(...unconstrained.map(c => c.type));
-      
-      if (positionFilter !== null) {
-        cteSql += ` AND position > $${paramIndex}`;
-        params.push(positionFilter);
-        paramIndex++;
-      }
-      ctes.push(`unconstrained_matches AS (${cteSql})`);
-      cteNames.push('unconstrained_matches');
-    }
-
-    // Constrained conditions: group by (key_name, key_value) for optimal index usage.
-    // Each group uses a keys-first join with IN() for event types sharing the same key,
-    // then groups are combined with UNION ALL (no duplicates since types differ).
-    if (constrained.length > 0) {
-      // Group constrained conditions by (key_name, key_value)
-      const keyGroups = new Map<string, { key: string; value: string; types: string[] }>();
-      for (const c of constrained) {
-        const groupKey = `${c.key}\0${c.value}`;
-        let group = keyGroups.get(groupKey);
-        if (!group) {
-          group = { key: c.key, value: c.value, types: [] };
-          keyGroups.set(groupKey, group);
-        }
-        group.types.push(c.type);
-      }
-
-      // Build one sub-select per key group using keys-first join
-      const constrainedParts: string[] = [];
-      for (const group of keyGroups.values()) {
-        // key_name and key_value params
-        const keyNameParam = `$${paramIndex}`;
-        params.push(group.key);
-        paramIndex++;
-
-        const keyValueParam = `$${paramIndex}`;
-        params.push(group.value);
-        paramIndex++;
-
-        // event_type IN (...) params
-        const typeParams = group.types.map(t => {
-          const ph = `$${paramIndex}`;
-          params.push(t);
-          paramIndex++;
-          return ph;
-        });
-
-        let partSql = `
-          SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
-          FROM event_keys k
-          INNER JOIN events e ON e.position = k.position
-          WHERE k.key_name = ${keyNameParam} AND k.key_value = ${keyValueParam}
-            AND e.event_type IN (${typeParams.join(', ')})`;
-
-        if (positionFilter !== null) {
-          partSql += ` AND e.position > $${paramIndex}`;
-          params.push(positionFilter);
-          paramIndex++;
-        }
-        constrainedParts.push(partSql);
-      }
-
-      if (constrainedParts.length === 1) {
-        ctes.push(`constrained_matches AS (${constrainedParts[0]})`);
-      } else {
-        const unionSql = constrainedParts.join('\n          UNION ALL\n        ');
-        ctes.push(`constrained_matches AS (${unionSql})`);
-      }
-      cteNames.push('constrained_matches');
-    }
-
-    // Build final query with UNION ALL (no duplicates: unconstrained and constrained
-    // conditions are disjoint by type, and within constrained groups types are explicit)
-    const unionParts = cteNames.map(name => `SELECT * FROM ${name}`);
-    
-    let sql = `WITH ${ctes.join(',\n')}
-SELECT * FROM (${unionParts.join(' UNION ALL ')}) AS combined
-ORDER BY position`;
-
-    if (limit !== undefined) {
-      sql += ` LIMIT $${paramIndex}`;
-      params.push(limit);
-    }
-
+    const { sql, params } = this.buildPostgresQuery(conditions, fromPosition, limit);
     const result = await this.pool.query<EventRow>(sql, params);
     return result.rows.map(row => this.rowToEvent(row));
   }

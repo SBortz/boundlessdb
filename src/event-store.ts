@@ -10,11 +10,15 @@ import { SqliteStorage } from './storage/sqlite.js';
 import {
   QueryResult,
   isConstrainedCondition,
+  isMultiKeyCondition,
+  normalizeCondition,
+  hasKeys,
   type AppendCondition,
   type AppendResult,
   type ConflictResult,
   type ConsistencyConfig,
   type ConstrainedCondition,
+  type MultiKeyConstrainedCondition,
   type Event,
   type EventStoreOptions,
   type EventWithMetadata,
@@ -273,24 +277,29 @@ export class EventStore {
     originalCondition: AppendCondition | null
   ): QueryCondition[] {
     // Start with original conditions if provided
-    const conditions = new Map<string, ConstrainedCondition>();
+    // Use a Map with a stable key to deduplicate
+    const conditions = new Map<string, QueryCondition>();
 
     if (originalCondition !== null) {
       for (const cond of originalCondition.failIfEventsMatch) {
-        if (isConstrainedCondition(cond)) {
-          const key = `${cond.type}:${cond.key}:${cond.value}`;
-          conditions.set(key, cond);
+        const normalized = normalizeCondition(cond);
+        if (hasKeys(normalized)) {
+          // Build a dedup key from all keys
+          const keysStr = normalized.keys.map(k => `${k.name}:${k.value}`).sort().join('|');
+          const dedupKey = `${normalized.type}:${keysStr}`;
+          conditions.set(dedupKey, normalized);
         }
       }
     }
 
     // Add conditions from the newly appended events
+    // Each event generates one condition per extracted key (single-key conditions)
     for (const event of events) {
       const extractedKeys = this.keyExtractor.extract(event);
       for (const extracted of extractedKeys) {
         const cond: ConstrainedCondition = { type: event.type, key: extracted.name, value: extracted.value };
-        const key = `${cond.type}:${cond.key}:${cond.value}`;
-        conditions.set(key, cond);
+        const dedupKey = `${cond.type}:${extracted.name}:${extracted.value}`;
+        conditions.set(dedupKey, cond);
       }
     }
 
