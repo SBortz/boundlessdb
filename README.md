@@ -84,13 +84,12 @@ event_keys: [pos:1, course, cs101], [pos:1, student, alice]
 ```
 
 ### 4️⃣ Query by Keys
-Find all events matching any combination of key conditions:
+Find all events matching key conditions:
 ```typescript
-const result = await store.read({
-  conditions: [
-    { type: 'StudentSubscribed', key: 'course', value: 'cs101' }
-  ]
-});
+const result = await store.query()
+  .matchType('StudentSubscribed')
+  .withKey('course', 'cs101')
+  .read();
 // result.appendCondition captures: "I read all matching events up to position X"
 ```
 
@@ -98,12 +97,11 @@ const result = await store.read({
 
 ```typescript
 // 1️⃣ READ — Query events and get an appendCondition
-const { events, appendCondition } = await store.read({
-  conditions: [
-    { type: 'CourseCreated', key: 'course', value: 'cs101' },
-    { type: 'StudentSubscribed', key: 'course', value: 'cs101' },
-  ]
-});
+const { events, appendCondition } = await store.query<CourseEvent>()
+  .matchType('CourseCreated')
+  .matchType('StudentSubscribed')
+    .withKey('course', 'cs101')
+  .read();
 
 // 2️⃣ DECIDE — Build state, run business logic
 const state = events.reduce(evolve, initialState);
@@ -354,9 +352,10 @@ const consistency = {
 // Extracted keys: order="ORD-123", month="2026-02"
 
 // Query all orders from February 2026:
-const { events } = await store.read({
-  conditions: [{ type: 'OrderPlaced', key: 'month', value: '2026-02' }]
-});
+const { events } = await store.query()
+  .matchType('OrderPlaced')
+  .withKey('month', '2026-02')
+  .read();
 ```
 
 This is great for **Close the Books** patterns — query all events in a time period efficiently!
@@ -482,9 +481,10 @@ type ProductItemRemoved = Event<'ProductItemRemoved', {
 type CartEvents = ProductItemAdded | ProductItemRemoved;
 
 // Read with type safety
-const result = await store.read<CartEvents>({
-  conditions: [{ type: 'ProductItemAdded', key: 'cart', value: 'cart-123' }]
-});
+const result = await store.query<CartEvents>()
+  .matchType('ProductItemAdded')
+  .withKey('cart', 'cart-123')
+  .read();
 
 // TypeScript knows the event types!
 for (const event of result.events) {
@@ -503,23 +503,20 @@ Match events of a type where a specific key has a specific value:
 
 ```typescript
 // Get ProductItemAdded events where cart='cart-123'
-const result = await store.read({
-  conditions: [
-    { type: 'ProductItemAdded', key: 'cart', value: 'cart-123' }
-  ]
-});
+const result = await store.query()
+  .matchType('ProductItemAdded')
+  .withKey('cart', 'cart-123')
+  .read();
 ```
 
 ### Unconstrained Query
-Omit `key` and `value` to match **all events of a type**:
+Match **all events of a type** (no key filter):
 
 ```typescript
 // Get ALL ProductItemAdded events (regardless of cart)
-const result = await store.read({
-  conditions: [
-    { type: 'ProductItemAdded' }  // no key/value = match all
-  ]
-});
+const result = await store.query()
+  .matchType('ProductItemAdded')
+  .read();
 ```
 
 ### Mixed Conditions
@@ -527,48 +524,28 @@ Combine constrained and unconstrained in one query (OR logic):
 
 ```typescript
 // "Give me the course definition + all enrollments for cs101"
-const result = await store.read({
-  conditions: [
-    { type: 'CourseCreated', key: 'course', value: 'cs101' },
-    { type: 'StudentSubscribed', key: 'course', value: 'cs101' },
-    { type: 'StudentUnsubscribed', key: 'course', value: 'cs101' },
-  ]
-});
+const result = await store.query()
+  .matchType('CourseCreated').withKey('course', 'cs101')
+  .matchType('StudentSubscribed').withKey('course', 'cs101')
+  .matchType('StudentUnsubscribed').withKey('course', 'cs101')
+  .read();
 
 // "All courses + only Alice's enrollments"
-const result = await store.read({
-  conditions: [
-    { type: 'CourseCreated' },                                  // unconstrained: ALL courses
-    { type: 'StudentSubscribed', key: 'student', value: 'alice' } // constrained: only Alice
-  ]
-});
+const result = await store.query()
+  .matchType('CourseCreated')                                      // unconstrained: ALL courses
+  .matchType('StudentSubscribed').withKey('student', 'alice')      // constrained: only Alice
+  .read();
 ```
 
 ### Same Type, Multiple Values
-Query multiple values of the same key:
+Query multiple values of the same key (OR):
 
 ```typescript
 // Get ProductItemAdded for cart-1 OR cart-2
-const result = await store.read({
-  conditions: [
-    { type: 'ProductItemAdded', key: 'cart', value: 'cart-1' },
-    { type: 'ProductItemAdded', key: 'cart', value: 'cart-2' }
-  ]
-});
-```
-
-### Type Safety
-With TypeScript, conditions are type-safe — you must provide either:
-- **Only `type`** (unconstrained), or
-- **`type` + `key` + `value`** (constrained)
-
-```typescript
-// ✅ Valid
-{ type: 'ProductItemAdded' }
-{ type: 'ProductItemAdded', key: 'cart', value: 'cart-123' }
-
-// ❌ TypeScript Error — key without value not allowed
-{ type: 'ProductItemAdded', key: 'cart' }
+const result = await store.query()
+  .matchType('ProductItemAdded').withKey('cart', 'cart-1')
+  .matchType('ProductItemAdded').withKey('cart', 'cart-2')
+  .read();
 ```
 
 ### Empty Conditions
@@ -613,7 +590,9 @@ result.last()           // StoredEvent<E> | undefined
 
 ```typescript
 // With appendCondition from read()
-const readResult = await store.read<CartEvents>({ conditions });
+const readResult = await store.query<CartEvents>()
+  .matchType('ProductItemAdded').withKey('cart', 'cart-123')
+  .read();
 const result = await store.append<CartEvents>([newEvent], readResult.appendCondition);
 
 // With manual AppendCondition (DCB spec compliant)
