@@ -766,8 +766,8 @@ npx tsx scripts/reindex.ts --config ./benchmark/consistency.config.minimal.ts \
   --db ./benchmark/boundless-bench.sqlite
 
 # 3. Benchmark with minimal config
-npx tsx benchmark/sqlite-query.ts --disk --shuffle \
-  --config ./benchmark/consistency.config.minimal.ts 1m
+npx tsx benchmark/sqlite-query.ts --events 1m --disk --shuffle \
+  --config ./benchmark/consistency.config.minimal.ts
 
 # 4. Switch back → reindex again
 npx tsx scripts/reindex.ts --config ./benchmark/consistency.config.ts \

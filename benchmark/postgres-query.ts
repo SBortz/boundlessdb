@@ -2,17 +2,17 @@
  * PostgreSQL Throughput Benchmark
  * 
  * Usage:
- *   npx tsx benchmark/postgres-query.ts [options] <size> [size...]
+ *   npx tsx benchmark/postgres-query.ts --events <size> [options]
  * 
  * Options:
+ *   --events <size>          Target event count (e.g. 10k, 1m, 50m). Required.
  *   --shuffle                Interleave queries in random order (avoids cache bias)
  *   --connection <url>       PostgreSQL connection string (default: env DATABASE_URL or localhost:5433)
  *   --config <path>          Consistency config file (default: ./benchmark/consistency.config.ts)
  * 
  * Examples:
- *   npx tsx benchmark/postgres-query.ts 1M 5M
- *   npx tsx benchmark/postgres-query.ts --shuffle 100k 1M
- *   npx tsx benchmark/postgres-query.ts --config ./my-config.ts --shuffle 1m
+ *   npx tsx benchmark/postgres-query.ts --events 1m --shuffle
+ *   npx tsx benchmark/postgres-query.ts --events 50m --shuffle --config ./my-config.ts
  */
 
 import { EventStore } from '../src/event-store.js';
@@ -45,14 +45,17 @@ function getArg(name: string): string | undefined {
 
 const customConnection = getArg('--connection');
 const configPath = getArg('--config');
+const eventsArg = getArg('--events');
 const DB_URL = customConnection || process.env.DATABASE_URL || 'postgresql://postgres:bench@localhost:5433/bench';
 
-const sizeArgs = args.filter((a, i) => {
+// Backward compat: also accept positional args
+const positionalArgs = args.filter((a, i) => {
   if (a.startsWith('--')) return false;
   const prev = args[i - 1];
-  if (prev === '--connection' || prev === '--config') return false;
+  if (prev === '--connection' || prev === '--config' || prev === '--events') return false;
   return true;
 });
+const sizeArgs = eventsArg ? [eventsArg] : positionalArgs;
 
 function parseSize(s: string): number {
   const m = s.match(/^(\d+(?:\.\d+)?)\s*(k|m)?$/i);
@@ -76,9 +79,9 @@ function buildDataset(target: number) {
 }
 
 if (sizeArgs.length === 0) {
-  console.error('Usage: npx tsx benchmark/postgres-query.ts [options] <size> [size...]');
+  console.error('Usage: npx tsx benchmark/postgres-query.ts --events <size> [options]');
   console.error('Options: --shuffle --connection <url> --config <path>');
-  console.error('Example: npx tsx benchmark/postgres-query.ts --shuffle 100k 1M 5M');
+  console.error('Example: npx tsx benchmark/postgres-query.ts --events 1m --shuffle');
   process.exit(1);
 }
 const sizes = sizeArgs.map(parseSize);

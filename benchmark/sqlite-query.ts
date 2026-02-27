@@ -2,18 +2,19 @@
  * SQLite Throughput Benchmark
  * 
  * Usage:
- *   npx tsx benchmark/sqlite-query.ts [options] <size> [size...]
+ *   npx tsx benchmark/sqlite-query.ts --events <size> [options]
  * 
  * Options:
+ *   --events <size>          Target event count (e.g. 10k, 1m, 50m). Required.
  *   --disk                   Use on-disk database (default: in-memory)
  *   --shuffle                Interleave queries in random order (avoids cache bias)
  *   --db <path>              SQLite database path (default: ./boundless-bench.sqlite)
  *   --config <path>          Consistency config file (default: ./benchmark/consistency.config.ts)
  * 
  * Examples:
- *   npx tsx benchmark/sqlite-query.ts --disk 50m
- *   npx tsx benchmark/sqlite-query.ts --disk --shuffle 50m
- *   npx tsx benchmark/sqlite-query.ts --disk --db ./my.sqlite --config ./my-config.ts 1m
+ *   npx tsx benchmark/sqlite-query.ts --events 1m --disk --shuffle
+ *   npx tsx benchmark/sqlite-query.ts --events 10k
+ *   npx tsx benchmark/sqlite-query.ts --events 1m --disk --config ./my-config.ts
  */
 
 import { EventStore } from '../src/event-store.js';
@@ -46,13 +47,16 @@ function getArg(name: string): string | undefined {
 
 const customDbPath = getArg('--db');
 const configPath = getArg('--config');
-const sizeArgs = args.filter((a, i) => {
+const eventsArg = getArg('--events');
+
+// Backward compat: also accept positional args
+const positionalArgs = args.filter((a, i) => {
   if (a.startsWith('--')) return false;
-  // Skip values that follow --db or --config
   const prev = args[i - 1];
-  if (prev === '--db' || prev === '--config') return false;
+  if (prev === '--db' || prev === '--config' || prev === '--events') return false;
   return true;
 });
+const sizeArgs = eventsArg ? [eventsArg] : positionalArgs;
 
 function parseSize(s: string): number {
   const m = s.match(/^(\d+(?:\.\d+)?)\s*(k|m)?$/i);
@@ -76,9 +80,9 @@ function buildDataset(target: number) {
 }
 
 if (sizeArgs.length === 0) {
-  console.error('Usage: npx tsx benchmark/sqlite-query.ts [options] <size> [size...]');
+  console.error('Usage: npx tsx benchmark/sqlite-query.ts --events <size> [options]');
   console.error('Options: --disk --shuffle --db <path> --config <path>');
-  console.error('Example: npx tsx benchmark/sqlite-query.ts --disk 100k 1M 5M');
+  console.error('Example: npx tsx benchmark/sqlite-query.ts --events 1m --disk --shuffle');
   process.exit(1);
 }
 const sizes = sizeArgs.map(parseSize);
