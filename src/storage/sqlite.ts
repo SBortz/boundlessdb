@@ -3,7 +3,7 @@
  */
 
 import Database from 'better-sqlite3';
-import { isConstrainedCondition, type ExtractedKey, type QueryCondition, type StoredEvent } from '../types.js';
+import { isConstrainedCondition, isMultiKeyCondition, normalizeCondition, hasKeys, type ExtractedKey, type QueryCondition, type StoredEvent, type MultiKeyConstrainedCondition, type UnconstrainedCondition } from '../types.js';
 import type { EventStorage, EventToStore, StorageAppendCondition, AppendWithConditionResult } from './interface.js';
 
 const SCHEMA = `
@@ -164,9 +164,12 @@ export class SqliteStorage implements EventStorage {
       return rows.map(row => this.rowToEvent(row));
     }
 
+    // Normalize all conditions to the internal format
+    const normalized = conditions.map(normalizeCondition);
+
     // Separate conditions by type
-    const constrained = conditions.filter(isConstrainedCondition);
-    const unconstrained = conditions.filter(c => !isConstrainedCondition(c)) as Array<{ type: string }>;
+    const constrained = normalized.filter(hasKeys);
+    const unconstrained = normalized.filter(c => !hasKeys(c)) as UnconstrainedCondition[];
 
     // Build CTE-based query with UNION for better index utilization
     const ctes: string[] = [];
@@ -206,15 +209,38 @@ export class SqliteStorage implements EventStorage {
     //   SQLite scans ALL events of a type after the position (up to millions
     //   of index entries). With MATERIALIZED, it scans only key positions
     //   after the threshold — often zero rows. Fixes 2019ms → <1ms at 50M.
+    //
+    // Multi-key AND: INTERSECT within a CTE. Each key gets its own sub-select
+    // on idx_key_position; INTERSECT returns only positions with ALL keys.
+    // Single-key (1 element in keys[]): no INTERSECT — keep current efficient path.
     if (constrained.length > 0) {
       constrained.forEach((c, i) => {
+        const isMultiKey = c.keys.length > 1;
+
         if (positionFilter !== null) {
           // MATERIALIZED: key positions first, then join events by PK
           const keyCteName = `keys_${i}`;
-          const keyCte = `
+
+          if (isMultiKey) {
+            // Multi-key: INTERSECT within MATERIALIZED CTE
+            const intersectParts = c.keys.map(() => {
+              const part = `
             SELECT position FROM event_keys INDEXED BY idx_key_position
             WHERE key_name = ? AND key_value = ? AND position > ?`;
-          ctes.push(`${keyCteName} AS MATERIALIZED (${keyCte})`);
+              return part;
+            });
+            ctes.push(`${keyCteName} AS MATERIALIZED (${intersectParts.join('\n          INTERSECT')})`);
+            for (const key of c.keys) {
+              params.push(key.name, key.value, positionFilter);
+            }
+          } else {
+            // Single key: no INTERSECT needed
+            const keyCte = `
+            SELECT position FROM event_keys INDEXED BY idx_key_position
+            WHERE key_name = ? AND key_value = ? AND position > ?`;
+            ctes.push(`${keyCteName} AS MATERIALIZED (${keyCte})`);
+            params.push(c.keys[0].name, c.keys[0].value, positionFilter);
+          }
 
           const cteName = `constrained_${i}`;
           const cteSql = `
@@ -224,18 +250,37 @@ export class SqliteStorage implements EventStorage {
             WHERE e.event_type = ?`;
           ctes.push(`${cteName} AS (${cteSql})`);
           cteNames.push(cteName);
-          params.push(c.key, c.value, positionFilter, c.type);
+          params.push(c.type);
         } else {
-          // Flat CTE: let SQLite choose join order, INDEXED BY guides key lookups
-          const cteName = `constrained_${i}`;
-          const cteSql = `
+          if (isMultiKey) {
+            // Multi-key without position filter: INTERSECT in flat CTE
+            const cteName = `constrained_${i}`;
+            const intersectParts = c.keys.map(() => `
+            SELECT position FROM event_keys INDEXED BY idx_key_position
+            WHERE key_name = ? AND key_value = ?`);
+            const cteSql = `
+            SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
+            FROM (${intersectParts.join('\n          INTERSECT')}) keys
+            INNER JOIN events e ON e.position = keys.position
+            WHERE e.event_type = ?`;
+            ctes.push(`${cteName} AS (${cteSql})`);
+            cteNames.push(cteName);
+            for (const key of c.keys) {
+              params.push(key.name, key.value);
+            }
+            params.push(c.type);
+          } else {
+            // Single key: flat CTE, let SQLite choose join order, INDEXED BY guides key lookups
+            const cteName = `constrained_${i}`;
+            const cteSql = `
             SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
             FROM event_keys k INDEXED BY idx_key_position
             INNER JOIN events e ON e.position = k.position
             WHERE k.key_name = ? AND k.key_value = ? AND e.event_type = ?`;
-          ctes.push(`${cteName} AS (${cteSql})`);
-          cteNames.push(cteName);
-          params.push(c.key, c.value, c.type);
+            ctes.push(`${cteName} AS (${cteSql})`);
+            cteNames.push(cteName);
+            params.push(c.keys[0].name, c.keys[0].value, c.type);
+          }
         }
       });
     }
@@ -244,7 +289,7 @@ export class SqliteStorage implements EventStorage {
     const unionParts = cteNames.map(name => `SELECT * FROM ${name}`);
     
     let sql = `WITH ${ctes.join(',\n')}
-SELECT * FROM (${unionParts.join(' UNION ')}) AS combined
+SELECT * FROM (${unionParts.join(' UNION ALL ')}) AS combined
 ORDER BY position`;
 
     if (limit !== undefined) {

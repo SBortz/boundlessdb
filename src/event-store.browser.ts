@@ -9,11 +9,15 @@ import { SqlJsStorage } from './storage/sqljs.js';
 import {
   QueryResult,
   isConstrainedCondition,
+  isMultiKeyCondition,
+  normalizeCondition,
+  hasKeys,
   type AppendCondition,
   type AppendResult,
   type ConflictResult,
   type ConsistencyConfig,
   type ConstrainedCondition,
+  type MultiKeyConstrainedCondition,
   type Event,
   type EventStoreOptions,
   type EventWithMetadata,
@@ -365,13 +369,15 @@ export class EventStore {
     events: EventWithMetadata<E>[],
     originalCondition: AppendCondition | null
   ): QueryCondition[] {
-    const conditions = new Map<string, ConstrainedCondition>();
+    const conditions = new Map<string, QueryCondition>();
 
     if (originalCondition !== null) {
       for (const cond of originalCondition.failIfEventsMatch) {
-        if (isConstrainedCondition(cond)) {
-          const key = `${cond.type}:${cond.key}:${cond.value}`;
-          conditions.set(key, cond);
+        const normalized = normalizeCondition(cond);
+        if (hasKeys(normalized)) {
+          const keysStr = normalized.keys.map(k => `${k.name}:${k.value}`).sort().join('|');
+          const dedupKey = `${normalized.type}:${keysStr}`;
+          conditions.set(dedupKey, normalized);
         }
       }
     }
@@ -381,8 +387,8 @@ export class EventStore {
       const extractedKeys = this.keyExtractor.extract(event);
       for (const extracted of extractedKeys) {
         const cond: ConstrainedCondition = { type: event.type, key: extracted.name, value: extracted.value };
-        const key = `${cond.type}:${cond.key}:${cond.value}`;
-        conditions.set(key, cond);
+        const dedupKey = `${cond.type}:${extracted.name}:${extracted.value}`;
+        conditions.set(dedupKey, cond);
       }
     }
 

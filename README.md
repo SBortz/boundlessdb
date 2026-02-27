@@ -157,6 +157,7 @@ Build queries with a chainable API:
 const { events, appendCondition } = await store.query<CourseEvent>()
   .matchType('CourseCreated')                              // all events of type
   .matchTypeAndKey('StudentSubscribed', 'course', 'cs101') // type + key = value
+  .withKey('student', 'alice')                             // AND: also match student key
   .fromPosition(100n)                                      // start from position
   .limit(50)                                               // limit results
   .read();
@@ -168,6 +169,7 @@ const { events, appendCondition } = await store.query<CourseEvent>()
 |--------|-------------|
 | `matchType(type)` | Match all events of type (unconstrained) |
 | `matchTypeAndKey(type, key, value)` | Match events of type where key=value |
+| `withKey(key, value)` | Add AND key to last condition (multi-key) |
 | `fromPosition(bigint)` | Start reading from position |
 | `limit(number)` | Limit number of results |
 | `read()` | Execute query, returns `QueryResult` |
@@ -250,13 +252,48 @@ Traditional streams give you ONE boundary. DCB lets you query ANY combination:
 
 ```typescript
 // "Has Alice already enrolled in CS101?"
+// Multi-key AND: must match BOTH keys on the SAME event
+const result = await store.query()
+  .matchType('StudentSubscribed')
+  .withKey('course', 'cs101')
+  .withKey('student', 'alice')
+  .read();
+```
+
+### AND vs OR
+
+- **`.withKey().withKey()`** = **AND** — the same event must have ALL specified keys
+- **Two separate conditions** = **OR** — events matching EITHER condition
+
+```typescript
+// AND: Events where course='cs101' AND student='alice' (same event)
+store.query()
+  .matchType('StudentSubscribed')
+  .withKey('course', 'cs101')
+  .withKey('student', 'alice')
+  .read();
+
+// OR: Events where course='cs101' OR student='alice' (different events)
+store.query()
+  .matchTypeAndKey('StudentSubscribed', 'course', 'cs101')
+  .matchTypeAndKey('StudentSubscribed', 'student', 'alice')
+  .read();
+```
+
+Multi-key conditions also work in the object syntax:
+
+```typescript
 const result = await store.read({
   conditions: [
-    { type: 'StudentSubscribed', key: 'course', value: 'cs101' },
-    { type: 'StudentSubscribed', key: 'student', value: 'alice' },
+    {
+      type: 'StudentSubscribed',
+      keys: [
+        { name: 'course', value: 'cs101' },
+        { name: 'student', value: 'alice' }
+      ]
+    }
   ]
 });
-// Checks BOTH course AND student boundaries in one query!
 ```
 
 ## Config-based Key Extraction
@@ -521,17 +558,20 @@ const result = await store.read({
 ```
 
 ### Type Safety
-With TypeScript, conditions are type-safe — you must provide either:
-- **Only `type`** (unconstrained), or
-- **`type` + `key` + `value`** (constrained)
+With TypeScript, conditions are type-safe — three forms:
 
 ```typescript
-// ✅ Valid
+// ✅ Unconstrained (type only)
 { type: 'ProductItemAdded' }
+
+// ✅ Single key
 { type: 'ProductItemAdded', key: 'cart', value: 'cart-123' }
 
-// ❌ TypeScript Error — key without value not allowed
-{ type: 'ProductItemAdded', key: 'cart' }
+// ✅ Multi-key AND
+{ type: 'StudentSubscribed', keys: [
+  { name: 'course', value: 'cs101' },
+  { name: 'student', value: 'alice' }
+]}
 ```
 
 ### Empty Conditions
@@ -553,11 +593,38 @@ const store = createEventStore({
 });
 ```
 
+### `store.query<E>()`
+
+Fluent query builder:
+
+```typescript
+const result = await store.query<CourseEvent>()
+  .matchType('CourseCreated')                              // unconstrained (type only)
+  .matchTypeAndKey('StudentSubscribed', 'course', 'cs101') // type + single key
+  .withKey('student', 'alice')                             // AND: add key to last condition
+  .fromPosition(100n)                                      // start from position
+  .limit(50)                                               // limit results
+  .read();                                                 // execute, returns QueryResult
+```
+
+| Method | Description |
+|--------|-------------|
+| `matchType(type)` | Match all events of type (unconstrained) |
+| `matchTypeAndKey(type, key, value)` | Match events of type where key=value |
+| `withKey(key, value)` | Add AND key to last condition (multi-key) |
+| `fromPosition(bigint)` | Start reading from position |
+| `limit(number)` | Limit number of results |
+| `read()` | Execute query, returns `QueryResult` |
+
 ### `store.read<E>(query)`
 
 ```typescript
 const result = await store.read<CartEvents>({
-  conditions: [{ type, key?, value? }],
+  conditions: [
+    { type: string }                                            // unconstrained
+    | { type: string, key: string, value: string }              // single key
+    | { type: string, keys: { name: string, value: string }[] } // multi-key AND
+  ],
   fromPosition?: bigint,
   limit?: number,
 });

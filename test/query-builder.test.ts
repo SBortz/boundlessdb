@@ -1,9 +1,13 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createEventStore, InMemoryStorage, type Event } from '../src/index.js';
+import { createEventStore, InMemoryStorage, type Event, type MultiKeyConstrainedCondition } from '../src/index.js';
 
 type TestEvent = 
   | Event<'CourseCreated', { courseId: string; capacity: number }>
   | Event<'StudentSubscribed', { courseId: string; studentId: string }>;
+
+type MultiKeyTestEvent =
+  | Event<'StudentEnrolled', { courseId: string; studentId: string; semester: string }>
+  | Event<'CourseCancelled', { courseId: string }>;
 
 describe('QueryBuilder (Fluent API)', () => {
   const config = {
@@ -111,8 +115,7 @@ describe('QueryBuilder (Fluent API)', () => {
     expect(result.appendCondition.failIfEventsMatch).toHaveLength(1);
     expect(result.appendCondition.failIfEventsMatch[0]).toEqual({
       type: 'StudentSubscribed',
-      key: 'course',
-      value: 'cs101'
+      keys: [{ name: 'course', value: 'cs101' }]
     });
   });
 
@@ -123,5 +126,171 @@ describe('QueryBuilder (Fluent API)', () => {
 
     expect(result.isEmpty()).toBe(true);
     expect(result.count).toBe(0);
+  });
+});
+
+describe('QueryBuilder — Multi-Key AND (.withKey())', () => {
+  const config = {
+    eventTypes: {
+      StudentEnrolled: {
+        keys: [
+          { name: 'course', path: 'data.courseId' },
+          { name: 'student', path: 'data.studentId' },
+          { name: 'semester', path: 'data.semester' },
+        ]
+      },
+      CourseCancelled: {
+        keys: [{ name: 'course', path: 'data.courseId' }]
+      }
+    }
+  };
+
+  let store: ReturnType<typeof createEventStore>;
+
+  beforeEach(async () => {
+    store = createEventStore({
+      storage: new InMemoryStorage(),
+      consistency: config
+    });
+
+    // Seed test events
+    await store.append<MultiKeyTestEvent>([
+      { type: 'StudentEnrolled', data: { courseId: 'cs101', studentId: 'alice', semester: '2026-1' } },
+      { type: 'StudentEnrolled', data: { courseId: 'cs101', studentId: 'bob', semester: '2026-1' } },
+      { type: 'StudentEnrolled', data: { courseId: 'math201', studentId: 'alice', semester: '2026-1' } },
+      { type: 'StudentEnrolled', data: { courseId: 'cs101', studentId: 'alice', semester: '2026-2' } },
+      { type: 'CourseCancelled', data: { courseId: 'cs101' } },
+    ], null);
+  });
+
+  it('.withKey() adds key to last condition', async () => {
+    const result = await store.query<MultiKeyTestEvent>()
+      .matchType('StudentEnrolled')
+      .withKey('course', 'cs101')
+      .read();
+
+    // Should find all StudentEnrolled for cs101 (alice 2026-1, bob, alice 2026-2)
+    expect(result.count).toBe(3);
+  });
+
+  it('.withKey() without .matchType() throws error', () => {
+    expect(() => {
+      store.query<MultiKeyTestEvent>().withKey('course', 'cs101');
+    }).toThrow('.withKey() requires a preceding .matchType() or .matchTypeAndKey()');
+  });
+
+  it('multi-key AND returns only events with ALL keys', async () => {
+    const result = await store.query<MultiKeyTestEvent>()
+      .matchType('StudentEnrolled')
+      .withKey('course', 'cs101')
+      .withKey('student', 'alice')
+      .read();
+
+    // Should find only alice in cs101 (2 events: 2026-1 and 2026-2)
+    expect(result.count).toBe(2);
+    for (const event of result.events) {
+      expect(event.data.courseId).toBe('cs101');
+      expect(event.data.studentId).toBe('alice');
+    }
+  });
+
+  it('three or more keys AND', async () => {
+    const result = await store.query<MultiKeyTestEvent>()
+      .matchType('StudentEnrolled')
+      .withKey('course', 'cs101')
+      .withKey('student', 'alice')
+      .withKey('semester', '2026-1')
+      .read();
+
+    // Only 1 event matches all three keys
+    expect(result.count).toBe(1);
+    expect(result.events[0].data).toEqual({
+      courseId: 'cs101',
+      studentId: 'alice',
+      semester: '2026-1',
+    });
+  });
+
+  it('mixed conditions: multi-key AND + single-key OR', async () => {
+    const result = await store.query<MultiKeyTestEvent>()
+      .matchType('StudentEnrolled')
+      .withKey('course', 'cs101')
+      .withKey('student', 'alice')
+      .matchTypeAndKey('CourseCancelled', 'course', 'cs101')
+      .read();
+
+    // alice cs101 (2 events) + CourseCancelled cs101 (1 event) = 3
+    expect(result.count).toBe(3);
+    const types = result.events.map(e => e.type);
+    expect(types.filter(t => t === 'StudentEnrolled')).toHaveLength(2);
+    expect(types.filter(t => t === 'CourseCancelled')).toHaveLength(1);
+  });
+
+  it('matchTypeAndKey + withKey (shorthand multi-key)', async () => {
+    const result = await store.query<MultiKeyTestEvent>()
+      .matchTypeAndKey('StudentEnrolled', 'course', 'cs101')
+      .withKey('student', 'bob')
+      .read();
+
+    // Only bob in cs101
+    expect(result.count).toBe(1);
+    expect(result.events[0].data.studentId).toBe('bob');
+  });
+
+  it('single-key query still works unchanged (backward compat)', async () => {
+    const result = await store.query<MultiKeyTestEvent>()
+      .matchTypeAndKey('StudentEnrolled', 'student', 'alice')
+      .read();
+
+    // Alice is enrolled in cs101 (2x) and math201 (1x) = 3
+    expect(result.count).toBe(3);
+  });
+
+  it('{ type, key, value } input format still accepted via read()', async () => {
+    const result = await store.read<MultiKeyTestEvent>({
+      conditions: [
+        { type: 'StudentEnrolled', key: 'course', value: 'cs101' },
+      ],
+    });
+
+    expect(result.count).toBe(3);
+  });
+
+  it('multi-key appendCondition propagates correctly', async () => {
+    const result = await store.query<MultiKeyTestEvent>()
+      .matchType('StudentEnrolled')
+      .withKey('course', 'cs101')
+      .withKey('student', 'alice')
+      .read();
+
+    expect(result.appendCondition).toBeDefined();
+    const cond = result.appendCondition.failIfEventsMatch[0] as MultiKeyConstrainedCondition;
+    expect(cond.type).toBe('StudentEnrolled');
+    expect(cond.keys).toEqual([
+      { name: 'course', value: 'cs101' },
+      { name: 'student', value: 'alice' },
+    ]);
+  });
+
+  it('multi-key with fromPosition', async () => {
+    // Get all alice in cs101
+    const all = await store.query<MultiKeyTestEvent>()
+      .matchType('StudentEnrolled')
+      .withKey('course', 'cs101')
+      .withKey('student', 'alice')
+      .read();
+
+    expect(all.count).toBe(2);
+
+    // Read from after the first event's position
+    const fromPos = await store.query<MultiKeyTestEvent>()
+      .matchType('StudentEnrolled')
+      .withKey('course', 'cs101')
+      .withKey('student', 'alice')
+      .fromPosition(all.events[0].position)
+      .read();
+
+    expect(fromPos.count).toBe(1);
+    expect(fromPos.events[0].data.semester).toBe('2026-2');
   });
 });

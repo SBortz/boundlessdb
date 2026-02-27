@@ -3,7 +3,7 @@
  */
 
 import initSqlJs, { type Database as SqlJsDatabase, type SqlValue } from 'sql.js';
-import { isConstrainedCondition, type ExtractedKey, type QueryCondition, type StoredEvent } from '../types.js';
+import { isConstrainedCondition, isMultiKeyCondition, normalizeCondition, hasKeys, type ExtractedKey, type QueryCondition, type StoredEvent, type MultiKeyConstrainedCondition, type UnconstrainedCondition } from '../types.js';
 import type { EventStorage, EventToStore, StorageAppendCondition, AppendWithConditionResult } from './interface.js';
 
 const SCHEMA = `
@@ -217,62 +217,75 @@ export class SqlJsStorage implements EventStorage {
       });
     }
 
-    // Separate conditions by type
-    const constrained = conditions.filter(isConstrainedCondition);
-    const unconstrained = conditions.filter(c => !isConstrainedCondition(c)) as Array<{ type: string }>;
+    // Normalize all conditions to the internal format
+    const normalized = conditions.map(normalizeCondition);
+    const constrained = normalized.filter(hasKeys);
+    const unconstrained = normalized.filter(c => !hasKeys(c)) as UnconstrainedCondition[];
 
-    const whereClauses: string[] = [];
+    const positionFilter = fromPosition !== undefined ? Number(fromPosition) : null;
 
-    // Unconstrained: match by type only
+    // Build CTE-based query (mirrors SQLite approach but without INDEXED BY / MATERIALIZED)
+    const ctes: string[] = [];
+    const cteNames: string[] = [];
+
+    // CTE for unconstrained conditions (type-only, no join needed)
     if (unconstrained.length > 0) {
       const typeList = unconstrained.map(c => escapeSql(c.type)).join(', ');
-      whereClauses.push(`e.event_type IN (${typeList})`);
+      let cteSql = `
+        SELECT position, event_id, event_type, data, metadata, timestamp
+        FROM events
+        WHERE event_type IN (${typeList})`;
+      if (positionFilter !== null) {
+        cteSql += ` AND position > ${positionFilter}`;
+      }
+      ctes.push(`unconstrained_matches AS (${cteSql})`);
+      cteNames.push('unconstrained_matches');
     }
 
-    // Constrained: match by type + key + value
+    // CTEs for constrained conditions
     if (constrained.length > 0) {
-      const constrainedClauses = constrained.map(
-        c => `(e.event_type = ${escapeSql(c.type)} AND k.key_name = ${escapeSql(c.key)} AND k.key_value = ${escapeSql(c.value)})`
-      );
-      whereClauses.push(`(${constrainedClauses.join(' OR ')})`);
+      constrained.forEach((c, i) => {
+        const isMultiKey = c.keys.length > 1;
+        const cteName = `constrained_${i}`;
+
+        if (isMultiKey) {
+          // Multi-key: INTERSECT sub-selects
+          const intersectParts = c.keys.map(key => {
+            let part = `SELECT position FROM event_keys WHERE key_name = ${escapeSql(key.name)} AND key_value = ${escapeSql(key.value)}`;
+            if (positionFilter !== null) {
+              part += ` AND position > ${positionFilter}`;
+            }
+            return part;
+          });
+          const cteSql = `
+            SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
+            FROM (${intersectParts.join(' INTERSECT ')}) keys
+            INNER JOIN events e ON e.position = keys.position
+            WHERE e.event_type = ${escapeSql(c.type)}`;
+          ctes.push(`${cteName} AS (${cteSql})`);
+        } else {
+          // Single key: direct join
+          let cteSql = `
+            SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
+            FROM event_keys k
+            INNER JOIN events e ON e.position = k.position
+            WHERE k.key_name = ${escapeSql(c.keys[0].name)} AND k.key_value = ${escapeSql(c.keys[0].value)}
+              AND e.event_type = ${escapeSql(c.type)}`;
+          if (positionFilter !== null) {
+            cteSql += ` AND e.position > ${positionFilter}`;
+          }
+          ctes.push(`${cteName} AS (${cteSql})`);
+        }
+        cteNames.push(cteName);
+      });
     }
 
-    // Build SQL - need JOIN if we have constrained conditions
-    const needsJoin = constrained.length > 0;
-    let sql: string;
-    if (needsJoin) {
-      sql = `
-        SELECT DISTINCT
-          e.position,
-          e.event_id,
-          e.event_type,
-          e.data,
-          e.metadata,
-          e.timestamp
-        FROM events e
-        LEFT JOIN event_keys k ON e.position = k.position
-        WHERE (${whereClauses.join(' OR ')})
-      `;
-    } else {
-      // No constrained conditions, no JOIN needed
-      sql = `
-        SELECT
-          position,
-          event_id,
-          event_type,
-          data,
-          metadata,
-          timestamp
-        FROM events e
-        WHERE (${whereClauses.join(' OR ')})
-      `;
-    }
+    // Build final query with UNION
+    const unionParts = cteNames.map(name => `SELECT * FROM ${name}`);
 
-    if (fromPosition !== undefined) {
-      sql += ` AND e.position > ${Number(fromPosition)}`;
-    }
-
-    sql += ' ORDER BY e.position';
+    let sql = `WITH ${ctes.join(',\n')}
+SELECT * FROM (${unionParts.join(' UNION ALL ')}) AS combined
+ORDER BY position`;
 
     if (limit !== undefined) {
       sql += ` LIMIT ${Number(limit)}`;
