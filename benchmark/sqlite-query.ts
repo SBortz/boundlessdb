@@ -2,22 +2,24 @@
  * SQLite Throughput Benchmark
  * 
  * Usage:
- *   npx tsx benchmark/sqlite-query.ts [--disk] [--shuffle] [sizes...]
+ *   npx tsx benchmark/sqlite-query.ts [options] <size> [size...]
  * 
- * Modes:
- *   (default)   Run each query N times sequentially, then next query
- *   --shuffle   Interleave all queries in random order to avoid cache bias
+ * Options:
+ *   --disk                   Use on-disk database (default: in-memory)
+ *   --shuffle                Interleave queries in random order (avoids cache bias)
+ *   --db <path>              SQLite database path (default: ./boundless-bench.sqlite)
+ *   --config <path>          Consistency config file (default: ./benchmark/consistency.config.ts)
  * 
  * Examples:
  *   npx tsx benchmark/sqlite-query.ts --disk 50m
  *   npx tsx benchmark/sqlite-query.ts --disk --shuffle 50m
- *   npx tsx benchmark/sqlite-query.ts --disk 100k 1M 5M
+ *   npx tsx benchmark/sqlite-query.ts --disk --db ./my.sqlite --config ./my-config.ts 1m
  */
 
 import { EventStore } from '../src/event-store.js';
 import { SqliteStorage } from '../src/storage/sqlite.js';
-import type { Event } from '../src/types.js';
-import consistency from './consistency.config.js';
+import type { Event, ConsistencyConfig } from '../src/types.js';
+import defaultConsistency from './consistency.config.js';
 
 type CourseCreated = Event<'CourseCreated', { courseId: string; title: string }>;
 type StudentEnrolled = Event<'StudentEnrolled', { courseId: string; studentId: string }>;
@@ -35,7 +37,22 @@ const EVENTS_PER_COURSE = 1 + STUDENTS * (1 + LESSONS + 1); // 2005
 const args = process.argv.slice(2);
 const useDisk = args.includes('--disk');
 const useShuffle = args.includes('--shuffle');
-const sizeArgs = args.filter(a => !a.startsWith('--'));
+
+function getArg(name: string): string | undefined {
+  const idx = args.indexOf(name);
+  if (idx === -1 || idx + 1 >= args.length) return undefined;
+  return args[idx + 1];
+}
+
+const customDbPath = getArg('--db');
+const configPath = getArg('--config');
+const sizeArgs = args.filter((a, i) => {
+  if (a.startsWith('--')) return false;
+  // Skip values that follow --db or --config
+  const prev = args[i - 1];
+  if (prev === '--db' || prev === '--config') return false;
+  return true;
+});
 
 function parseSize(s: string): number {
   const m = s.match(/^(\d+(?:\.\d+)?)\s*(k|m)?$/i);
@@ -59,7 +76,8 @@ function buildDataset(target: number) {
 }
 
 if (sizeArgs.length === 0) {
-  console.error('Usage: npx tsx benchmark/sqlite-query.ts [--disk] <size> [size...]');
+  console.error('Usage: npx tsx benchmark/sqlite-query.ts [options] <size> [size...]');
+  console.error('Options: --disk --shuffle --db <path> --config <path>');
   console.error('Example: npx tsx benchmark/sqlite-query.ts --disk 100k 1M 5M');
   process.exit(1);
 }
@@ -67,7 +85,17 @@ const sizes = sizeArgs.map(parseSize);
 
 const datasets = sizes.map(buildDataset);
 
-const DB_PATH = './boundless-bench.sqlite';
+const DB_PATH = customDbPath || './boundless-bench.sqlite';
+
+// Load consistency config (dynamic import if custom path, otherwise default)
+let consistency: ConsistencyConfig = defaultConsistency;
+if (configPath) {
+  const { resolve } = await import('node:path');
+  const { pathToFileURL } = await import('node:url');
+  const mod = await import(pathToFileURL(resolve(configPath)).href);
+  consistency = mod.default || mod.consistency || mod.config;
+  console.log(`  Config: ${configPath}`);
+}
 
 const STORE_CONFIG = { consistency };
 

@@ -2,24 +2,24 @@
  * PostgreSQL Throughput Benchmark
  * 
  * Usage:
- *   npx tsx benchmark/postgres-query.ts [--shuffle] [sizes...]
+ *   npx tsx benchmark/postgres-query.ts [options] <size> [size...]
  * 
- * Modes:
- *   (default)   Run each query N times sequentially, then next query
- *   --shuffle   Interleave all queries in random order to avoid cache bias
+ * Options:
+ *   --shuffle                Interleave queries in random order (avoids cache bias)
+ *   --connection <url>       PostgreSQL connection string (default: env DATABASE_URL or localhost:5433)
+ *   --config <path>          Consistency config file (default: ./benchmark/consistency.config.ts)
  * 
  * Examples:
  *   npx tsx benchmark/postgres-query.ts 1M 5M
  *   npx tsx benchmark/postgres-query.ts --shuffle 100k 1M
- * 
- * Env: DATABASE_URL (default: postgresql://postgres:bench@localhost:5433/bench)
+ *   npx tsx benchmark/postgres-query.ts --config ./my-config.ts --shuffle 1m
  */
 
 import { EventStore } from '../src/event-store.js';
 import { PostgresStorage } from '../src/storage/postgres.js';
 import { Pool } from 'pg';
-import type { Event } from '../src/types.js';
-import consistency from './consistency.config.js';
+import type { Event, ConsistencyConfig } from '../src/types.js';
+import defaultConsistency from './consistency.config.js';
 
 type CourseCreated = Event<'CourseCreated', { courseId: string; title: string }>;
 type StudentEnrolled = Event<'StudentEnrolled', { courseId: string; studentId: string }>;
@@ -27,7 +27,6 @@ type LessonCompleted = Event<'LessonCompleted', { courseId: string; studentId: s
 type CertificateIssued = Event<'CertificateIssued', { courseId: string; studentId: string }>;
 type BenchmarkEvent = CourseCreated | StudentEnrolled | LessonCompleted | CertificateIssued;
 
-const DB_URL = process.env.DATABASE_URL || 'postgresql://postgres:bench@localhost:5433/bench';
 const ITERATIONS = 20;
 const STUDENTS = 167;
 const LESSONS = 10;
@@ -37,7 +36,23 @@ const EVENTS_PER_COURSE = 1 + STUDENTS * (1 + LESSONS + 1); // 2005
 
 const args = process.argv.slice(2);
 const useShuffle = args.includes('--shuffle');
-const sizeArgs = args.filter(a => !a.startsWith('--'));
+
+function getArg(name: string): string | undefined {
+  const idx = args.indexOf(name);
+  if (idx === -1 || idx + 1 >= args.length) return undefined;
+  return args[idx + 1];
+}
+
+const customConnection = getArg('--connection');
+const configPath = getArg('--config');
+const DB_URL = customConnection || process.env.DATABASE_URL || 'postgresql://postgres:bench@localhost:5433/bench';
+
+const sizeArgs = args.filter((a, i) => {
+  if (a.startsWith('--')) return false;
+  const prev = args[i - 1];
+  if (prev === '--connection' || prev === '--config') return false;
+  return true;
+});
 
 function parseSize(s: string): number {
   const m = s.match(/^(\d+(?:\.\d+)?)\s*(k|m)?$/i);
@@ -61,13 +76,24 @@ function buildDataset(target: number) {
 }
 
 if (sizeArgs.length === 0) {
-  console.error('Usage: npx tsx benchmark/postgres-query.ts [--shuffle] <size> [size...]');
+  console.error('Usage: npx tsx benchmark/postgres-query.ts [options] <size> [size...]');
+  console.error('Options: --shuffle --connection <url> --config <path>');
   console.error('Example: npx tsx benchmark/postgres-query.ts --shuffle 100k 1M 5M');
   process.exit(1);
 }
 const sizes = sizeArgs.map(parseSize);
 
 const datasets = sizes.map(buildDataset);
+
+// Load consistency config (dynamic import if custom path, otherwise default)
+let consistency: ConsistencyConfig = defaultConsistency;
+if (configPath) {
+  const { resolve } = await import('node:path');
+  const { pathToFileURL } = await import('node:url');
+  const mod = await import(pathToFileURL(resolve(configPath)).href);
+  consistency = mod.default || mod.consistency || mod.config;
+  console.log(`  Config: ${configPath}`);
+}
 
 const STORE_CONFIG = { consistency };
 
