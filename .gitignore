@@ -1,5 +1,7 @@
 node_modules
 dist
 *.db
+*.db-shm
+*.db-wal
 .DS_Store
 boundless-bench*.sqlite
