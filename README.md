@@ -733,11 +733,11 @@ Run benchmarks against SQLite or PostgreSQL:
 # SQLite (in-memory)
 npx tsx benchmark/sqlite-query.ts --events 1m
 
-# SQLite (on-disk, shuffled — realistic latency)
-npx tsx benchmark/sqlite-query.ts --events 1m --disk --shuffle
+# SQLite (on-disk, shuffled by default)
+npx tsx benchmark/sqlite-query.ts --events 1m --disk
 
 # PostgreSQL
-npx tsx benchmark/postgres-query.ts --events 1m --shuffle
+npx tsx benchmark/postgres-query.ts --events 1m
 ```
 
 ### Custom Config
@@ -759,14 +759,14 @@ Changing the consistency config changes the key index. BoundlessDB enforces this
 
 ```bash
 # 1. Benchmark with full config
-npx tsx benchmark/sqlite-query.ts --events 1m --disk --shuffle
+npx tsx benchmark/sqlite-query.ts --events 1m --disk
 
 # 2. Switch to minimal config → reindex first!
 npx tsx scripts/reindex.ts --config ./benchmark/consistency.config.minimal.ts \
   --db ./benchmark/boundless-bench.sqlite
 
 # 3. Benchmark with minimal config
-npx tsx benchmark/sqlite-query.ts --events 1m --disk --shuffle \
+npx tsx benchmark/sqlite-query.ts --events 1m --disk \
   --config ./benchmark/consistency.config.minimal.ts
 
 # 4. Switch back → reindex again

@@ -5,7 +5,7 @@
  * Demonstrates how config changes affect the key index.
  *
  * Usage:
- *   npx tsx benchmark/bench-and-reindex.ts --events <size> --sqlite|--postgres [options]
+ *   npx tsx benchmark/bench-and-reindex.ts --events <size> --sqlite|--postgres
  *
  * Engine (pick one):
  *   --sqlite                 Use on-disk SQLite
@@ -13,13 +13,12 @@
  *
  * Options:
  *   --events <size>          Target event count (e.g. 10k, 1m, 50m). Required.
- *   --shuffle                Randomize query order
  *   --db <path>              SQLite database path (default: ./boundless-bench.sqlite)
  *   --connection <url>       PostgreSQL connection (default: localhost:5433)
  *
  * Examples:
- *   npx tsx benchmark/bench-and-reindex.ts --events 1m --sqlite --shuffle
- *   npx tsx benchmark/bench-and-reindex.ts --events 1m --postgres --shuffle
+ *   npx tsx benchmark/bench-and-reindex.ts --events 1m --sqlite
+ *   npx tsx benchmark/bench-and-reindex.ts --events 1m --postgres
  */
 
 import { execFileSync } from 'node:child_process';
@@ -36,19 +35,18 @@ function getArg(name: string): string | undefined {
 const eventsArg = getArg('--events');
 const useSqlite = args.includes('--sqlite');
 const usePostgres = args.includes('--postgres');
-const useShuffle = args.includes('--shuffle');
 const dbPath = getArg('--db') || './boundless-bench.sqlite';
 const connectionUrl = getArg('--connection') || 'postgresql://postgres:bench@localhost:5433/bench';
 
 if (!eventsArg || (!useSqlite && !usePostgres)) {
   console.error('Usage: npx tsx benchmark/bench-and-reindex.ts --events <size> --sqlite|--postgres [options]');
   console.error('');
-  console.error('SQLite:     --sqlite --shuffle --db <path>');
-  console.error('PostgreSQL: --postgres --shuffle --connection <url>');
+  console.error('SQLite:     --sqlite --db <path>');
+  console.error('PostgreSQL: --postgres --connection <url>');
   console.error('');
   console.error('Examples:');
-  console.error('  npx tsx benchmark/bench-and-reindex.ts --events 1m --sqlite --shuffle');
-  console.error('  npx tsx benchmark/bench-and-reindex.ts --events 1m --postgres --shuffle');
+  console.error('  npx tsx benchmark/bench-and-reindex.ts --events 1m --sqlite');
+  console.error('  npx tsx benchmark/bench-and-reindex.ts --events 1m --postgres');
   process.exit(1);
 }
 
@@ -87,7 +85,6 @@ function benchArgs(config: string): string[] {
   } else {
     a.push('--db', dbPath, '--disk'); // always on-disk for reindex workflow
   }
-  if (useShuffle) a.push('--shuffle');
   return a;
 }
 
@@ -104,7 +101,7 @@ function reindexArgs(config: string): string[] {
 // --- Run the workflow ---
 
 console.log(`\n  🔬 Benchmark + Reindex Workflow (${engineLabel})`);
-console.log(`  Events: ${eventsArg} | Shuffle: ${useShuffle}`);
+console.log(`  Events: ${eventsArg}`);
 if (usePostgres) {
   console.log(`  Connection: ${connectionUrl}`);
 } else {
