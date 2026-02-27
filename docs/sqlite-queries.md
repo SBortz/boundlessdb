@@ -31,12 +31,13 @@ CREATE INDEX idx_key_position ON event_keys(key_name, key_value, position);
 
 ## Query Types
 
-Boundless has two types of `QueryCondition`:
+Boundless has three types of `QueryCondition`:
 
 - **Unconstrained**: `{ type: 'CourseCreated' }` — match by event type only
-- **Constrained**: `{ type: 'StudentEnrolled', key: 'course', value: 'course-50' }` — match by type + key
+- **Constrained (single key)**: `{ type: 'StudentEnrolled', key: 'course', value: 'course-50' }` — match by type + key
+- **Constrained (multi-key AND)**: `{ type: 'StudentEnrolled', keys: [{ name: 'course', value: 'course-50' }, { name: 'student', value: 'student-50' }] }` — match by type + ALL keys (INTERSECT)
 
-Queries can combine multiple conditions. Each condition becomes its own CTE, and results are merged via `UNION`.
+Queries can combine multiple conditions. Each condition becomes its own CTE, and results are merged via `UNION ALL`. Within a multi-key condition, keys are combined via `INTERSECT`.
 
 ## The Two Strategies
 
@@ -295,6 +296,194 @@ ORDER BY position;
 ```
 
 Unconstrained conditions use `idx_event_type` directly (no key join needed). Constrained conditions use the flat CTE with `INDEXED BY`. Both are merged via `UNION`.
+
+---
+
+## 7. Multi-Key AND Query (INTERSECT)
+
+**Use case**: "Has student-50 already enrolled in course-50?" — the event must have BOTH keys.
+
+```typescript
+const result = await store.query()
+  .matchType('StudentEnrolled')
+  .withKey('course', 'course-50')
+  .withKey('student', 'student-50')
+  .read();
+```
+
+**Generated SQL** (no position filter — flat CTE):
+
+```sql
+WITH constrained_0 AS (
+  SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
+  FROM (
+    SELECT position FROM event_keys INDEXED BY idx_key_position
+    WHERE key_name = 'course' AND key_value = 'course-50'
+    INTERSECT
+    SELECT position FROM event_keys INDEXED BY idx_key_position
+    WHERE key_name = 'student' AND key_value = 'student-50'
+  ) keys
+  INNER JOIN events e ON e.position = keys.position
+  WHERE e.event_type = 'StudentEnrolled'
+)
+SELECT * FROM (SELECT * FROM constrained_0) AS combined
+ORDER BY position;
+```
+
+**Query plan** (100k events):
+```
+CO-ROUTINE keys
+  COMPOUND QUERY
+    LEFT-MOST SUBQUERY
+      SEARCH event_keys USING COVERING INDEX idx_key_position (key_name=? AND key_value=?)
+    INTERSECT USING TEMP B-TREE
+      SEARCH event_keys USING COVERING INDEX idx_key_position (key_name=? AND key_value=?)
+SEARCH e USING INDEX idx_event_type (event_type=?)
+BLOOM FILTER ON keys (position=?)
+SEARCH keys USING AUTOMATIC COVERING INDEX (position=?)
+```
+
+Each key gets its own sub-select on `idx_key_position` (covering index — no table access needed). `INTERSECT` returns only positions that appear in ALL sub-selects via a temp B-tree. The result is typically much smaller than either key alone, so the subsequent join to `events` touches fewer rows.
+
+**Why this is fast**: If `course=course-50` has 2,000 positions and `student=student-50` has 200 positions, INTERSECT yields perhaps 20 positions. Only those 20 events get read from disk.
+
+**Single-key optimization**: When a condition has only 1 key (the common case), INTERSECT is skipped entirely. The query falls back to the flat CTE from [section 2](#2-constrained-query-type--key), avoiding the overhead of a compound query and temp B-tree.
+
+---
+
+## 8. Multi-Key AND with Position Filter (MATERIALIZED + INTERSECT)
+
+**Use case**: Conflict check during append — "Are there any new `StudentEnrolled` events for `course-50` AND `student-50` after position 2005?"
+
+```sql
+WITH keys_0 AS MATERIALIZED (
+  SELECT position FROM event_keys INDEXED BY idx_key_position
+  WHERE key_name = 'course' AND key_value = 'course-50'
+    AND position > 2005
+  INTERSECT
+  SELECT position FROM event_keys INDEXED BY idx_key_position
+  WHERE key_name = 'student' AND key_value = 'student-50'
+    AND position > 2005
+),
+constrained_0 AS (
+  SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
+  FROM keys_0 k
+  INNER JOIN events e ON e.position = k.position
+  WHERE e.event_type = 'StudentEnrolled'
+)
+SELECT * FROM (SELECT * FROM constrained_0) AS combined
+ORDER BY position;
+```
+
+**Query plan** (100k events):
+```
+MATERIALIZE keys_0
+  COMPOUND QUERY
+    LEFT-MOST SUBQUERY
+      SEARCH event_keys USING COVERING INDEX idx_key_position (key_name=? AND key_value=? AND position>?)
+    INTERSECT USING TEMP B-TREE
+      SEARCH event_keys USING COVERING INDEX idx_key_position (key_name=? AND key_value=? AND position>?)
+SCAN k
+SEARCH e USING INTEGER PRIMARY KEY (rowid=?)
+```
+
+This combines both optimizations:
+- **MATERIALIZED** prevents SQLite from flattening the CTE and choosing `idx_event_type` as the driving index (same rationale as [section 3](#3-constrained-query-with-position-filter-materialized))
+- **INTERSECT** narrows the materialized positions to only those matching ALL keys
+- Each sub-select includes `AND position > ?` to range-scan from the threshold
+
+The `position > ?` filter is applied per sub-select (not just on the outer CTE) so that `idx_key_position` can use all three columns `(key_name, key_value, position)` as a range scan. This is critical — without it, the covering index would scan all positions for the key and filter afterward.
+
+---
+
+## 9. Mixed: Multi-Key AND + Single-Key OR (UNION ALL)
+
+**Use case**: "Has student-50 enrolled in course-50? Also, was course-50 cancelled?"
+
+```typescript
+const result = await store.query()
+  .matchType('StudentEnrolled')
+  .withKey('course', 'course-50')
+  .withKey('student', 'student-50')
+  .matchTypeAndKey('CourseCancelled', 'course', 'course-50')
+  .read();
+```
+
+**Generated SQL**:
+
+```sql
+WITH constrained_0 AS (
+  SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
+  FROM (
+    SELECT position FROM event_keys INDEXED BY idx_key_position
+    WHERE key_name = 'course' AND key_value = 'course-50'
+    INTERSECT
+    SELECT position FROM event_keys INDEXED BY idx_key_position
+    WHERE key_name = 'student' AND key_value = 'student-50'
+  ) keys
+  INNER JOIN events e ON e.position = keys.position
+  WHERE e.event_type = 'StudentEnrolled'
+),
+constrained_1 AS (
+  SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
+  FROM event_keys k INDEXED BY idx_key_position
+  INNER JOIN events e ON e.position = k.position
+  WHERE k.key_name = 'course' AND k.key_value = 'course-50'
+    AND e.event_type = 'CourseCancelled'
+)
+SELECT * FROM (
+  SELECT * FROM constrained_0
+  UNION ALL
+  SELECT * FROM constrained_1
+) AS combined
+ORDER BY position;
+```
+
+**Query plan** (100k events):
+```
+MERGE (UNION ALL)
+  LEFT
+    CO-ROUTINE keys
+      COMPOUND QUERY
+        LEFT-MOST SUBQUERY
+          SEARCH event_keys USING COVERING INDEX idx_key_position (key_name=? AND key_value=?)
+        INTERSECT USING TEMP B-TREE
+          SEARCH event_keys USING COVERING INDEX idx_key_position (key_name=? AND key_value=?)
+    SEARCH e USING INDEX idx_event_type (event_type=?)
+    BLOOM FILTER ON keys (position=?)
+    SEARCH keys USING AUTOMATIC COVERING INDEX (position=?)
+  RIGHT
+    SEARCH k USING COVERING INDEX idx_key_position (key_name=? AND key_value=?)
+    SEARCH e USING INTEGER PRIMARY KEY (rowid=?)
+```
+
+The principle remains the same as existing mixed queries:
+- Each condition = one CTE
+- Multi-key conditions use INTERSECT within their CTE
+- Single-key conditions use the flat `INDEXED BY` approach
+- CTEs are merged via `UNION ALL` (OR semantics)
+
+---
+
+## 10. Decision Logic Summary
+
+```
+Condition has...
+├── 0 keys (matchType only)
+│   → Simple WHERE event_type IN (...) — no key join
+│
+├── 1 key (matchTypeAndKey)
+│   ├── No position filter → Flat CTE with INDEXED BY
+│   └── With position filter → MATERIALIZED CTE
+│
+└── 2+ keys (matchType + withKey + withKey)
+    ├── No position filter → Flat CTE with INTERSECT subquery
+    └── With position filter → MATERIALIZED CTE with INTERSECT
+
+Multiple conditions (OR) → Separate CTEs + UNION ALL
+```
+
+**Key insight**: INTERSECT operates *within* a single condition (AND semantics on keys). UNION ALL operates *between* conditions (OR semantics). This maps cleanly to the DCB query model: each condition specifies what events to match, and the store returns the union of all matches.
 
 ---
 
