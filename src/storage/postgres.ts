@@ -343,7 +343,7 @@ export class PostgresStorage implements EventStorage {
 
     const unionParts = cteNames.map(name => `SELECT * FROM ${name}`);
     let sql = `WITH ${ctes.join(',\n')}
-SELECT * FROM (${unionParts.join(' UNION ')}) AS combined
+SELECT * FROM (${unionParts.join(' UNION ALL ')}) AS combined
 ORDER BY position`;
 
     if (limit !== undefined) {
