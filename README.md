@@ -593,6 +593,29 @@ const store = createEventStore({
 });
 ```
 
+### `store.query<E>()`
+
+Fluent query builder:
+
+```typescript
+const result = await store.query<CourseEvent>()
+  .matchType('CourseCreated')                              // unconstrained (type only)
+  .matchTypeAndKey('StudentSubscribed', 'course', 'cs101') // type + single key
+  .withKey('student', 'alice')                             // AND: add key to last condition
+  .fromPosition(100n)                                      // start from position
+  .limit(50)                                               // limit results
+  .read();                                                 // execute, returns QueryResult
+```
+
+| Method | Description |
+|--------|-------------|
+| `matchType(type)` | Match all events of type (unconstrained) |
+| `matchTypeAndKey(type, key, value)` | Match events of type where key=value |
+| `withKey(key, value)` | Add AND key to last condition (multi-key) |
+| `fromPosition(bigint)` | Start reading from position |
+| `limit(number)` | Limit number of results |
+| `read()` | Execute query, returns `QueryResult` |
+
 ### `store.read<E>(query)`
 
 ```typescript
