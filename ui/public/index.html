@@ -18,9 +18,30 @@
       line-height: 1.6;
     }
     
+    .top-nav {
+      display: flex;
+      justify-content: flex-end;
+      gap: 1.25rem;
+      padding: 1rem 2rem;
+      max-width: var(--content-width);
+      margin: 0 auto;
+    }
+    
+    .top-nav a {
+      color: #888;
+      text-decoration: none;
+      font-size: 0.85rem;
+      font-weight: 500;
+      transition: color 0.2s;
+    }
+    
+    .top-nav a:hover {
+      color: #0cf;
+    }
+    
     .hero {
       text-align: center;
-      padding: 2rem 2rem 0.5rem;
+      padding: 1rem 2rem 0.5rem;
       max-width: var(--content-width);
       margin: 0 auto;
     }
@@ -464,6 +485,10 @@
   </style>
 </head>
 <body>
+  <nav class="top-nav">
+    <a href="https://www.npmjs.com/package/boundlessdb" target="_blank">📦 npm</a>
+    <a href="https://github.com/SBortz/boundlessdb" target="_blank">GitHub</a>
+  </nav>
   <div class="hero">
     <div class="logo">🗃️</div>
     <h1>BoundlessDB</h1>
@@ -528,7 +553,6 @@
     <div class="cta-row">
       <a href="https://understanding-eventsourcing-dotnet.vercel.app" class="btn btn-primary" target="_blank">🛒 Live Shopping Cart Demo</a>
       <a href="/demo.html" class="btn btn-secondary">🎮 Browser Demo</a>
-      <a href="https://github.com/SBortz/boundlessdb" class="btn btn-secondary">GitHub</a>
     </div>
     
     <div class="install-box">
