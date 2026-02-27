@@ -154,43 +154,21 @@ export class EventStore {
 
     if (storedHash === null) {
       // First run — just store the hash
-      console.log('📝 HASH: First run, storing config hash in database');
       await this.storage.setConfigHash(currentHash);
     } else if (storedHash !== currentHash) {
-      // Config changed — reindex!
-      console.log('⚠️ HASH MISMATCH: Config changed since last run!');
-      console.log('🔄 REINDEX: Rebuilding key index from all events...');
-      const startTime = Date.now();
-      
-      let eventCount = 0;
-      let keyCount = 0;
-      
-      await this.storage.reindex((event) => {
-        eventCount++;
-        // Convert StoredEvent to Event format for KeyExtractor
-        const keys = this.keyExtractor.extract({
-          type: event.type,
-          data: event.data,
-          metadata: event.metadata
-        });
-        keyCount += keys.length;
-        return keys;
-      });
-      
-      // Update stored hash
-      await this.storage.setConfigHash(currentHash);
-      
-      const duration = Date.now() - startTime;
-      console.log(`✅ REINDEX: Complete! ${eventCount} events, ${keyCount} keys extracted (${duration}ms)`);
-    } else {
-      console.log('✅ HASH: Config unchanged, index is up to date');
+      // Config changed — throw error, require explicit reindex via script
+      throw new Error(
+        `Config hash mismatch (stored: ${storedHash}, current: ${currentHash}). ` +
+        `Run the reindex script before starting the application.`
+      );
     }
-    
-    console.log('🟢 READY: EventStore initialized');
     } catch (error) {
+      // Re-throw config hash mismatch errors — these are intentional
+      if (error instanceof Error && error.message.includes('Config hash mismatch')) {
+        throw error;
+      }
       console.warn('⚠️ INIT: Config hash check failed (non-fatal):', error);
-      console.log('🟢 READY: EventStore initialized (without hash check)');
-      // Don't throw - config hash is nice-to-have, not required
+      // Don't throw for other errors - config hash is nice-to-have, not required
     }
   }
 
