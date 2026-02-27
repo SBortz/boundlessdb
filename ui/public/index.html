@@ -18,9 +18,30 @@
       line-height: 1.6;
     }
     
+    .top-nav {
+      display: flex;
+      justify-content: flex-end;
+      gap: 1.25rem;
+      padding: 1rem 2rem;
+      max-width: var(--content-width);
+      margin: 0 auto;
+    }
+    
+    .top-nav a {
+      color: #888;
+      text-decoration: none;
+      font-size: 0.85rem;
+      font-weight: 500;
+      transition: color 0.2s;
+    }
+    
+    .top-nav a:hover {
+      color: #0cf;
+    }
+    
     .hero {
       text-align: center;
-      padding: 2rem 2rem 0.5rem;
+      padding: 1rem 2rem 0.5rem;
       max-width: var(--content-width);
       margin: 0 auto;
     }
@@ -464,6 +485,10 @@
   </style>
 </head>
 <body>
+  <nav class="top-nav">
+    <a href="https://www.npmjs.com/package/boundlessdb" target="_blank">📦 npm</a>
+    <a href="https://github.com/SBortz/boundlessdb" target="_blank">GitHub</a>
+  </nav>
   <div class="hero">
     <div class="logo">🗃️</div>
     <h1>BoundlessDB</h1>
@@ -526,8 +551,8 @@
       </div>
     </div>
     <div class="cta-row">
-      <a href="/demo.html" class="btn btn-primary">🎮 Try Live Demo</a>
-      <a href="https://github.com/SBortz/boundless" class="btn btn-secondary">GitHub</a>
+      <a href="https://understanding-eventsourcing-dotnet.vercel.app" class="btn btn-primary" target="_blank">🛒 Live Shopping Cart Demo</a>
+      <a href="/demo.html" class="btn btn-secondary">🎮 Browser Demo</a>
     </div>
     
     <div class="install-box">
@@ -918,7 +943,7 @@ $ npx tsx scripts/reindex.ts --config ./consistency.ts --db ./events.sqlite
     <div class="flow-note" style="margin-top:1rem;">
       💡 <strong>Sub-millisecond queries</strong> for selective lookups, even with 50M events in the store.
       Shuffled execution order (no cache bias). Bold = sub-millisecond.
-      <a href="https://github.com/SBortz/boundless/tree/main/benchmark" style="color:#0cf; text-decoration:none;">Run benchmarks yourself →</a>
+      <a href="https://github.com/SBortz/boundlessdb/tree/main/benchmark" style="color:#0cf; text-decoration:none;">Run benchmarks yourself →</a>
     </div>
   </div>
   
