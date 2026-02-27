@@ -1,18 +1,18 @@
 /**
  * SQLite Throughput Benchmark
- * 
+ *
  * Usage:
  *   npx tsx benchmark/sqlite-query.ts --events <size> [options]
- * 
+ *
  * Options:
  *   --events <size>          Target event count (e.g. 10k, 1m, 50m). Required.
  *   --disk                   Use on-disk database (default: in-memory)
- *   --shuffle                Interleave queries in random order (avoids cache bias)
+ *   --sequential             Disable shuffle (default: shuffled)
  *   --db <path>              SQLite database path (default: ./boundless-bench.sqlite)
  *   --config <path>          Consistency config file (default: ./benchmark/consistency.config.ts)
- * 
+ *
  * Examples:
- *   npx tsx benchmark/sqlite-query.ts --events 1m --disk --shuffle
+ *   npx tsx benchmark/sqlite-query.ts --events 1m --disk
  *   npx tsx benchmark/sqlite-query.ts --events 10k
  *   npx tsx benchmark/sqlite-query.ts --events 1m --disk --config ./my-config.ts
  */
@@ -37,7 +37,7 @@ const EVENTS_PER_COURSE = 1 + STUDENTS * (1 + LESSONS + 1); // 2005
 
 const args = process.argv.slice(2);
 const useDisk = args.includes('--disk');
-const useShuffle = args.includes('--shuffle');
+const useShuffle = !args.includes('--sequential');
 
 function getArg(name: string): string | undefined {
   const idx = args.indexOf(name);
@@ -81,8 +81,8 @@ function buildDataset(target: number) {
 
 if (sizeArgs.length === 0) {
   console.error('Usage: npx tsx benchmark/sqlite-query.ts --events <size> [options]');
-  console.error('Options: --disk --shuffle --db <path> --config <path>');
-  console.error('Example: npx tsx benchmark/sqlite-query.ts --events 1m --disk --shuffle');
+  console.error('Options: --disk --sequential --db <path> --config <path>');
+  console.error('Example: npx tsx benchmark/sqlite-query.ts --events 1m --disk');
   process.exit(1);
 }
 const sizes = sizeArgs.map(parseSize);
@@ -371,7 +371,7 @@ async function main() {
   const sortedDatasets = [...datasets].sort((a, b) => a.courses - b.courses);
   // Map back to original order for results
   const originalOrder = datasets.map(ds => sortedDatasets.indexOf(ds));
-  
+
   const allResults: Array<Array<{ avgMs: number; p50Ms: number; p99Ms: number; results: number }>> = queries.map(() => []);
   const sortedResults: Array<Array<{ avgMs: number; p50Ms: number; p99Ms: number; results: number }>> = queries.map(() => []);
 

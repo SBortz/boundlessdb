@@ -1,18 +1,18 @@
 /**
  * PostgreSQL Throughput Benchmark
- * 
+ *
  * Usage:
  *   npx tsx benchmark/postgres-query.ts --events <size> [options]
- * 
+ *
  * Options:
  *   --events <size>          Target event count (e.g. 10k, 1m, 50m). Required.
- *   --shuffle                Interleave queries in random order (avoids cache bias)
+ *   --sequential             Disable shuffle (default: shuffled)
  *   --connection <url>       PostgreSQL connection string (default: env DATABASE_URL or localhost:5433)
  *   --config <path>          Consistency config file (default: ./benchmark/consistency.config.ts)
- * 
+ *
  * Examples:
- *   npx tsx benchmark/postgres-query.ts --events 1m --shuffle
- *   npx tsx benchmark/postgres-query.ts --events 50m --shuffle --config ./my-config.ts
+ *   npx tsx benchmark/postgres-query.ts --events 1m
+ *   npx tsx benchmark/postgres-query.ts --events 50m --config ./my-config.ts
  */
 
 import { EventStore } from '../src/event-store.js';
@@ -35,7 +35,7 @@ const EVENTS_PER_COURSE = 1 + STUDENTS * (1 + LESSONS + 1); // 2005
 // --- CLI args ---
 
 const args = process.argv.slice(2);
-const useShuffle = args.includes('--shuffle');
+const useShuffle = !args.includes('--sequential');
 
 function getArg(name: string): string | undefined {
   const idx = args.indexOf(name);
@@ -80,8 +80,8 @@ function buildDataset(target: number) {
 
 if (sizeArgs.length === 0) {
   console.error('Usage: npx tsx benchmark/postgres-query.ts --events <size> [options]');
-  console.error('Options: --shuffle --connection <url> --config <path>');
-  console.error('Example: npx tsx benchmark/postgres-query.ts --events 1m --shuffle');
+  console.error('Options: --sequential --connection <url> --config <path>');
+  console.error('Example: npx tsx benchmark/postgres-query.ts --events 1m');
   process.exit(1);
 }
 const sizes = sizeArgs.map(parseSize);
@@ -387,7 +387,7 @@ async function main() {
   // Sort datasets ascending so we can extend incrementally
   const sortedDatasets = [...datasets].sort((a, b) => a.courses - b.courses);
   const originalOrder = datasets.map(ds => sortedDatasets.indexOf(ds));
-  
+
   const allResults: Array<Array<{ avgMs: number; p50Ms: number; p99Ms: number; results: number }>> = queries.map(() => []);
   const sortedResults: Array<Array<{ avgMs: number; p50Ms: number; p99Ms: number; results: number }>> = queries.map(() => []);
 
@@ -415,7 +415,7 @@ async function main() {
       console.log(`  ${ds.label} cached (${formatNum(existingEvents)} events, ${formatNum(existingCourses)} courses >= ${formatNum(ds.courses)} needed)`);
     } else {
       if (existingCourses === 0 && d === 0) {
-        // Fresh start — clean DB to ensure schema is correct
+        // Fresh start - clean DB to ensure schema is correct
         await store.close();
         await cleanDb();
         storage = new PostgresStorage({ connectionString: DB_URL, max: 1 });

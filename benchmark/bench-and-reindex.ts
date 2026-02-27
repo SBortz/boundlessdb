@@ -5,20 +5,20 @@
  * Demonstrates how config changes affect the key index.
  *
  * Usage:
- *   npx tsx benchmark/bench-and-reindex.ts --events 1m [options]
+ *   npx tsx benchmark/bench-and-reindex.ts --events <size> --sqlite|--postgres
+ *
+ * Engine (pick one):
+ *   --sqlite                 Use on-disk SQLite
+ *   --postgres               Use PostgreSQL
  *
  * Options:
- *   --events <size>    Target event count (e.g. 10k, 1m, 50m). Required.
- *   --disk             Use on-disk SQLite (default: in-memory)
- *   --shuffle          Randomize query order
- *   --db <path>        SQLite database path (default: ./boundless-bench.sqlite)
+ *   --events <size>          Target event count (e.g. 10k, 1m, 50m). Required.
+ *   --db <path>              SQLite database path (default: ./boundless-bench.sqlite)
+ *   --connection <url>       PostgreSQL connection (default: localhost:5433)
  *
- * What it does:
- *   1. Benchmark with full config (course + student + lesson keys)
- *   2. Reindex to minimal config (course key only)
- *   3. Benchmark with minimal config
- *   4. Reindex back to full config
- *   5. Benchmark with full config again
+ * Examples:
+ *   npx tsx benchmark/bench-and-reindex.ts --events 1m --sqlite
+ *   npx tsx benchmark/bench-and-reindex.ts --events 1m --postgres
  */
 
 import { execFileSync } from 'node:child_process';
@@ -33,21 +33,31 @@ function getArg(name: string): string | undefined {
 }
 
 const eventsArg = getArg('--events');
-const useDisk = args.includes('--disk');
-const useShuffle = args.includes('--shuffle');
+const useSqlite = args.includes('--sqlite');
+const usePostgres = args.includes('--postgres');
 const dbPath = getArg('--db') || './boundless-bench.sqlite';
+const connectionUrl = getArg('--connection') || 'postgresql://postgres:bench@localhost:5433/bench';
 
-if (!eventsArg) {
-  console.error('Usage: npx tsx benchmark/bench-and-reindex.ts --events <size> [options]');
-  console.error('Options: --disk --shuffle --db <path>');
-  console.error('Example: npx tsx benchmark/bench-and-reindex.ts --events 1m --disk --shuffle');
+if (!eventsArg || (!useSqlite && !usePostgres)) {
+  console.error('Usage: npx tsx benchmark/bench-and-reindex.ts --events <size> --sqlite|--postgres [options]');
+  console.error('');
+  console.error('SQLite:     --sqlite --db <path>');
+  console.error('PostgreSQL: --postgres --connection <url>');
+  console.error('');
+  console.error('Examples:');
+  console.error('  npx tsx benchmark/bench-and-reindex.ts --events 1m --sqlite');
+  console.error('  npx tsx benchmark/bench-and-reindex.ts --events 1m --postgres');
   process.exit(1);
 }
 
 const FULL_CONFIG = resolve('benchmark/consistency.config.ts');
 const MINIMAL_CONFIG = resolve('benchmark/consistency.config.minimal.ts');
-const BENCHMARK_SCRIPT = resolve('benchmark/sqlite-query.ts');
+const BENCHMARK_SCRIPT = usePostgres
+  ? resolve('benchmark/postgres-query.ts')
+  : resolve('benchmark/sqlite-query.ts');
 const REINDEX_SCRIPT = resolve('scripts/reindex.ts');
+
+const engineLabel = usePostgres ? 'PostgreSQL' : 'SQLite';
 
 function run(label: string, script: string, extraArgs: string[]) {
   console.log(`\n${'═'.repeat(70)}`);
@@ -69,23 +79,40 @@ function run(label: string, script: string, extraArgs: string[]) {
 }
 
 function benchArgs(config: string): string[] {
-  const a = ['--events', eventsArg!, '--config', config, '--db', dbPath];
-  if (useDisk) a.push('--disk');
-  if (useShuffle) a.push('--shuffle');
+  const a = ['--events', eventsArg!, '--config', config];
+  if (usePostgres) {
+    a.push('--connection', connectionUrl);
+  } else {
+    a.push('--db', dbPath, '--disk'); // always on-disk for reindex workflow
+  }
+  return a;
+}
+
+function reindexArgs(config: string): string[] {
+  const a = ['--config', config];
+  if (usePostgres) {
+    a.push('--connection', connectionUrl);
+  } else {
+    a.push('--db', dbPath);
+  }
   return a;
 }
 
 // --- Run the workflow ---
 
-console.log('\n  🔬 Benchmark + Reindex Workflow');
-console.log(`  Events: ${eventsArg} | Disk: ${useDisk} | Shuffle: ${useShuffle}`);
-console.log(`  DB: ${dbPath}`);
+console.log(`\n  🔬 Benchmark + Reindex Workflow (${engineLabel})`);
+console.log(`  Events: ${eventsArg}`);
+if (usePostgres) {
+  console.log(`  Connection: ${connectionUrl}`);
+} else {
+  console.log(`  DB: ${dbPath}`);
+}
 console.log(`  Full config: ${FULL_CONFIG}`);
 console.log(`  Minimal config: ${MINIMAL_CONFIG}`);
 
 // Step 1: Benchmark with full config
 run(
-  '1️⃣  Benchmark — Full Config (course + student + lesson keys)',
+  `1️⃣  Benchmark (${engineLabel}) — Full Config (course + student + lesson keys)`,
   BENCHMARK_SCRIPT,
   benchArgs(FULL_CONFIG)
 );
@@ -94,12 +121,12 @@ run(
 run(
   '2️⃣  Reindex → Minimal Config (course key only)',
   REINDEX_SCRIPT,
-  ['--config', MINIMAL_CONFIG, '--db', dbPath]
+  reindexArgs(MINIMAL_CONFIG)
 );
 
 // Step 3: Benchmark with minimal config
 run(
-  '3️⃣  Benchmark — Minimal Config (course key only)',
+  `3️⃣  Benchmark (${engineLabel}) — Minimal Config (course key only)`,
   BENCHMARK_SCRIPT,
   benchArgs(MINIMAL_CONFIG)
 );
@@ -108,12 +135,12 @@ run(
 run(
   '4️⃣  Reindex → Full Config (restore)',
   REINDEX_SCRIPT,
-  ['--config', FULL_CONFIG, '--db', dbPath]
+  reindexArgs(FULL_CONFIG)
 );
 
 // Step 5: Benchmark with full config again
 run(
-  '5️⃣  Benchmark — Full Config (after reindex)',
+  `5️⃣  Benchmark (${engineLabel}) — Full Config (after reindex)`,
   BENCHMARK_SCRIPT,
   benchArgs(FULL_CONFIG)
 );
