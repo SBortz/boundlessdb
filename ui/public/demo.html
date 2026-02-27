@@ -220,18 +220,7 @@
     }
     .keys-row input { font-size: 0.75rem; padding: 0.3rem; }
     
-    .token-display {
-      background: #0a1628;
-      padding: 0.25rem 0.4rem;
-      border-radius: 4px;
-      font-family: monospace;
-      font-size: 0.65rem;
-      cursor: pointer;
-      word-break: break-all;
-      max-height: 50px;
-      overflow-y: auto;
-    }
-    .token-display:hover { background: #1a2638; }
+    /* removed unused .token-display */
     
     .status {
       padding: 0.15rem 0.4rem;
@@ -787,7 +776,7 @@
       <div class="live-query-content" id="live-query-results">
         <div class="live-query-stats">
           <span><span class="count" id="live-count">0</span> events</span>
-          <span class="token" id="live-token" onclick="copyLiveToken()">Token: —</span>
+          <span class="token" id="live-token" onclick="copyLiveToken()">Position: —</span>
         </div>
         <div id="live-events"></div>
       </div>
@@ -1220,7 +1209,7 @@
       
       if (!conditions.length) {
         document.getElementById('live-count').textContent = '0';
-        document.getElementById('live-token').textContent = 'Token: —';
+        document.getElementById('live-token').textContent = 'Position: —';
         document.getElementById('live-events').innerHTML = '<div style="color:#666;text-align:center;padding:2rem">No query conditions</div>';
         return;
       }
