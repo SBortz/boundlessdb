@@ -382,14 +382,16 @@ Run the reindex script as part of your deployment (like a database migration):
 
 ```bash
 # SQLite
-npx tsx scripts/reindex.ts --db ./events.sqlite
+npx tsx scripts/reindex.ts --config ./consistency.config.ts --db ./events.sqlite
 
 # PostgreSQL
-npx tsx scripts/reindex.ts --connection postgresql://user:pass@localhost/db
+npx tsx scripts/reindex.ts --config ./consistency.config.ts --connection postgresql://user:pass@localhost/db
 
 # Custom batch size (default: 10,000)
-npx tsx scripts/reindex.ts --db ./events.sqlite --batch-size 50000
+npx tsx scripts/reindex.ts --config ./consistency.config.ts --db ./events.sqlite --batch-size 50000
 ```
+
+The `--config` file must default-export a `ConsistencyConfig` (see `scripts/example.consistency.config.ts`).
 
 The script:
 - **Checks the hash first** — if unchanged, exits immediately ("No reindex needed")
@@ -414,7 +416,7 @@ Add the reindex script to your deployment pipeline:
 ```yaml
 # Example: GitHub Actions
 - name: Reindex (if config changed)
-  run: npx tsx scripts/reindex.ts --db ./events.sqlite
+  run: npx tsx scripts/reindex.ts --config ./consistency.config.ts --db ./events.sqlite
 ```
 
 The script exits with code 0 in both cases (no reindex needed / reindex completed successfully), so it's safe to run on every deploy.

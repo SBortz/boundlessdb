@@ -5,48 +5,22 @@
  * Processes events in configurable batches with crash recovery.
  *
  * Usage:
- *   npx tsx scripts/reindex.ts --db ./events.sqlite
- *   npx tsx scripts/reindex.ts --connection postgresql://user:pass@localhost/db
+ *   npx tsx scripts/reindex.ts --config ./consistency.config.ts --db ./events.sqlite
+ *   npx tsx scripts/reindex.ts --config ./consistency.config.ts --connection postgresql://user:pass@localhost/db
  *
  * Options:
+ *   --config <path>          Path to config file (must default-export a ConsistencyConfig)
  *   --db <path>              SQLite database path
  *   --connection <url>       PostgreSQL connection string
  *   --batch-size <n>         Events per batch (default: 10000)
  */
 
 import { createHash } from 'node:crypto';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import type { ConsistencyConfig, ExtractedKey, StoredEvent } from '../src/types.js';
 import { KeyExtractor } from '../src/config/extractor.js';
 import { SqliteStorage } from '../src/storage/sqlite.js';
-
-// --- Consistency config (same as benchmark) ---
-
-const CONSISTENCY_CONFIG: ConsistencyConfig = {
-  eventTypes: {
-    CourseCreated: {
-      keys: [{ path: 'data.courseId', name: 'course' }],
-    },
-    StudentEnrolled: {
-      keys: [
-        { path: 'data.courseId', name: 'course' },
-        { path: 'data.studentId', name: 'student' },
-      ],
-    },
-    LessonCompleted: {
-      keys: [
-        { path: 'data.courseId', name: 'course' },
-        { path: 'data.studentId', name: 'student' },
-        { path: 'data.lessonId', name: 'lesson' },
-      ],
-    },
-    CertificateIssued: {
-      keys: [
-        { path: 'data.courseId', name: 'course' },
-        { path: 'data.studentId', name: 'student' },
-      ],
-    },
-  },
-};
 
 // --- Helpers ---
 
@@ -93,14 +67,26 @@ function getArg(name: string): string | undefined {
   return args[idx + 1];
 }
 
+const configPath = getArg('--config');
 const dbPath = getArg('--db');
 const connectionString = getArg('--connection');
 const batchSize = Number(getArg('--batch-size') || '10000');
 
-if (!dbPath && !connectionString) {
+if (!configPath) {
   console.error('Usage:');
-  console.error('  npx tsx scripts/reindex.ts --db ./events.sqlite');
-  console.error('  npx tsx scripts/reindex.ts --connection postgresql://user:pass@localhost/db');
+  console.error('  npx tsx scripts/reindex.ts --config ./consistency.config.ts --db ./events.sqlite');
+  console.error('  npx tsx scripts/reindex.ts --config ./consistency.config.ts --connection postgresql://...');
+  console.error('');
+  console.error('Options:');
+  console.error('  --config <path>        Path to config file (must default-export a ConsistencyConfig)');
+  console.error('  --db <path>            SQLite database path');
+  console.error('  --connection <url>     PostgreSQL connection string');
+  console.error('  --batch-size <n>       Events per batch (default: 10000)');
+  process.exit(1);
+}
+
+if (!dbPath && !connectionString) {
+  console.error('Error: Specify --db or --connection.');
   process.exit(1);
 }
 
@@ -109,14 +95,40 @@ if (dbPath && connectionString) {
   process.exit(1);
 }
 
+// --- Load config ---
+
+async function loadConfig(configFilePath: string): Promise<ConsistencyConfig> {
+  const absolutePath = resolve(configFilePath);
+  const fileUrl = pathToFileURL(absolutePath).href;
+
+  try {
+    const module = await import(fileUrl);
+    const config = module.default || module.consistency || module.config;
+
+    if (!config || !config.eventTypes) {
+      console.error(`Error: Config file must default-export a ConsistencyConfig (with eventTypes).`);
+      console.error(`  Found exports: ${Object.keys(module).join(', ')}`);
+      process.exit(1);
+    }
+
+    return config as ConsistencyConfig;
+  } catch (error: any) {
+    console.error(`Error loading config from ${configFilePath}:`);
+    console.error(`  ${error.message}`);
+    process.exit(1);
+  }
+}
+
 // --- Main ---
 
 async function main() {
+  const consistencyConfig = await loadConfig(configPath!);
   const backendName = dbPath ? 'SQLite' : 'PostgreSQL';
   console.log(`\n  \uD83D\uDD04 Reindex (${backendName})`);
+  console.log(`  Config: ${configPath}`);
 
-  const currentHash = hashConfig(CONSISTENCY_CONFIG);
-  const keyExtractor = new KeyExtractor(CONSISTENCY_CONFIG);
+  const currentHash = hashConfig(consistencyConfig);
+  const keyExtractor = new KeyExtractor(consistencyConfig);
 
   const extractKeys = (event: StoredEvent): ExtractedKey[] => {
     return keyExtractor.extract({
@@ -142,31 +154,20 @@ async function main() {
 
       console.log(`  Config hash: ${(storedHash || '(none)').substring(0, 16)}... \u2192 ${currentHash.substring(0, 16)}...`);
 
-      let keysPerSec = 0;
-      let lastKeysTotal = 0;
-      let lastProgressTime = performance.now();
-
       const result = storage.reindexBatch(extractKeys, {
         batchSize,
         onProgress: (done, total) => {
-          const now = performance.now();
-          const elapsed = now - lastProgressTime;
-          if (elapsed > 200 || done === total) {
-            const pct = done / total;
-            // Estimate keys/s from overall result so far
-            process.stdout.write(
-              `\r  ${progressBar(pct)} ${(pct * 100).toFixed(0)}%  ` +
-              `${formatNum(done)} / ${formatNum(total)}  ` +
-              `batch size: ${formatNum(batchSize)}   `
-            );
-            lastProgressTime = now;
-          }
+          const pct = done / total;
+          process.stdout.write(
+            `\r  ${progressBar(pct)} ${(pct * 100).toFixed(0)}%  ` +
+            `${formatNum(done)} / ${formatNum(total)}  ` +
+            `batch size: ${formatNum(batchSize)}   `
+          );
         },
       });
 
       process.stdout.write('\r' + ' '.repeat(100) + '\r');
 
-      // Update config hash
       storage.setConfigHash(currentHash);
 
       console.log(`  \u2705 Reindex complete: ${formatNum(result.events)} events, ${formatNum(result.keys)} keys (${formatMs(result.durationMs)})`);
@@ -209,7 +210,6 @@ async function main() {
 
       process.stdout.write('\r' + ' '.repeat(100) + '\r');
 
-      // Update config hash
       await storage.setConfigHash(currentHash);
 
       console.log(`  \u2705 Reindex complete: ${formatNum(result.events)} events, ${formatNum(result.keys)} keys (${formatMs(result.durationMs)})`);
