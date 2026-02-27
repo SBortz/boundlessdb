@@ -483,15 +483,13 @@
         
         <pre><code><span class="keyword">const</span> { events, appendCondition } = <span class="keyword">await</span> store.<span class="function">query</span>&lt;CourseEvent&gt;()
   .<span class="function">matchType</span>(<span class="string">'CourseCreated'</span>)                              <span class="comment">// all CourseCreated</span>
-  .<span class="function">matchTypeAndKey</span>(<span class="string">'StudentSubscribed'</span>, <span class="string">'course'</span>, <span class="string">'cs101'</span>) <span class="comment">// type + key</span>
+  .<span class="function">matchType</span>(<span class="string">'StudentSubscribed'</span>)
+    .<span class="function">withKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>)                           <span class="comment">// type + keys (AND)</span>
+    .<span class="function">withKey</span>(<span class="string">'student'</span>, <span class="string">'alice'</span>)
   .<span class="function">read</span>();
 
-<span class="comment">// Multi-key AND: must match BOTH keys on the SAME event</span>
-<span class="keyword">const</span> enrolled = <span class="keyword">await</span> store.<span class="function">query</span>()
-  .<span class="function">matchType</span>(<span class="string">'StudentSubscribed'</span>)
-  .<span class="function">withKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>)                             <span class="comment">// AND key</span>
-  .<span class="function">withKey</span>(<span class="string">'student'</span>, <span class="string">'alice'</span>)                            <span class="comment">// AND key</span>
-  .<span class="function">read</span>();</code></pre>
+<span class="comment">// Build state</span>
+<span class="keyword">const</span> state: CourseState = events.<span class="function">reduce</span>(evolve, initialState);</code></pre>
       </div>
       
       <div class="tab-content" id="tab-append">
