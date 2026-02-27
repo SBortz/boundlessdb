@@ -725,6 +725,57 @@ if (result.conflict) {
 }
 ```
 
+## Benchmarks
+
+Run benchmarks against SQLite or PostgreSQL:
+
+```bash
+# SQLite (in-memory)
+npx tsx benchmark/sqlite-query.ts 10k 100k 1m
+
+# SQLite (on-disk, shuffled — realistic latency)
+npx tsx benchmark/sqlite-query.ts --disk --shuffle 1m
+
+# PostgreSQL
+npx tsx benchmark/postgres-query.ts --shuffle 1m
+```
+
+### Custom Config
+
+Benchmarks and reindex share the same config file format:
+
+```bash
+# Run benchmark with custom config
+npx tsx benchmark/sqlite-query.ts --disk --config ./my-config.ts 1m
+
+# Two configs are included:
+#   benchmark/consistency.config.ts          — full (course + student + lesson keys)
+#   benchmark/consistency.config.minimal.ts  — minimal (course key only)
+```
+
+### Switching Configs Requires Reindex
+
+Changing the consistency config changes the key index. BoundlessDB enforces this:
+
+```bash
+# 1. Benchmark with full config
+npx tsx benchmark/sqlite-query.ts --disk --shuffle 1m
+
+# 2. Switch to minimal config → reindex first!
+npx tsx scripts/reindex.ts --config ./benchmark/consistency.config.minimal.ts \
+  --db ./benchmark/boundless-bench.sqlite
+
+# 3. Benchmark with minimal config
+npx tsx benchmark/sqlite-query.ts --disk --shuffle \
+  --config ./benchmark/consistency.config.minimal.ts 1m
+
+# 4. Switch back → reindex again
+npx tsx scripts/reindex.ts --config ./benchmark/consistency.config.ts \
+  --db ./benchmark/boundless-bench.sqlite
+```
+
+Skipping the reindex step will throw an error — just like in production.
+
 ## Development
 
 ```bash
