@@ -558,17 +558,20 @@ const result = await store.read({
 ```
 
 ### Type Safety
-With TypeScript, conditions are type-safe — you must provide either:
-- **Only `type`** (unconstrained), or
-- **`type` + `key` + `value`** (constrained)
+With TypeScript, conditions are type-safe — three forms:
 
 ```typescript
-// ✅ Valid
+// ✅ Unconstrained (type only)
 { type: 'ProductItemAdded' }
+
+// ✅ Single key
 { type: 'ProductItemAdded', key: 'cart', value: 'cart-123' }
 
-// ❌ TypeScript Error — key without value not allowed
-{ type: 'ProductItemAdded', key: 'cart' }
+// ✅ Multi-key AND
+{ type: 'StudentSubscribed', keys: [
+  { name: 'course', value: 'cs101' },
+  { name: 'student', value: 'alice' }
+]}
 ```
 
 ### Empty Conditions
@@ -594,7 +597,11 @@ const store = createEventStore({
 
 ```typescript
 const result = await store.read<CartEvents>({
-  conditions: [{ type, key?, value? }],
+  conditions: [
+    { type: string }                                            // unconstrained
+    | { type: string, key: string, value: string }              // single key
+    | { type: string, keys: { name: string, value: string }[] } // multi-key AND
+  ],
   fromPosition?: bigint,
   limit?: number,
 });
