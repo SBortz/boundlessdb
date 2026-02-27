@@ -553,8 +553,8 @@
     </div>
     <div class="feature">
       <div class="feature-icon">🔄</div>
-      <h3>Auto-Reindex</h3>
-      <p>Change your consistency config, restart, keys are automatically rebuilt.</p>
+      <h3>One-Command Reindex</h3>
+      <p>Change your consistency config, run one command. Keys are rebuilt — batched, resumable, crash-safe.</p>
     </div>
     <div class="feature">
       <div class="feature-icon">💾</div>
@@ -765,27 +765,22 @@ appendCondition = {
   </div>
   
   <div class="code-section">
-    <h2>Auto-Reindex on Config Change</h2>
-    <pre><code><span class="comment">// The config is hashed and stored in the database</span>
-<span class="comment">// On startup, BoundlessDB compares hashes:</span>
+    <h2>One-Command Reindex</h2>
+    <pre><code><span class="comment">// Change your config → run one command → done</span>
+<span class="comment">// No migration files. No manual SQL. Just config.</span>
 
-<span class="comment">// stored_hash: "a1b2c3..."  (from last run)</span>
-<span class="comment">// current_hash: "x9y8z7..." (from your config)</span>
+$ npx tsx scripts/reindex.ts --db ./events.sqlite
 
-<span class="keyword">if</span> (stored_hash !== current_hash) {
-  <span class="comment">// 🔄 Config changed! Rebuilding key index...</span>
-  <span class="comment">//    Old hash: a1b2c3...</span>
-  <span class="comment">//    New hash: x9y8z7...</span>
-  
-  <span class="comment">// All events are re-scanned</span>
-  <span class="comment">// Keys are re-extracted with new config</span>
-  <span class="comment">// Index is rebuilt automatically</span>
-  
-  <span class="comment">// ✅ Reindex complete: 1523 events, 4211 keys (847ms)</span>
-}
+  <span class="comment">🔄 Reindex (SQLite)</span>
+  <span class="comment">Config hash: a1b2c3... → x9y8z7...</span>
+  <span class="comment">Events: 50,001,237</span>
 
-<span class="comment">// No manual migration needed!</span>
-<span class="comment">// Just change your config and restart.</span></code></pre>
+  <span class="comment">[████████████████████████████░░] 93%  46,500,000 / 50,001,237  148,201 keys/s</span>
+
+  <span class="comment">✅ Reindex complete: 50,001,237 events, 112,482,011 keys (8m 12s)</span>
+
+<span class="comment">// Batched, resumable, crash-safe.</span>
+<span class="comment">// Add to your CI/CD pipeline — runs only when config changed.</span></code></pre>
   </div>
   
   <div class="architecture">
