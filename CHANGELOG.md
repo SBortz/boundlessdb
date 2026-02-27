@@ -2,6 +2,56 @@
 
 All notable changes to BoundlessDB will be documented in this file.
 
+## [0.5.0] - 2026-02-27
+
+### Added
+
+- **Multi-Key AND Queries**: Filter events that match ALL specified keys on the same event. Implements the DCB spec requirement for multi-tag QueryItems.
+  ```typescript
+  // Fluent API
+  store.query()
+    .matchType('StudentSubscribed')
+    .withKey('course', 'cs101')
+    .withKey('student', 'alice')  // AND: same event must have both keys
+    .read();
+
+  // Object API
+  store.read({
+    conditions: [{
+      type: 'StudentSubscribed',
+      keys: [
+        { name: 'course', value: 'cs101' },
+        { name: 'student', value: 'alice' }
+      ]
+    }]
+  });
+  ```
+- **`.withKey(key, value)`** on QueryBuilder: adds an AND key to the last condition. Throws if called without a preceding `.matchType()` or `.matchTypeAndKey()`.
+- **`MultiKeyConstrainedCondition` type**: `{ type, keys: [{ name, value }] }` for multi-key conditions.
+- **`normalizeCondition()`**, **`hasKeys()`**, **`isMultiKeyCondition()`** exported as helpers.
+- **AND vs OR** documentation in README.
+
+### Changed
+
+- **sql.js storage rewritten** to CTE-based query approach (was naive JOIN + OR). Now mirrors the SQLite/better-sqlite3 strategy.
+- **Backward compatible**: `{ type, key, value }` is still accepted and normalized internally to `{ type, keys: [{ name: key, value }] }`.
+
+### SQL Strategy
+
+Multi-key conditions use **INTERSECT** within a CTE. Each key gets its own sub-select on `idx_key_position`; INTERSECT returns only positions with ALL keys:
+
+```sql
+SELECT position FROM event_keys WHERE key_name = 'course' AND key_value = 'cs101'
+INTERSECT
+SELECT position FROM event_keys WHERE key_name = 'student' AND key_value = 'alice'
+```
+
+Single-key conditions (1 key) skip INTERSECT and use the existing efficient path.
+
+### Tests
+
+- 140 tests (was 118), +22 new tests covering multi-key AND, mixed AND+OR, 3+ keys, backward compat, AppendCondition conflict detection, error cases.
+
 ## [0.4.0] - 2026-02-24
 
 ### Added
