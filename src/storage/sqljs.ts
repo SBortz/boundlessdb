@@ -422,6 +422,7 @@ ORDER BY position`;
 
   /**
    * Reindex all events with new keys
+   * @deprecated Use reindexBatch() for production-safe batch-based reindexing
    */
   async reindex(extractKeys: (event: StoredEvent) => ExtractedKey[]): Promise<void> {
     const db = await this.ensureInitialized();
@@ -449,6 +450,112 @@ ORDER BY position`;
       db.run('ROLLBACK');
       throw error;
     }
+  }
+
+  /**
+   * Batch-based reindex: processes events in cursor-based batches.
+   * Crash-safe via reindex_position metadata. Resumes from last completed batch.
+   */
+  async reindexBatch(
+    extractKeys: (event: StoredEvent) => ExtractedKey[],
+    options?: {
+      batchSize?: number;
+      onProgress?: (done: number, total: number) => void;
+    }
+  ): Promise<{ events: number; keys: number; durationMs: number }> {
+    const db = await this.ensureInitialized();
+    const batchSize = options?.batchSize ?? 10_000;
+    const onProgress = options?.onProgress;
+    const startTime = Date.now();
+
+    const escapeSql = (s: string): string => "'" + s.replace(/'/g, "''") + "'";
+
+    // Count total events
+    const countResult = db.exec('SELECT COUNT(*) as cnt FROM events');
+    const totalEvents = countResult.length > 0 ? (countResult[0].values[0][0] as number) : 0;
+
+    if (totalEvents === 0) {
+      db.run("DELETE FROM metadata WHERE key = 'reindex_position'");
+      return { events: 0, keys: 0, durationMs: Date.now() - startTime };
+    }
+
+    // Check for resume position (crash recovery)
+    const resumeResult = db.exec("SELECT value FROM metadata WHERE key = 'reindex_position'");
+    let cursor = resumeResult.length > 0 && resumeResult[0].values.length > 0
+      ? Number(resumeResult[0].values[0][0])
+      : 0;
+
+    let totalProcessed = 0;
+    if (cursor > 0) {
+      const countDone = db.exec(`SELECT COUNT(*) as cnt FROM events WHERE position <= ${cursor}`);
+      totalProcessed = countDone.length > 0 ? (countDone[0].values[0][0] as number) : 0;
+    }
+    let totalKeys = 0;
+
+    // Process batches
+    while (true) {
+      const batchResult = db.exec(
+        `SELECT position, event_id, event_type, data, metadata, timestamp
+         FROM events
+         WHERE position > ${cursor}
+         ORDER BY position
+         LIMIT ${batchSize}`
+      );
+
+      if (batchResult.length === 0 || batchResult[0].values.length === 0) break;
+
+      const columns = (batchResult[0] as any).columns || (batchResult[0] as any).lc;
+      const rows = batchResult[0].values;
+
+      const parsedRows = rows.map((row: SqlValue[]) => {
+        const obj: Record<string, unknown> = {};
+        columns.forEach((col: string, i: number) => {
+          obj[col] = row[i];
+        });
+        return obj as unknown as EventRow;
+      });
+
+      const minPos = parsedRows[0].position;
+      const maxPos = parsedRows[parsedRows.length - 1].position;
+
+      db.run('BEGIN TRANSACTION');
+      try {
+        // Delete old keys for this batch range
+        db.run(`DELETE FROM event_keys WHERE position >= ${minPos} AND position <= ${maxPos}`);
+
+        // Extract and insert new keys
+        for (const row of parsedRows) {
+          const event = this.rowToEvent(row);
+          const keys = extractKeys(event);
+          for (const key of keys) {
+            db.run(
+              `INSERT INTO event_keys (position, key_name, key_value) VALUES (${Number(row.position)}, ${escapeSql(key.name)}, ${escapeSql(key.value)})`
+            );
+            totalKeys++;
+          }
+        }
+
+        // Store progress
+        db.run(`INSERT OR REPLACE INTO metadata (key, value) VALUES ('reindex_position', '${maxPos}')`);
+
+        db.run('COMMIT');
+      } catch (error) {
+        db.run('ROLLBACK');
+        throw error;
+      }
+
+      cursor = maxPos as number;
+      totalProcessed += parsedRows.length;
+
+      if (onProgress) {
+        onProgress(totalProcessed, totalEvents);
+      }
+    }
+
+    // Completion: remove progress marker
+    db.run("DELETE FROM metadata WHERE key = 'reindex_position'");
+
+    return { events: totalProcessed, keys: totalKeys, durationMs: Date.now() - startTime };
   }
 
   private rowToEvent(row: EventRow): StoredEvent {

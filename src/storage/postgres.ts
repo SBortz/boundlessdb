@@ -506,6 +506,7 @@ ORDER BY position`;
 
   /**
    * Reindex all events with new keys
+   * @deprecated Use reindexBatch() for production-safe batch-based reindexing
    */
   async reindex(extractKeys: (event: StoredEvent) => ExtractedKey[]): Promise<void> {
     this.ensureInitialized();
@@ -537,6 +538,127 @@ ORDER BY position`;
     } finally {
       client.release();
     }
+  }
+
+  /**
+   * Batch-based reindex: processes events in cursor-based batches.
+   * Crash-safe via reindex_position metadata. Resumes from last completed batch.
+   */
+  async reindexBatch(
+    extractKeys: (event: StoredEvent) => ExtractedKey[],
+    options?: {
+      batchSize?: number;
+      onProgress?: (done: number, total: number) => void;
+    }
+  ): Promise<{ events: number; keys: number; durationMs: number }> {
+    this.ensureInitialized();
+
+    const batchSize = options?.batchSize ?? 10_000;
+    const onProgress = options?.onProgress;
+    const startTime = Date.now();
+
+    // Count total events
+    const countResult = await this.pool.query<{ cnt: string }>('SELECT COUNT(*) as cnt FROM events');
+    const totalEvents = Number(countResult.rows[0].cnt);
+
+    if (totalEvents === 0) {
+      await this.pool.query("DELETE FROM metadata WHERE key = 'reindex_position'");
+      return { events: 0, keys: 0, durationMs: Date.now() - startTime };
+    }
+
+    // Check for resume position (crash recovery)
+    const resumeResult = await this.pool.query<{ value: string }>(
+      "SELECT value FROM metadata WHERE key = 'reindex_position'"
+    );
+    let cursor = resumeResult.rows.length > 0 ? BigInt(resumeResult.rows[0].value) : 0n;
+
+    let totalProcessed = 0;
+    if (cursor > 0n) {
+      const countDone = await this.pool.query<{ cnt: string }>(
+        'SELECT COUNT(*) as cnt FROM events WHERE position <= $1',
+        [cursor.toString()]
+      );
+      totalProcessed = Number(countDone.rows[0].cnt);
+    }
+    let totalKeys = 0;
+
+    // Process batches
+    while (true) {
+      const batchResult = await this.pool.query<EventRow>(
+        `SELECT position, event_id, event_type, data, metadata, timestamp
+         FROM events
+         WHERE position > $1
+         ORDER BY position
+         LIMIT $2`,
+        [cursor.toString(), batchSize]
+      );
+
+      const rows = batchResult.rows;
+      if (rows.length === 0) break;
+
+      const minPos = BigInt(rows[0].position);
+      const maxPos = BigInt(rows[rows.length - 1].position);
+
+      const client = await this.pool.connect();
+      try {
+        await client.query('BEGIN');
+
+        // Delete old keys for this batch range
+        await client.query(
+          'DELETE FROM event_keys WHERE position >= $1 AND position <= $2',
+          [minPos.toString(), maxPos.toString()]
+        );
+
+        // Extract and insert new keys (batch insert)
+        const keyValues: string[] = [];
+        const keyParams: unknown[] = [];
+        let paramIdx = 1;
+
+        for (const row of rows) {
+          const event = this.rowToEvent(row);
+          const keys = extractKeys(event);
+          for (const key of keys) {
+            keyValues.push(`($${paramIdx}, $${paramIdx + 1}, $${paramIdx + 2})`);
+            keyParams.push(row.position, key.name, key.value);
+            paramIdx += 3;
+            totalKeys++;
+          }
+        }
+
+        if (keyValues.length > 0) {
+          await client.query(
+            `INSERT INTO event_keys (position, key_name, key_value) VALUES ${keyValues.join(', ')}`,
+            keyParams
+          );
+        }
+
+        // Store progress
+        await client.query(
+          `INSERT INTO metadata (key, value) VALUES ('reindex_position', $1)
+           ON CONFLICT (key) DO UPDATE SET value = $1`,
+          [maxPos.toString()]
+        );
+
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+      } finally {
+        client.release();
+      }
+
+      cursor = maxPos;
+      totalProcessed += rows.length;
+
+      if (onProgress) {
+        onProgress(totalProcessed, totalEvents);
+      }
+    }
+
+    // Completion: remove progress marker
+    await this.pool.query("DELETE FROM metadata WHERE key = 'reindex_position'");
+
+    return { events: totalProcessed, keys: totalKeys, durationMs: Date.now() - startTime };
   }
 
   private rowToEvent(row: EventRow): StoredEvent {

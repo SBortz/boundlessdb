@@ -13,7 +13,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@sbortz/event-store": "file:../event-store",
+    "boundlessdb": "file:..",
     "express": "^4.18.2"
   },
   "devDependencies": {
