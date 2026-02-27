@@ -590,9 +590,11 @@ ORDER BY position`;
           [minPos.toString(), maxPos.toString()]
         );
 
-        // Extract and insert new keys (batch insert)
-        const keyValues: string[] = [];
-        const keyParams: unknown[] = [];
+        // Extract and insert new keys (batch insert, max ~20k params per INSERT)
+        const MAX_PARAMS = 20_000; // well below PostgreSQL's 65535 limit
+        const MAX_KEYS_PER_INSERT = Math.floor(MAX_PARAMS / 3);
+        let keyValues: string[] = [];
+        let keyParams: unknown[] = [];
         let paramIdx = 1;
 
         for (const row of rows) {
@@ -603,6 +605,16 @@ ORDER BY position`;
             keyParams.push(row.position, key.name, key.value);
             paramIdx += 3;
             totalKeys++;
+
+            if (keyValues.length >= MAX_KEYS_PER_INSERT) {
+              await client.query(
+                `INSERT INTO event_keys (position, key_name, key_value) VALUES ${keyValues.join(', ')}`,
+                keyParams
+              );
+              keyValues = [];
+              keyParams = [];
+              paramIdx = 1;
+            }
           }
         }
 
