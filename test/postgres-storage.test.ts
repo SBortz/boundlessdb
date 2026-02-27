@@ -101,7 +101,8 @@ describe.skipIf(!POSTGRES_URL)('PostgresStorage', () => {
         [[{ name: 'key', value: 'a' }]]
       );
 
-      const events = await storage.getAllEvents();
+      // Use query API instead of getAllEvents
+      const events = await storage.query([]);
       expect(events[0].metadata).toEqual({ userId: 'alice' });
     });
   });
@@ -325,7 +326,7 @@ describe.skipIf(!POSTGRES_URL)('PostgresStorage', () => {
     });
   });
 
-  describe('getAllEvents', () => {
+  describe('query with no conditions (get all events)', () => {
     it('returns all events in order', async () => {
       await storage.append(
         [
@@ -338,26 +339,11 @@ describe.skipIf(!POSTGRES_URL)('PostgresStorage', () => {
         ]
       );
 
-      const events = await storage.getAllEvents();
+      // Use query API with empty conditions to get all events
+      const events = await storage.query([]);
       expect(events).toHaveLength(2);
       expect(events[0].id).toBe('e1');
       expect(events[1].id).toBe('e2');
-    });
-  });
-
-  describe('getAllKeys', () => {
-    it('returns all keys in order', async () => {
-      await storage.append(
-        [createTestEvent('e1', 'TestEvent', {})],
-        [[
-          { name: 'keyA', value: 'x' },
-          { name: 'keyB', value: 'y' },
-        ]]
-      );
-
-      const keys = await storage.getAllKeys();
-      expect(keys).toHaveLength(2);
-      expect(keys.map(k => k.key_name).sort()).toEqual(['keyA', 'keyB']);
     });
   });
 
@@ -370,12 +356,11 @@ describe.skipIf(!POSTGRES_URL)('PostgresStorage', () => {
 
       await storage.clear();
 
-      const events = await storage.getAllEvents();
-      const keys = await storage.getAllKeys();
+      // Use query API to verify all data is cleared
+      const events = await storage.query([]);
       const pos = await storage.getLatestPosition();
 
       expect(events).toEqual([]);
-      expect(keys).toEqual([]);
       expect(pos).toBe(0n);
     });
 

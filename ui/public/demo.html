@@ -932,10 +932,12 @@
     }
 
     async function refreshEvents() {
-      if (!storage) return;
+      if (!store) return;
       
       try {
-        const events = await storage.getAllEvents();
+        // Query with no conditions returns all events
+        const result = await store.read({ conditions: [] });
+        const events = result.events;
         const list = document.getElementById('events-list');
         const reversed = [...events].reverse(); // newest first
         list.innerHTML = reversed.map(e => `
@@ -951,13 +953,54 @@
       }
     }
 
+    // Helper to extract keys from event data based on config
+    function extractKeysFromEvent(event) {
+      const keys = [];
+      const eventTypeConfig = CONSISTENCY_CONFIG.eventTypes[event.type];
+      if (!eventTypeConfig) return keys;
+      
+      for (const keyConfig of eventTypeConfig.keys) {
+        const value = getNestedValue(event.data, keyConfig.path);
+        if (value !== undefined) {
+          keys.push({
+            position: event.position,
+            key_name: keyConfig.name,
+            key_value: String(value)
+          });
+        }
+      }
+      return keys;
+    }
+    
+    // Helper to get nested property value by path (e.g., "data.courseId")
+    function getNestedValue(obj, path) {
+      const parts = path.split('.');
+      let current = obj;
+      for (const part of parts) {
+        if (current && typeof current === 'object' && part in current) {
+          current = current[part];
+        } else {
+          return undefined;
+        }
+      }
+      return current;
+    }
+
     async function refreshKeys() {
-      if (!storage) return;
+      if (!store) return;
       
       try {
-        const keys = await storage.getAllKeys();
+        // Query all events and extract keys from them
+        const result = await store.read({ conditions: [] });
+        const allKeys = [];
+        
+        for (const event of result.events) {
+          const eventKeys = extractKeysFromEvent(event);
+          allKeys.push(...eventKeys);
+        }
+        
         const list = document.getElementById('keys-list');
-        const reversed = [...keys].reverse(); // newest first
+        const reversed = [...allKeys].reverse(); // newest first
         list.innerHTML = reversed.map(k => `
           <div class="key-item">
             <span class="key-pos">#${k.position}</span>
@@ -1223,12 +1266,11 @@
         document.getElementById('live-count').textContent = result.events.length;
         document.getElementById('live-token').textContent = `Position: #${result.position}`;
         
-        // Get keys for each event
-        const allKeys = await storage.getAllKeys();
+        // Extract keys for each event from the event data (using config)
         const keysByPos = {};
-        for (const k of allKeys) {
-          if (!keysByPos[k.position]) keysByPos[k.position] = [];
-          keysByPos[k.position].push(k);
+        for (const event of result.events) {
+          const eventKeys = extractKeysFromEvent(event);
+          keysByPos[Number(event.position)] = eventKeys;
         }
         
         // Render events (newest first)
@@ -1265,7 +1307,9 @@
 
     window.clearStore = async function() {
       if (!confirm('Alle Events löschen?')) return;
-      await storage.clear();
+      // Access storage through the store's getStorage() method
+      const storageInstance = store.getStorage();
+      await storageInstance.clear();
       await refreshAll();
       await refreshLiveQuery();
     };

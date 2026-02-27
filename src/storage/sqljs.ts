@@ -322,12 +322,12 @@ ORDER BY position`;
     this.db = null;
   }
 
-  // --- UI Helper Methods (not part of core DCB API) ---
+  // --- Internal Helper Methods ---
 
   /**
-   * Get all events (for debugging/UI)
+   * Get all events (internal use only - needed for reindex)
    */
-  async getAllEvents(): Promise<StoredEvent[]> {
+  private async getAllEvents(): Promise<StoredEvent[]> {
     const db = await this.ensureInitialized();
     const result = db.exec(`
       SELECT position, event_id, event_type, data, metadata, timestamp
@@ -350,26 +350,6 @@ ORDER BY position`;
       });
       return this.rowToEvent(obj as unknown as EventRow);
     });
-  }
-
-  /**
-   * Get all keys (for debugging/UI)
-   */
-  async getAllKeys(): Promise<Array<{ position: number; key_name: string; key_value: string }>> {
-    const db = await this.ensureInitialized();
-    const result = db.exec(`
-      SELECT position, key_name, key_value
-      FROM event_keys
-      ORDER BY position ASC
-    `);
-
-    if (result.length === 0) return [];
-
-    return result[0].values.map((row: SqlValue[]) => ({
-      position: row[0] as number,
-      key_name: row[1] as string,
-      key_value: row[2] as string
-    }));
   }
 
   /**

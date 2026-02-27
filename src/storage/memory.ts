@@ -133,7 +133,8 @@ export class InMemoryStorage implements EventStorage {
   }
 
   /**
-   * Get all events (for testing)
+   * Get all events (internal/test use only)
+   * Note: Kept as public for test convenience, but not part of public API contract
    */
   getAllEvents(): StoredEvent[] {
     return this.events.map(({ keys: _keys, ...event }) => event);

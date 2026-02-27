@@ -419,12 +419,12 @@ ORDER BY position`;
     await this.pool.end();
   }
 
-  // --- UI Helper Methods (not part of core DCB API) ---
+  // --- Internal Helper Methods ---
 
   /**
-   * Get all events (for debugging/UI)
+   * Get all events (internal use only - needed for reindex)
    */
-  async getAllEvents(): Promise<StoredEvent[]> {
+  private async getAllEvents(): Promise<StoredEvent[]> {
     this.ensureInitialized();
 
     const result = await this.pool.query<EventRow>(`
@@ -434,25 +434,6 @@ ORDER BY position`;
     `);
 
     return result.rows.map(row => this.rowToEvent(row));
-  }
-
-  /**
-   * Get all keys (for debugging/UI)
-   */
-  async getAllKeys(): Promise<Array<{ position: bigint; key_name: string; key_value: string }>> {
-    this.ensureInitialized();
-
-    const result = await this.pool.query<{ position: string; key_name: string; key_value: string }>(`
-      SELECT position, key_name, key_value
-      FROM event_keys
-      ORDER BY position ASC
-    `);
-
-    return result.rows.map(row => ({
-      position: BigInt(row.position),
-      key_name: row.key_name,
-      key_value: row.key_value,
-    }));
   }
 
   /**
