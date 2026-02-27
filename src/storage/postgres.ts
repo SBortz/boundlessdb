@@ -275,70 +275,96 @@ export class PostgresStorage implements EventStorage {
 
     // Constrained conditions — each condition is its own CTE
     // Multi-key conditions use INTERSECT within a CTE
+    // Single-key conditions with the same (key_name, key_value) are grouped
+    // into one CTE with IN (type1, type2, ...) to avoid redundant index scans.
     if (constrained.length > 0) {
-      constrained.forEach((c, i) => {
-        const isMultiKey = c.keys.length > 1;
-        const cteName = `constrained_${i}`;
+      // Separate multi-key (own CTE each) from single-key (groupable)
+      const multiKey = constrained.filter(c => c.keys.length > 1);
+      const singleKey = constrained.filter(c => c.keys.length === 1);
 
-        if (isMultiKey) {
-          // Multi-key: INTERSECT sub-selects
-          const intersectParts = c.keys.map(key => {
-            const keyNameParam = `$${paramIndex}`;
-            params.push(key.name);
-            paramIndex++;
-            const keyValueParam = `$${paramIndex}`;
-            params.push(key.value);
-            paramIndex++;
+      // Group single-key conditions by (key_name, key_value)
+      const keyGroups = new Map<string, { name: string; value: string; types: string[] }>();
+      for (const c of singleKey) {
+        const groupKey = `${c.keys[0].name}\0${c.keys[0].value}`;
+        let group = keyGroups.get(groupKey);
+        if (!group) {
+          group = { name: c.keys[0].name, value: c.keys[0].value, types: [] };
+          keyGroups.set(groupKey, group);
+        }
+        group.types.push(c.type);
+      }
 
-            let part = `
-          SELECT position FROM event_keys
-          WHERE key_name = ${keyNameParam} AND key_value = ${keyValueParam}`;
-            if (positionFilter !== null) {
-              part += ` AND position > $${paramIndex}`;
-              params.push(positionFilter);
-              paramIndex++;
-            }
-            return part;
-          });
+      // Emit grouped single-key CTEs
+      let groupIdx = 0;
+      for (const group of keyGroups.values()) {
+        const cteName = `constrained_${groupIdx}`;
 
-          const typeParam = `$${paramIndex}`;
-          params.push(c.type);
+        const keyNameParam = `$${paramIndex}`;
+        params.push(group.name);
+        paramIndex++;
+        const keyValueParam = `$${paramIndex}`;
+        params.push(group.value);
+        paramIndex++;
+
+        const typeParams = group.types.map(t => {
+          const ph = `$${paramIndex}`;
+          params.push(t);
           paramIndex++;
+          return ph;
+        });
 
-          const cteSql = `
-          SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
-          FROM (${intersectParts.join('\n          INTERSECT')}) keys
-          INNER JOIN events e ON e.position = keys.position
-          WHERE e.event_type = ${typeParam}`;
-          ctes.push(`${cteName} AS (${cteSql})`);
-        } else {
-          // Single key: direct join
-          const keyNameParam = `$${paramIndex}`;
-          params.push(c.keys[0].name);
-          paramIndex++;
-          const keyValueParam = `$${paramIndex}`;
-          params.push(c.keys[0].value);
-          paramIndex++;
-          const typeParam = `$${paramIndex}`;
-          params.push(c.type);
-          paramIndex++;
-
-          let cteSql = `
+        let cteSql = `
           SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
           FROM event_keys k
           INNER JOIN events e ON e.position = k.position
           WHERE k.key_name = ${keyNameParam} AND k.key_value = ${keyValueParam}
-            AND e.event_type = ${typeParam}`;
+            AND e.event_type IN (${typeParams.join(', ')})`;
+        if (positionFilter !== null) {
+          cteSql += ` AND e.position > $${paramIndex}`;
+          params.push(positionFilter);
+          paramIndex++;
+        }
+        ctes.push(`${cteName} AS (${cteSql})`);
+        cteNames.push(cteName);
+        groupIdx++;
+      }
+
+      // Emit multi-key CTEs (INTERSECT, one CTE each)
+      for (let m = 0; m < multiKey.length; m++) {
+        const c = multiKey[m];
+        const cteName = `constrained_multi_${m}`;
+
+        const intersectParts = c.keys.map(key => {
+          const keyNameParam = `$${paramIndex}`;
+          params.push(key.name);
+          paramIndex++;
+          const keyValueParam = `$${paramIndex}`;
+          params.push(key.value);
+          paramIndex++;
+
+          let part = `
+          SELECT position FROM event_keys
+          WHERE key_name = ${keyNameParam} AND key_value = ${keyValueParam}`;
           if (positionFilter !== null) {
-            cteSql += ` AND e.position > $${paramIndex}`;
+            part += ` AND position > $${paramIndex}`;
             params.push(positionFilter);
             paramIndex++;
           }
-          ctes.push(`${cteName} AS (${cteSql})`);
-        }
+          return part;
+        });
 
+        const typeParam = `$${paramIndex}`;
+        params.push(c.type);
+        paramIndex++;
+
+        const cteSql = `
+          SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
+          FROM (${intersectParts.join('\n          INTERSECT')}) keys
+          INNER JOIN events e ON e.position = keys.position
+          WHERE e.event_type = ${typeParam}`;
+        ctes.push(`${cteName} AS (${cteSql})`);
         cteNames.push(cteName);
-      });
+      }
     }
 
     const unionParts = cteNames.map(name => `SELECT * FROM ${name}`);
