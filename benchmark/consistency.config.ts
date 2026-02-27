@@ -1,11 +1,11 @@
 /**
- * Example consistency config for the reindex script.
+ * Shared consistency config for benchmarks and reindex.
  *
  * Usage:
- *   npx tsx scripts/reindex.ts --config ./scripts/example.consistency.config.ts --db ./events.sqlite
+ *   import consistency from './consistency.config.ts';
  *
- * Your config file must default-export a ConsistencyConfig object.
- * Alternatively, export it as `consistency` or `config`.
+ *   // Reindex:
+ *   npx tsx scripts/reindex.ts --config ./benchmark/consistency.config.ts --db ./benchmark/boundless-bench.sqlite
  */
 
 import type { ConsistencyConfig } from '../src/types.js';

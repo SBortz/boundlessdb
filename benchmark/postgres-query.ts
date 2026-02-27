@@ -19,6 +19,7 @@ import { EventStore } from '../src/event-store.js';
 import { PostgresStorage } from '../src/storage/postgres.js';
 import { Pool } from 'pg';
 import type { Event } from '../src/types.js';
+import consistency from './consistency.config.js';
 
 type CourseCreated = Event<'CourseCreated', { courseId: string; title: string }>;
 type StudentEnrolled = Event<'StudentEnrolled', { courseId: string; studentId: string }>;
@@ -68,34 +69,7 @@ const sizes = sizeArgs.map(parseSize);
 
 const datasets = sizes.map(buildDataset);
 
-const STORE_CONFIG = {
-  consistency: {
-    eventTypes: {
-      CourseCreated: {
-        keys: [{ path: 'data.courseId', name: 'course' }],
-      },
-      StudentEnrolled: {
-        keys: [
-          { path: 'data.courseId', name: 'course' },
-          { path: 'data.studentId', name: 'student' },
-        ],
-      },
-      LessonCompleted: {
-        keys: [
-          { path: 'data.courseId', name: 'course' },
-          { path: 'data.studentId', name: 'student' },
-          { path: 'data.lessonId', name: 'lesson' },
-        ],
-      },
-      CertificateIssued: {
-        keys: [
-          { path: 'data.courseId', name: 'course' },
-          { path: 'data.studentId', name: 'student' },
-        ],
-      },
-    },
-  },
-};
+const STORE_CONFIG = { consistency };
 
 // --- Progress helpers ---
 

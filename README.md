@@ -391,7 +391,7 @@ npx tsx scripts/reindex.ts --config ./consistency.config.ts --connection postgre
 npx tsx scripts/reindex.ts --config ./consistency.config.ts --db ./events.sqlite --batch-size 50000
 ```
 
-The `--config` file must default-export a `ConsistencyConfig` (see `scripts/example.consistency.config.ts`).
+The `--config` file must default-export a `ConsistencyConfig` (see `benchmark/consistency.config.ts` for an example).
 
 The script:
 - **Checks the hash first** — if unchanged, exits immediately ("No reindex needed")

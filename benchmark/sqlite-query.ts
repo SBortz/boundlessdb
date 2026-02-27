@@ -17,6 +17,7 @@
 import { EventStore } from '../src/event-store.js';
 import { SqliteStorage } from '../src/storage/sqlite.js';
 import type { Event } from '../src/types.js';
+import consistency from './consistency.config.js';
 
 type CourseCreated = Event<'CourseCreated', { courseId: string; title: string }>;
 type StudentEnrolled = Event<'StudentEnrolled', { courseId: string; studentId: string }>;
@@ -68,34 +69,7 @@ const datasets = sizes.map(buildDataset);
 
 const DB_PATH = './boundless-bench.sqlite';
 
-const STORE_CONFIG = {
-  consistency: {
-    eventTypes: {
-      CourseCreated: {
-        keys: [{ path: 'data.courseId', name: 'course' }],
-      },
-      StudentEnrolled: {
-        keys: [
-          { path: 'data.courseId', name: 'course' },
-          { path: 'data.studentId', name: 'student' },
-        ],
-      },
-      LessonCompleted: {
-        keys: [
-          { path: 'data.courseId', name: 'course' },
-          { path: 'data.studentId', name: 'student' },
-          { path: 'data.lessonId', name: 'lesson' },
-        ],
-      },
-      CertificateIssued: {
-        keys: [
-          { path: 'data.courseId', name: 'course' },
-          { path: 'data.studentId', name: 'student' },
-        ],
-      },
-    },
-  },
-};
+const STORE_CONFIG = { consistency };
 
 // --- Progress helpers ---
 
