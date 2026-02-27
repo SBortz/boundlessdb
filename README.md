@@ -23,7 +23,7 @@ The entire event store runs client-side in your browser using WebAssembly SQLite
 - ⚙️ **Config-based Key Extraction** — Events remain pure business data
 - 🎟️ **AppendCondition** — Simple, transparent optimistic concurrency control
 - ⚡ **Conflict Detection with Delta** — Get exactly what changed since your read
-- 🔄 **Auto-Reindex** — Change your config, keys are automatically rebuilt
+- 🔄 **Reindex Script** — Change your config, run the reindex script, keys are rebuilt safely
 - 💾 **SQLite, PostgreSQL & In-Memory** — Multiple storage backends
 - 📦 **Embedded Library** — No separate server, runs in your process
 
@@ -361,20 +361,78 @@ const { events } = await store.read({
 
 This is great for **Close the Books** patterns — query all events in a time period efficiently!
 
-## Auto-Reindex on Config Change
+## Reindex on Config Change
 
-The config is hashed and stored in the database. On startup:
+The consistency config is hashed and stored in the database. When you change your config (add/remove keys, change paths or transforms), the key index must be rebuilt.
+
+**On startup, BoundlessDB detects config changes:**
 
 ```
 stored_hash:  "a1b2c3..."  (from last run)
 current_hash: "x9y8z7..."  (from your config)
 
-→ Hash mismatch detected!
-→ Rebuilding key index...
-→ ✅ Reindex complete: 1523 events, 4211 keys (847ms)
+→ Error: Config hash mismatch. Run the reindex script before starting the application.
 ```
 
-**Just change your config and restart.** No manual migration needed!
+This is intentional — reindexing millions of events should be an explicit step, not a surprise on startup.
+
+### Reindex Script
+
+Run the reindex script as part of your deployment (like a database migration):
+
+```bash
+# SQLite
+npx tsx scripts/reindex.ts --db ./events.sqlite
+
+# PostgreSQL
+npx tsx scripts/reindex.ts --connection postgresql://user:pass@localhost/db
+
+# Custom batch size (default: 10,000)
+npx tsx scripts/reindex.ts --db ./events.sqlite --batch-size 50000
+```
+
+The script:
+- **Checks the hash first** — if unchanged, exits immediately ("No reindex needed")
+- **Processes in batches** — never loads all events into memory
+- **Shows live progress** — percentage, throughput, ETA
+- **Is crash-safe** — stores progress in metadata, resumes from where it left off
+
+```
+  🔄 Reindex (SQLite)
+  Config hash: fd7b17c0... → a3e91b44...
+  Events: 50,001,237
+
+  [████████████░░░░░░░░░░░░░░░░░░] 40%  20,000,000 / 50,001,237  142,857 keys/s  ETA 3m 30s
+
+  ✅ Reindex complete: 50,001,237 events, 112,482,011 keys (8m 12s)
+```
+
+### CI/CD Integration
+
+Add the reindex script to your deployment pipeline:
+
+```yaml
+# Example: GitHub Actions
+- name: Reindex (if config changed)
+  run: npx tsx scripts/reindex.ts --db ./events.sqlite
+```
+
+The script exits with code 0 in both cases (no reindex needed / reindex completed successfully), so it's safe to run on every deploy.
+
+### Programmatic Reindex
+
+You can also call `reindexBatch()` directly on a storage engine:
+
+```typescript
+const storage = new SqliteStorage('./events.sqlite');
+
+await storage.reindexBatch(extractKeys, {
+  batchSize: 10_000,
+  onProgress: (done, total) => {
+    console.log(`${done}/${total}`);
+  }
+});
+```
 
 ## Browser Usage
 
