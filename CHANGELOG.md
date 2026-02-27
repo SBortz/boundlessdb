@@ -2,6 +2,41 @@
 
 All notable changes to BoundlessDB will be documented in this file.
 
+## [0.6.0] - 2026-02-27
+
+### Breaking Changes
+
+- **Auto-reindex removed.** Config hash mismatch on startup now throws an error instead of silently reindexing. Run the reindex script before starting the application.
+
+### Added
+
+- **Reindex script** (`scripts/reindex.ts`): Production-safe batch-based reindex with live progress, crash recovery, and configurable batch size.
+  ```bash
+  npx tsx scripts/reindex.ts --config ./consistency.config.ts --db ./events.sqlite
+  ```
+- **`reindexBatch()` method** on all storage engines: cursor-based batching with `onProgress` callback and resume-from-crash support.
+- **`--events` flag** for benchmark scripts: explicit named parameter for target event count.
+- **`--config` flag** for benchmark and reindex scripts: load consistency config from external file.
+- **`--db` / `--connection` flags** for benchmark scripts: custom database path.
+- **Combined benchmark + reindex script** (`benchmark/bench-and-reindex.ts`): Runs the full workflow in one command.
+- **Shared consistency config** (`benchmark/consistency.config.ts`): Single config file for benchmarks and reindex.
+- **Minimal consistency config** (`benchmark/consistency.config.minimal.ts`): For testing reindex with different key configurations.
+- **Benchmark + reindex workflow documentation** (`docs/benchmark-reindex-workflow.md`).
+- **Multi-key AND queries in SQL docs** (`docs/sqlite-queries.md`): INTERSECT approach, MATERIALIZED variant, decision logic.
+
+### Changed
+
+- **Demo app overhauled**: Updated to current API (v0.5.0). Removed token-based endpoints, uses `appendCondition`. Fixed broken dependency (`@sbortz/event-store` -> `boundlessdb`).
+- **Landing page**: "Auto-Reindex" renamed to "One-Command Reindex" with CLI output example.
+
+### Reindex at Scale
+
+| Events | Duration |
+|---|---|
+| 10k | < 1s |
+| 100k | ~3s |
+| 1M | ~13s |
+
 ## [0.5.0] - 2026-02-27
 
 ### Added

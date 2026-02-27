@@ -94,35 +94,13 @@ export class EventStore {
 
     if (storedHash === null) {
       // First run — just store the hash
-      console.log('[EventStore] First run, storing config hash:', currentHash.substring(0, 16) + '...');
       this.storage.setConfigHash(currentHash);
     } else if (storedHash !== currentHash) {
-      // Config changed — reindex!
-      console.log('[EventStore] ⚠️  Config changed! Rebuilding key index...');
-      console.log(`[EventStore]    Old hash: ${storedHash.substring(0, 16)}...`);
-      console.log(`[EventStore]    New hash: ${currentHash.substring(0, 16)}...`);
-      const startTime = Date.now();
-      
-      let eventCount = 0;
-      let keyCount = 0;
-      
-      this.storage.reindex((event) => {
-        eventCount++;
-        // Convert StoredEvent to Event format for KeyExtractor
-        const keys = this.keyExtractor.extract({
-          type: event.type,
-          data: event.data,
-          metadata: event.metadata
-        });
-        keyCount += keys.length;
-        return keys;
-      });
-      
-      // Update stored hash
-      this.storage.setConfigHash(currentHash);
-      
-      const duration = Date.now() - startTime;
-      console.log(`[EventStore] ✅ Reindex complete: ${eventCount} events, ${keyCount} keys (${duration}ms)`);
+      // Config changed — throw error, require explicit reindex via script
+      throw new Error(
+        `Config hash mismatch (stored: ${storedHash}, current: ${currentHash}). ` +
+        `Run the reindex script before starting the application.`
+      );
     }
   }
 

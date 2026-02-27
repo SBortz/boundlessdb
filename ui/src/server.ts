@@ -2,22 +2,23 @@
  * Event Store Test UI - Backend Server
  * 
  * Uses the @sbortz/event-store library to demonstrate DCB in action.
+ * Updated for BoundlessDB v0.5.0 API (appendCondition, no tokens).
  */
 
 import express, { Request, Response } from 'express';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { readFileSync } from 'node:fs';
-import { createHmac } from 'node:crypto';
+import Database from 'better-sqlite3';
 import {
   createEventStore,
   SqliteStorage,
   isConflict,
   type EventStore,
   type QueryCondition,
-  type StoredEvent,
+  type AppendCondition,
   type ConsistencyConfig,
-} from '@sbortz/event-store';
+} from 'boundlessdb';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -31,7 +32,6 @@ app.use(express.static(join(__dirname, '../public')));
 // Paths
 const DB_PATH = process.env.DB_PATH || join(__dirname, '../test-store.db');
 const CONFIG_PATH = process.env.CONFIG_PATH || join(__dirname, '../consistency.config.json');
-const SECRET = process.env.SECRET || 'test-secret-for-ui';
 
 // Load Consistency Config from JSON
 console.log(`Loading config from: ${CONFIG_PATH}`);
@@ -41,16 +41,37 @@ const consistencyConfig: ConsistencyConfig = JSON.parse(
 console.log(`Config loaded: ${Object.keys(consistencyConfig.eventTypes).length} event types`);
 
 // Create Event Store
-// If config changed since last run, it will auto-reindex
+// Config hash mismatch now throws — catch and provide helpful message
 console.log(`Database: ${DB_PATH}`);
 const storage = new SqliteStorage(DB_PATH);
-const store: EventStore = createEventStore({
-  storage,
-  secret: SECRET,
-  consistency: consistencyConfig
-});
+
+let store: EventStore;
+try {
+  store = createEventStore({
+    storage,
+    consistency: consistencyConfig
+  });
+} catch (err) {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (msg.includes('Config hash mismatch')) {
+    console.error('\n╔══════════════════════════════════════════════════════════╗');
+    console.error('║  CONFIG HASH MISMATCH                                    ║');
+    console.error('║                                                          ║');
+    console.error('║  The consistency config has changed since last run.       ║');
+    console.error('║  Run the reindex script before starting the application: ║');
+    console.error('║                                                          ║');
+    console.error('║    npx tsx scripts/reindex.ts                             ║');
+    console.error('║                                                          ║');
+    console.error('╚══════════════════════════════════════════════════════════╝\n');
+  }
+  console.error('Failed to create event store:', msg);
+  process.exit(1);
+}
 
 console.log('Event Store initialized');
+
+// Read-only DB connection for direct SQL queries (keys, etc.)
+const readDb = new Database(DB_PATH, { readonly: true });
 
 // SSE connections for live updates
 const sseClients: Set<Response> = new Set();
@@ -79,10 +100,9 @@ app.get('/api/stream', (req: Request, res: Response) => {
   });
 });
 
-// Get all events (using query API with empty conditions)
+// Get all events — use store.read with empty conditions
 app.get('/api/events', async (_req: Request, res: Response) => {
   try {
-    // Query with no conditions returns all events
     const result = await store.read({ conditions: [] });
     const allEvents = result.events.map(e => ({
       ...e,
@@ -94,53 +114,19 @@ app.get('/api/events', async (_req: Request, res: Response) => {
   }
 });
 
-// Get all keys (using query API - query all events and extract keys)
+// Get all keys — direct SQL on read-only connection
 app.get('/api/keys', async (_req: Request, res: Response) => {
   try {
-    // Query all events
-    const result = await store.read({ conditions: [] });
-    
-    // Extract keys from each event using the consistency config
-    const allKeys: Array<{ position: number; key_name: string; key_value: string }> = [];
-    
-    for (const event of result.events) {
-      const eventTypeConfig = consistencyConfig.eventTypes[event.type];
-      if (!eventTypeConfig) continue;
-      
-      // Extract keys for this event based on config
-      for (const keyConfig of eventTypeConfig.keys) {
-        const value = getNestedValue(event.data, keyConfig.path);
-        if (value !== undefined) {
-          allKeys.push({
-            position: Number(event.position),
-            key_name: keyConfig.name,
-            key_value: String(value)
-          });
-        }
-      }
-    }
-    
-    res.json({ keys: allKeys });
+    const keys = readDb.prepare(
+      'SELECT position, key_name, key_value FROM event_keys ORDER BY position'
+    ).all();
+    res.json({ keys });
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
 });
 
-// Helper to get nested property value by path (e.g., "data.courseId")
-function getNestedValue(obj: any, path: string): any {
-  const parts = path.split('.');
-  let current = obj;
-  for (const part of parts) {
-    if (current && typeof current === 'object' && part in current) {
-      current = current[part];
-    } else {
-      return undefined;
-    }
-  }
-  return current;
-}
-
-// Read events with query - uses Event Store API
+// Read events with query — uses Event Store API
 app.post('/api/read', async (req: Request, res: Response) => {
   const { conditions } = req.body as { conditions: QueryCondition[] };
 
@@ -158,22 +144,27 @@ app.post('/api/read', async (req: Request, res: Response) => {
       position: Number(e.position)
     }));
 
+    // Return appendCondition (replaces old token)
+    const appendCondition = {
+      failIfEventsMatch: result.appendCondition.failIfEventsMatch,
+      after: Number(result.appendCondition.after),
+    };
+
     res.json({ 
       events, 
-      token: result.token 
+      appendCondition,
     });
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
 });
 
-// Append event - uses Event Store API
+// Append event — uses Event Store API with AppendCondition
 app.post('/api/append', async (req: Request, res: Response) => {
-  const { type, data, keys, token } = req.body as {
+  const { type, data, appendCondition: rawCondition } = req.body as {
     type: string;
     data: unknown;
-    keys?: { name: string; value: string }[];
-    token?: string | null;
+    appendCondition?: { failIfEventsMatch: QueryCondition[]; after: number } | null;
   };
 
   if (!type || data === undefined) {
@@ -182,9 +173,18 @@ app.post('/api/append', async (req: Request, res: Response) => {
   }
 
   try {
+    // Convert incoming appendCondition to proper format (with bigint)
+    let condition: AppendCondition | null = null;
+    if (rawCondition) {
+      condition = {
+        failIfEventsMatch: rawCondition.failIfEventsMatch,
+        after: BigInt(rawCondition.after),
+      };
+    }
+
     const result = await store.append(
-      [{ type, data }],
-      token || null
+      [{ type, data: data as Record<string, unknown> }],
+      condition
     );
 
     // Notify SSE clients
@@ -197,13 +197,19 @@ app.post('/api/append', async (req: Request, res: Response) => {
           ...e,
           position: Number(e.position)
         })),
-        newToken: result.newToken
+        appendCondition: {
+          failIfEventsMatch: result.appendCondition.failIfEventsMatch,
+          after: Number(result.appendCondition.after),
+        },
       });
     } else {
       res.json({
         conflict: false,
         position: Number(result.position),
-        token: result.token
+        appendCondition: {
+          failIfEventsMatch: result.appendCondition.failIfEventsMatch,
+          after: Number(result.appendCondition.after),
+        },
       });
     }
   } catch (err) {
@@ -219,57 +225,6 @@ app.post('/api/clear', async (_req: Request, res: Response) => {
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: String(err) });
-  }
-});
-
-// Create token with custom position (for testing conflicts)
-app.post('/api/create-token', (req: Request, res: Response) => {
-  const { position, conditions } = req.body as {
-    position: number;
-    conditions: QueryCondition[];
-  };
-
-  if (position === undefined || !conditions) {
-    res.status(400).json({ error: 'Missing position or conditions' });
-    return;
-  }
-
-  // Create token manually using the same format
-  const payload = {
-    v: 1,
-    pos: String(position),
-    ts: Date.now(),
-    q: conditions
-  };
-  
-  const payloadJson = JSON.stringify(payload);
-  const sig = createHmac('sha256', SECRET).update(payloadJson).digest();
-  
-  const token = Buffer.from(payloadJson).toString('base64url') + '.' + 
-                Buffer.from(sig).toString('base64url');
-  
-  res.json({ token });
-});
-
-// Decode token endpoint (for transparency)
-app.post('/api/decode-token', (req: Request, res: Response) => {
-  const { token } = req.body as { token: string };
-  
-  try {
-    // Decode base64url token payload (before the signature)
-    const [payloadB64] = token.split('.');
-    const payloadJson = Buffer.from(payloadB64, 'base64url').toString('utf-8');
-    const payload = JSON.parse(payloadJson);
-    
-    res.json({
-      v: payload.v,
-      pos: payload.pos,
-      ts: payload.ts,
-      q: payload.q,
-      decoded: true
-    });
-  } catch {
-    res.status(400).json({ error: 'Invalid token' });
   }
 });
 

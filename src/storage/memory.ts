@@ -147,4 +147,59 @@ export class InMemoryStorage implements EventStorage {
     this.events = [];
     this.nextPosition = 1n;
   }
+
+  /**
+   * Reindex all events with new keys (in-memory: just re-extract all keys in one go)
+   * @deprecated Use reindexBatch() instead
+   */
+  reindex(extractKeys: (event: StoredEvent) => ExtractedKey[]): void {
+    for (const internal of this.events) {
+      const event: StoredEvent = {
+        id: internal.id,
+        type: internal.type,
+        data: internal.data,
+        metadata: internal.metadata,
+        timestamp: internal.timestamp,
+        position: internal.position,
+      };
+      internal.keys = extractKeys(event);
+    }
+  }
+
+  /**
+   * Batch-based reindex for in-memory storage.
+   * Since everything is in memory, no batching needed — just re-extracts all keys.
+   */
+  reindexBatch(
+    extractKeys: (event: StoredEvent) => ExtractedKey[],
+    options?: {
+      batchSize?: number;
+      onProgress?: (done: number, total: number) => void;
+    }
+  ): { events: number; keys: number; durationMs: number } {
+    const onProgress = options?.onProgress;
+    const startTime = Date.now();
+    let totalKeys = 0;
+
+    for (let i = 0; i < this.events.length; i++) {
+      const internal = this.events[i];
+      const event: StoredEvent = {
+        id: internal.id,
+        type: internal.type,
+        data: internal.data,
+        metadata: internal.metadata,
+        timestamp: internal.timestamp,
+        position: internal.position,
+      };
+      const keys = extractKeys(event);
+      internal.keys = keys;
+      totalKeys += keys.length;
+
+      if (onProgress) {
+        onProgress(i + 1, this.events.length);
+      }
+    }
+
+    return { events: this.events.length, keys: totalKeys, durationMs: Date.now() - startTime };
+  }
 }

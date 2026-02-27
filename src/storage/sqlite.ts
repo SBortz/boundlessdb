@@ -367,6 +367,7 @@ ORDER BY position`;
 
   /**
    * Reindex all events with new keys
+   * @deprecated Use reindexBatch() for production-safe batch-based reindexing
    */
   reindex(extractKeys: (event: StoredEvent) => ExtractedKey[]): void {
     const events = this.getAllEvents();
@@ -390,6 +391,124 @@ ORDER BY position`;
     });
 
     transaction();
+  }
+
+  /**
+   * Batch-based reindex: processes events in cursor-based batches.
+   * Crash-safe via reindex_position metadata. Resumes from last completed batch.
+   */
+  reindexBatch(
+    extractKeys: (event: StoredEvent) => ExtractedKey[],
+    options?: {
+      batchSize?: number;
+      onProgress?: (done: number, total: number) => void;
+    }
+  ): { events: number; keys: number; durationMs: number } {
+    const batchSize = options?.batchSize ?? 10_000;
+    const onProgress = options?.onProgress;
+    const startTime = Date.now();
+
+    // Count total events
+    const countRow = this.db.prepare('SELECT COUNT(*) as cnt FROM events').get() as { cnt: number };
+    const totalEvents = countRow.cnt;
+
+    if (totalEvents === 0) {
+      // Clean up any stale metadata
+      this.db.prepare("DELETE FROM metadata WHERE key = 'reindex_position'").run();
+      return { events: 0, keys: 0, durationMs: Date.now() - startTime };
+    }
+
+    // Check for resume position (crash recovery)
+    const resumeRow = this.db.prepare(
+      "SELECT value FROM metadata WHERE key = 'reindex_position'"
+    ).get() as { value: string } | undefined;
+    let cursor = resumeRow ? Number(resumeRow.value) : 0;
+
+    const selectBatch = this.db.prepare(`
+      SELECT position, event_id, event_type, data, metadata, timestamp
+      FROM events
+      WHERE position > ?
+      ORDER BY position
+      LIMIT ?
+    `);
+
+    const deleteKeysRange = this.db.prepare(
+      'DELETE FROM event_keys WHERE position >= ? AND position <= ?'
+    );
+
+    const insertKey = this.db.prepare(
+      'INSERT INTO event_keys (position, key_name, key_value) VALUES (?, ?, ?)'
+    );
+
+    const upsertProgress = this.db.prepare(
+      "INSERT OR REPLACE INTO metadata (key, value) VALUES ('reindex_position', ?)"
+    );
+
+    let totalProcessed = cursor > 0
+      ? (this.db.prepare('SELECT COUNT(*) as cnt FROM events WHERE position <= ?').get(cursor) as { cnt: number }).cnt
+      : 0;
+    let totalKeys = 0;
+
+    const processBatch = this.db.transaction((rows: EventRow[]) => {
+      if (rows.length === 0) return;
+      const minPos = rows[0].position;
+      const maxPos = rows[rows.length - 1].position;
+
+      // Delete old keys for this batch range
+      deleteKeysRange.run(minPos, maxPos);
+
+      // Extract and insert new keys
+      for (const row of rows) {
+        const event = this.rowToEvent(row);
+        const keys = extractKeys(event);
+        for (const key of keys) {
+          insertKey.run(row.position, key.name, key.value);
+          totalKeys++;
+        }
+      }
+
+      // Store progress
+      upsertProgress.run(String(maxPos));
+    });
+
+    // Process batches
+    while (true) {
+      const rows = selectBatch.all(cursor, batchSize) as EventRow[];
+      if (rows.length === 0) break;
+
+      processBatch(rows);
+
+      cursor = rows[rows.length - 1].position;
+      totalProcessed += rows.length;
+
+      if (onProgress) {
+        onProgress(totalProcessed, totalEvents);
+      }
+    }
+
+    // Completion: remove progress marker
+    this.db.prepare("DELETE FROM metadata WHERE key = 'reindex_position'").run();
+
+    return { events: totalProcessed, keys: totalKeys, durationMs: Date.now() - startTime };
+  }
+
+  /**
+   * Get the reindex resume position (for testing crash recovery)
+   */
+  getReindexPosition(): number | null {
+    const row = this.db.prepare(
+      "SELECT value FROM metadata WHERE key = 'reindex_position'"
+    ).get() as { value: string } | undefined;
+    return row ? Number(row.value) : null;
+  }
+
+  /**
+   * Set the reindex resume position (for testing crash recovery)
+   */
+  setReindexPosition(position: number): void {
+    this.db.prepare(
+      "INSERT OR REPLACE INTO metadata (key, value) VALUES ('reindex_position', ?)"
+    ).run(String(position));
   }
 
   private rowToEvent(row: EventRow): StoredEvent {
