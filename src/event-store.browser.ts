@@ -25,6 +25,7 @@ import {
   type QueryCondition,
   type StoredEvent,
 } from './types.js';
+import { QueryBuilder, type QueryExecutor } from './query-builder.js';
 
 /**
  * Generate UUID with fallback for environments without crypto.randomUUID
@@ -170,6 +171,32 @@ export class EventStore {
       console.warn('⚠️ INIT: Config hash check failed (non-fatal):', error);
       // Don't throw for other errors - config hash is nice-to-have, not required
     }
+  }
+
+  /**
+   * Create a fluent query builder.
+   * 
+   * @typeParam E - Event union type for typed results
+   * @returns QueryBuilder for chaining
+   */
+  query<E extends Event = Event>(): QueryBuilder<E> {
+    return new QueryBuilder<E>(this as unknown as QueryExecutor<E>);
+  }
+
+  /**
+   * Create a fluent query builder that reads all events (no type filter required).
+   * 
+   * @typeParam E - Event union type for typed results
+   * @returns QueryBuilder for chaining
+   * 
+   * @example
+   * ```typescript
+   * const result = await store.all().fromPosition(0n).limit(1000).read();
+   * const result = await store.all().read();
+   * ```
+   */
+  all<E extends Event = Event>(): QueryBuilder<E> {
+    return new QueryBuilder<E>(this as unknown as QueryExecutor<E>);
   }
 
   /**

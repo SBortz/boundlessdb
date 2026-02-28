@@ -125,6 +125,29 @@ export class EventStore {
   }
 
   /**
+   * Create a fluent query builder that reads all events (no type filter required).
+   * 
+   * Returns the same QueryBuilder as `query()`, but does not require any
+   * `.matchType()` or `.matchTypeAndKey()` calls before `.read()`.
+   * You can still use `.fromPosition()` and `.limit()` for pagination.
+   * 
+   * @typeParam E - Event union type for typed results
+   * @returns QueryBuilder for chaining
+   * 
+   * @example
+   * ```typescript
+   * // All events, paginated
+   * const result = await store.all().fromPosition(0n).limit(1000).read();
+   * 
+   * // All events (no filter)
+   * const result = await store.all().read();
+   * ```
+   */
+  all<E extends Event = Event>(): QueryBuilder<E> {
+    return new QueryBuilder<E>(this as unknown as QueryExecutor<E>);
+  }
+
+  /**
    * Read events matching a query
    * 
    * @typeParam E - Event union type for typed results
