@@ -572,5 +572,95 @@ describe('EventStore', () => {
       });
     });
 
+    describe('store.all()', () => {
+      it('returns all events across all types', async () => {
+        await store.append([
+          { type: 'CourseCreated', data: { courseId: 'cs101', name: 'CS' } },
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } },
+          { type: 'StudentUnsubscribed', data: { courseId: 'cs101', studentId: 'alice' } },
+        ], null);
+
+        const result = await store.all().read();
+
+        expect(result.events).toHaveLength(3);
+        expect(result.events.map(e => e.type)).toEqual([
+          'CourseCreated',
+          'StudentSubscribed',
+          'StudentUnsubscribed',
+        ]);
+      });
+
+      it('returns empty result for empty store', async () => {
+        const result = await store.all().read();
+
+        expect(result.events).toEqual([]);
+        expect(result.count).toBe(0);
+      });
+
+      it('supports fromPosition', async () => {
+        await store.append([
+          { type: 'CourseCreated', data: { courseId: 'cs101', name: 'CS' } },
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } },
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'bob' } },
+        ], null);
+
+        const result = await store.all().fromPosition(1n).read();
+
+        expect(result.events).toHaveLength(2);
+        expect(result.events[0].type).toBe('StudentSubscribed');
+      });
+
+      it('supports limit', async () => {
+        await store.append([
+          { type: 'CourseCreated', data: { courseId: 'cs101', name: 'CS' } },
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } },
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'bob' } },
+        ], null);
+
+        const result = await store.all().limit(2).read();
+
+        expect(result.events).toHaveLength(2);
+      });
+
+      it('supports fromPosition + limit together', async () => {
+        await store.append([
+          { type: 'CourseCreated', data: { courseId: 'cs101', name: 'CS' } },
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } },
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'bob' } },
+          { type: 'CourseCreated', data: { courseId: 'math201', name: 'Math' } },
+        ], null);
+
+        const result = await store.all().fromPosition(1n).limit(2).read();
+
+        expect(result.events).toHaveLength(2);
+        expect(result.events[0].position).toBe(2n);
+        expect(result.events[1].position).toBe(3n);
+      });
+
+      it('appendCondition has empty failIfEventsMatch', async () => {
+        await store.append([
+          { type: 'CourseCreated', data: { courseId: 'cs101', name: 'CS' } },
+        ], null);
+
+        const result = await store.all().read();
+
+        expect(result.appendCondition).toBeDefined();
+        expect(result.appendCondition.failIfEventsMatch).toEqual([]);
+      });
+
+      it('read() with empty conditions behaves like all()', async () => {
+        await store.append([
+          { type: 'CourseCreated', data: { courseId: 'cs101', name: 'CS' } },
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } },
+        ], null);
+
+        const allResult = await store.all().read();
+        const readResult = await store.read({ conditions: [] });
+
+        expect(allResult.events).toHaveLength(readResult.events.length);
+        expect(allResult.events.map(e => e.id)).toEqual(readResult.events.map(e => e.id));
+      });
+    });
+
   });
 });

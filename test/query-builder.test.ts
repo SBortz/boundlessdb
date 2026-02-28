@@ -294,3 +294,110 @@ describe('QueryBuilder — Multi-Key AND (.withKey())', () => {
     expect(fromPos.events[0].data.semester).toBe('2026-2');
   });
 });
+
+describe('store.all() — Read All Events', () => {
+  const config = {
+    eventTypes: {
+      CourseCreated: {
+        keys: [{ name: 'course', path: 'data.courseId' }]
+      },
+      StudentSubscribed: {
+        keys: [
+          { name: 'course', path: 'data.courseId' },
+          { name: 'student', path: 'data.studentId' }
+        ]
+      }
+    }
+  };
+
+  type AllEvent =
+    | Event<'CourseCreated', { courseId: string; capacity: number }>
+    | Event<'StudentSubscribed', { courseId: string; studentId: string }>;
+
+  let store: ReturnType<typeof createEventStore>;
+
+  beforeEach(async () => {
+    store = createEventStore({
+      storage: new InMemoryStorage(),
+      consistency: config
+    });
+
+    await store.append<AllEvent>([
+      { type: 'CourseCreated', data: { courseId: 'cs101', capacity: 30 } },
+      { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } },
+      { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'bob' } },
+      { type: 'CourseCreated', data: { courseId: 'math201', capacity: 25 } },
+      { type: 'StudentSubscribed', data: { courseId: 'math201', studentId: 'alice' } },
+    ], null);
+  });
+
+  it('returns all events without any filter', async () => {
+    const result = await store.all<AllEvent>().read();
+
+    expect(result.count).toBe(5);
+    expect(result.events.map(e => e.type)).toEqual([
+      'CourseCreated',
+      'StudentSubscribed',
+      'StudentSubscribed',
+      'CourseCreated',
+      'StudentSubscribed',
+    ]);
+  });
+
+  it('supports limit', async () => {
+    const result = await store.all<AllEvent>().limit(3).read();
+
+    expect(result.count).toBe(3);
+    expect(result.events[0].type).toBe('CourseCreated');
+    expect(result.events[2].type).toBe('StudentSubscribed');
+  });
+
+  it('supports fromPosition', async () => {
+    const allResult = await store.all<AllEvent>().read();
+    const thirdPosition = allResult.events[2].position;
+
+    const result = await store.all<AllEvent>().fromPosition(thirdPosition).read();
+
+    expect(result.count).toBe(2); // events 4 and 5
+    expect(result.events[0].type).toBe('CourseCreated');
+    expect(result.events[0].data).toEqual({ courseId: 'math201', capacity: 25 });
+  });
+
+  it('supports fromPosition + limit together', async () => {
+    const result = await store.all<AllEvent>().fromPosition(0n).limit(2).read();
+
+    expect(result.count).toBe(2);
+    expect(result.events[0].position).toBe(1n);
+    expect(result.events[1].position).toBe(2n);
+  });
+
+  it('returns empty result from empty store', async () => {
+    const emptyStore = createEventStore({
+      storage: new InMemoryStorage(),
+      consistency: config,
+    });
+
+    const result = await emptyStore.all().read();
+
+    expect(result.isEmpty()).toBe(true);
+    expect(result.count).toBe(0);
+    expect(result.events).toEqual([]);
+  });
+
+  it('appendCondition has empty failIfEventsMatch', async () => {
+    const result = await store.all<AllEvent>().read();
+
+    expect(result.appendCondition).toBeDefined();
+    expect(result.appendCondition.failIfEventsMatch).toEqual([]);
+    expect(result.appendCondition.after).toBe(5n);
+  });
+
+  it('can still chain matchType after all() (same builder)', async () => {
+    // all() returns the same QueryBuilder, so matchType still works
+    const result = await store.all<AllEvent>()
+      .matchType('CourseCreated')
+      .read();
+
+    expect(result.count).toBe(2);
+  });
+});
