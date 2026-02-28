@@ -2,6 +2,21 @@
 
 All notable changes to BoundlessDB will be documented in this file.
 
+## [0.7.0] - 2026-02-28
+
+### Added
+
+- **`store.all()`**: Read all events without specifying event types. Supports `.fromPosition()` and `.limit()` for pagination.
+  ```typescript
+  // All events, paginated
+  const result = await store.all().fromPosition(lastSeen).limit(1000).read();
+  
+  // All events
+  const result = await store.all().read();
+  ```
+- **`store.query()` on browser EventStore**: Was missing, now available for sql.js/in-memory usage.
+- **174 tests** (up from 153).
+
 ## [0.6.0] - 2026-02-27
 
 ### Breaking Changes
