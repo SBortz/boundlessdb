@@ -2,6 +2,21 @@
 
 All notable changes to BoundlessDB will be documented in this file.
 
+## [0.8.0] - 2026-02-28
+
+### Added
+
+- **Exponential backoff with jitter** for PostgreSQL serialization retries. Default: 10 retries, 50ms base delay, full jitter. Configurable via `PostgresRetryOptions`.
+  ```typescript
+  new PostgresStorage(url, { maxRetries: 10, retryBaseMs: 50, retryJitter: true });
+  ```
+- **`--conflicts` flag** for benchmark scripts. Tests conflict detection overhead and concurrent writers (10 parallel writers, same/different keys).
+- **Aggressive conflict benchmarks**: 50 iterations × 10 writers × 5 events per writer (~5,500 events per run).
+
+### Fixed
+
+- **PostgreSQL concurrent writers no longer crash** under high contention. Previously 3 retries without backoff caused failures with 10+ parallel writers.
+
 ## [0.7.0] - 2026-02-28
 
 ### Added
