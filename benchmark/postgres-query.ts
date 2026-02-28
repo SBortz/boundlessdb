@@ -379,8 +379,9 @@ async function cleanDb() {
 
 // --- Conflict benchmarks ---
 
-const CONFLICT_ITERATIONS = 10;
+const CONFLICT_ITERATIONS = 50;
 const CONCURRENT_WRITERS = 10;
+const EVENTS_PER_WRITER = 5;
 
 async function runConflictBenchmarks(store: EventStore) {
   console.log(`\n  === Conflict Benchmarks ===\n`);
@@ -499,9 +500,11 @@ async function runConcurrentWriterBenchmarks() {
             .matchTypeAndKey('StudentEnrolled', 'course', 'course-0')
             .read();
 
-          const result = await writerStore.append([
-            { type: 'StudentEnrolled', data: { courseId: 'course-0', studentId: `student-concurrent-same-${iter}-${w}-${attempts}` } },
-          ], read.appendCondition);
+          const events = Array.from({ length: EVENTS_PER_WRITER }, (_, e) => ({
+            type: 'StudentEnrolled',
+            data: { courseId: 'course-0', studentId: `student-concurrent-same-${iter}-${w}-${attempts}-${e}` },
+          }));
+          const result = await writerStore.append(events, read.appendCondition);
 
           if (result.conflict) {
             conflicts++;
@@ -554,9 +557,11 @@ async function runConcurrentWriterBenchmarks() {
             .matchTypeAndKey('StudentEnrolled', 'course', courseKey)
             .read();
 
-          const result = await writerStore.append([
-            { type: 'StudentEnrolled', data: { courseId: courseKey, studentId: `student-concurrent-diff-${iter}-${w}-${attempts}` } },
-          ], read.appendCondition);
+          const events = Array.from({ length: EVENTS_PER_WRITER }, (_, e) => ({
+            type: 'StudentEnrolled',
+            data: { courseId: courseKey, studentId: `student-concurrent-diff-${iter}-${w}-${attempts}-${e}` },
+          }));
+          const result = await writerStore.append(events, read.appendCondition);
 
           if (result.conflict) {
             conflicts++;
