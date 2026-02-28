@@ -10,6 +10,7 @@
  *   --sequential             Disable shuffle (default: shuffled)
  *   --db <path>              SQLite database path (default: ./boundless-bench.sqlite)
  *   --config <path>          Consistency config file (default: ./benchmark/consistency.config.ts)
+ *   --conflicts              Run additional conflict detection benchmarks
  *
  * Examples:
  *   npx tsx benchmark/sqlite-query.ts --events 1m --disk
@@ -38,6 +39,7 @@ const EVENTS_PER_COURSE = 1 + STUDENTS * (1 + LESSONS + 1); // 2005
 const args = process.argv.slice(2);
 const useDisk = args.includes('--disk');
 const useShuffle = !args.includes('--sequential');
+const runConflicts = args.includes('--conflicts');
 
 function getArg(name: string): string | undefined {
   const idx = args.indexOf(name);
@@ -358,6 +360,100 @@ const queries: QueryDef[] = [
   },
 ];
 
+// --- Conflict benchmarks ---
+
+const CONFLICT_ITERATIONS = 10;
+
+async function runConflictBenchmarks(store: EventStore) {
+  console.log(`\n  === Conflict Benchmarks ===\n`);
+
+  const nameCol = 40;
+
+  // Scenario 1: Successful append with condition (baseline)
+  {
+    const times: number[] = [];
+    for (let i = 0; i < CONFLICT_ITERATIONS; i++) {
+      const read = await store.query()
+        .matchTypeAndKey('StudentEnrolled', 'course', 'course-0')
+        .read();
+
+      const start = performance.now();
+      await store.append([
+        { type: 'LessonCompleted', data: { courseId: 'course-0', studentId: 'student-conflict-baseline', lessonId: `lesson-baseline-${i}` } },
+      ], read.appendCondition);
+      times.push(performance.now() - start);
+    }
+    const avg = times.reduce((a, b) => a + b, 0) / times.length;
+    console.log(`  ${'Successful append with condition'.padEnd(nameCol)} ${avg.toFixed(2)} ms`);
+  }
+
+  // Scenario 2: Conflict detection (stale condition)
+  {
+    const times: number[] = [];
+    for (let i = 0; i < CONFLICT_ITERATIONS; i++) {
+      // Read to get appendCondition
+      const read = await store.query()
+        .matchTypeAndKey('StudentEnrolled', 'course', 'course-0')
+        .read();
+
+      // Make the condition stale by appending another event
+      await store.append([
+        { type: 'StudentEnrolled', data: { courseId: 'course-0', studentId: `student-stale-${i}` } },
+      ], null);
+
+      // Try to append with the stale condition → should conflict
+      const start = performance.now();
+      const result = await store.append([
+        { type: 'StudentEnrolled', data: { courseId: 'course-0', studentId: `student-conflict-${i}` } },
+      ], read.appendCondition);
+      times.push(performance.now() - start);
+
+      if (!result.conflict) {
+        console.log(`    ⚠ Expected conflict but got success (iteration ${i})`);
+      }
+    }
+    const avg = times.reduce((a, b) => a + b, 0) / times.length;
+    console.log(`  ${'Conflict detection (stale)'.padEnd(nameCol)} ${avg.toFixed(2)} ms`);
+  }
+
+  // Scenario 3: Conflict + retry round-trip
+  {
+    const times: number[] = [];
+    for (let i = 0; i < CONFLICT_ITERATIONS; i++) {
+      // Read to get appendCondition
+      const read = await store.query()
+        .matchTypeAndKey('StudentEnrolled', 'course', 'course-0')
+        .read();
+
+      // Make the condition stale
+      await store.append([
+        { type: 'StudentEnrolled', data: { courseId: 'course-0', studentId: `student-retry-stale-${i}` } },
+      ], null);
+
+      // Full round-trip: stale append → conflict → re-read → successful append
+      const start = performance.now();
+      const staleResult = await store.append([
+        { type: 'StudentEnrolled', data: { courseId: 'course-0', studentId: `student-retry-${i}` } },
+      ], read.appendCondition);
+
+      if (staleResult.conflict) {
+        // Re-read and retry
+        const reRead = await store.query()
+          .matchTypeAndKey('StudentEnrolled', 'course', 'course-0')
+          .read();
+        await store.append([
+          { type: 'StudentEnrolled', data: { courseId: 'course-0', studentId: `student-retry-${i}` } },
+        ], reRead.appendCondition);
+      }
+      times.push(performance.now() - start);
+    }
+    const avg = times.reduce((a, b) => a + b, 0) / times.length;
+    console.log(`  ${'Conflict + retry round-trip'.padEnd(nameCol)} ${avg.toFixed(2)} ms`);
+  }
+
+  console.log('');
+}
+
 // --- Main ---
 
 async function main() {
@@ -446,12 +542,22 @@ async function main() {
     }
     process.stdout.write(`\r  ✓ ${ds.label} queries done                                    \n`);
 
-    if (!useDisk) {
+    if (!useDisk && !runConflicts) {
       await store!.close();
     }
   }
 
-  if (useDisk && store) {
+  // Run conflict benchmarks if requested (on the last/largest dataset)
+  if (runConflicts && store) {
+    await runConflictBenchmarks(store);
+  }
+
+  // Close remaining stores
+  if (!useDisk) {
+    if (store && runConflicts) {
+      await store.close();
+    }
+  } else if (store) {
     await store.close();
   }
 

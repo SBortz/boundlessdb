@@ -9,6 +9,7 @@
  *   --sequential             Disable shuffle (default: shuffled)
  *   --connection <url>       PostgreSQL connection string (default: env DATABASE_URL or localhost:5433)
  *   --config <path>          Consistency config file (default: ./benchmark/consistency.config.ts)
+ *   --conflicts              Run additional conflict & concurrent writer benchmarks
  *
  * Examples:
  *   npx tsx benchmark/postgres-query.ts --events 1m
@@ -36,6 +37,7 @@ const EVENTS_PER_COURSE = 1 + STUDENTS * (1 + LESSONS + 1); // 2005
 
 const args = process.argv.slice(2);
 const useShuffle = !args.includes('--sequential');
+const runConflicts = args.includes('--conflicts');
 
 function getArg(name: string): string | undefined {
   const idx = args.indexOf(name);
@@ -375,6 +377,213 @@ async function cleanDb() {
   await pool.end();
 }
 
+// --- Conflict benchmarks ---
+
+const CONFLICT_ITERATIONS = 10;
+const CONCURRENT_WRITERS = 10;
+
+async function runConflictBenchmarks(store: EventStore) {
+  console.log(`\n  === Conflict Benchmarks ===\n`);
+
+  const nameCol = 40;
+
+  // Scenario 1: Successful append with condition (baseline)
+  {
+    const times: number[] = [];
+    for (let i = 0; i < CONFLICT_ITERATIONS; i++) {
+      const read = await store.query()
+        .matchTypeAndKey('StudentEnrolled', 'course', 'course-0')
+        .read();
+
+      const start = performance.now();
+      await store.append([
+        { type: 'LessonCompleted', data: { courseId: 'course-0', studentId: 'student-conflict-baseline', lessonId: `lesson-baseline-${i}` } },
+      ], read.appendCondition);
+      times.push(performance.now() - start);
+    }
+    const avg = times.reduce((a, b) => a + b, 0) / times.length;
+    console.log(`  ${'Successful append with condition'.padEnd(nameCol)} ${avg.toFixed(2)} ms`);
+  }
+
+  // Scenario 2: Conflict detection (stale condition)
+  {
+    const times: number[] = [];
+    for (let i = 0; i < CONFLICT_ITERATIONS; i++) {
+      const read = await store.query()
+        .matchTypeAndKey('StudentEnrolled', 'course', 'course-0')
+        .read();
+
+      // Make the condition stale
+      await store.append([
+        { type: 'StudentEnrolled', data: { courseId: 'course-0', studentId: `student-stale-pg-${i}` } },
+      ], null);
+
+      const start = performance.now();
+      const result = await store.append([
+        { type: 'StudentEnrolled', data: { courseId: 'course-0', studentId: `student-conflict-pg-${i}` } },
+      ], read.appendCondition);
+      times.push(performance.now() - start);
+
+      if (!result.conflict) {
+        console.log(`    ⚠ Expected conflict but got success (iteration ${i})`);
+      }
+    }
+    const avg = times.reduce((a, b) => a + b, 0) / times.length;
+    console.log(`  ${'Conflict detection (stale)'.padEnd(nameCol)} ${avg.toFixed(2)} ms`);
+  }
+
+  // Scenario 3: Conflict + retry round-trip
+  {
+    const times: number[] = [];
+    for (let i = 0; i < CONFLICT_ITERATIONS; i++) {
+      const read = await store.query()
+        .matchTypeAndKey('StudentEnrolled', 'course', 'course-0')
+        .read();
+
+      // Make the condition stale
+      await store.append([
+        { type: 'StudentEnrolled', data: { courseId: 'course-0', studentId: `student-retry-stale-pg-${i}` } },
+      ], null);
+
+      const start = performance.now();
+      const staleResult = await store.append([
+        { type: 'StudentEnrolled', data: { courseId: 'course-0', studentId: `student-retry-pg-${i}` } },
+      ], read.appendCondition);
+
+      if (staleResult.conflict) {
+        const reRead = await store.query()
+          .matchTypeAndKey('StudentEnrolled', 'course', 'course-0')
+          .read();
+        await store.append([
+          { type: 'StudentEnrolled', data: { courseId: 'course-0', studentId: `student-retry-pg-${i}` } },
+        ], reRead.appendCondition);
+      }
+      times.push(performance.now() - start);
+    }
+    const avg = times.reduce((a, b) => a + b, 0) / times.length;
+    console.log(`  ${'Conflict + retry round-trip'.padEnd(nameCol)} ${avg.toFixed(2)} ms`);
+  }
+
+  console.log('');
+}
+
+async function runConcurrentWriterBenchmarks() {
+  console.log(`  === Concurrent Writer Benchmarks (PostgreSQL) ===\n`);
+
+  const nameCol = 40;
+
+  // Scenario 4: Parallel writers, same key
+  {
+    const times: number[] = [];
+    let totalConflicts = 0;
+    let totalSuccessful = 0;
+
+    for (let iter = 0; iter < CONFLICT_ITERATIONS; iter++) {
+      const writerStores: EventStore[] = [];
+      for (let w = 0; w < CONCURRENT_WRITERS; w++) {
+        const writerStorage = new PostgresStorage({ connectionString: DB_URL, max: 1 });
+        await writerStorage.init();
+        writerStores.push(new EventStore({ storage: writerStorage, ...STORE_CONFIG }));
+      }
+
+      let conflicts = 0;
+      let successes = 0;
+
+      const start = performance.now();
+      await Promise.all(writerStores.map(async (writerStore, w) => {
+        let done = false;
+        let attempts = 0;
+        while (!done && attempts < 5) {
+          attempts++;
+          const read = await writerStore.query()
+            .matchTypeAndKey('StudentEnrolled', 'course', 'course-0')
+            .read();
+
+          const result = await writerStore.append([
+            { type: 'StudentEnrolled', data: { courseId: 'course-0', studentId: `student-concurrent-same-${iter}-${w}-${attempts}` } },
+          ], read.appendCondition);
+
+          if (result.conflict) {
+            conflicts++;
+          } else {
+            successes++;
+            done = true;
+          }
+        }
+      }));
+      times.push(performance.now() - start);
+      totalConflicts += conflicts;
+      totalSuccessful += successes;
+
+      for (const ws of writerStores) {
+        await ws.close();
+      }
+    }
+
+    const avgTime = times.reduce((a, b) => a + b, 0) / times.length;
+    const avgConflicts = Math.round(totalConflicts / CONFLICT_ITERATIONS);
+    const avgSuccessful = Math.round(totalSuccessful / CONFLICT_ITERATIONS);
+    console.log(`  ${`${CONCURRENT_WRITERS} writers, same key`.padEnd(nameCol)} ${avgTime.toFixed(1)} ms total | ${avgConflicts} conflicts | ${avgSuccessful} successful`);
+  }
+
+  // Scenario 5: Parallel writers, different keys
+  {
+    const times: number[] = [];
+    let totalConflicts = 0;
+    let totalSuccessful = 0;
+
+    for (let iter = 0; iter < CONFLICT_ITERATIONS; iter++) {
+      const writerStores: EventStore[] = [];
+      for (let w = 0; w < CONCURRENT_WRITERS; w++) {
+        const writerStorage = new PostgresStorage({ connectionString: DB_URL, max: 1 });
+        await writerStorage.init();
+        writerStores.push(new EventStore({ storage: writerStorage, ...STORE_CONFIG }));
+      }
+
+      let conflicts = 0;
+      let successes = 0;
+
+      const start = performance.now();
+      await Promise.all(writerStores.map(async (writerStore, w) => {
+        const courseKey = `course-concurrent-${w}`;
+        let done = false;
+        let attempts = 0;
+        while (!done && attempts < 5) {
+          attempts++;
+          const read = await writerStore.query()
+            .matchTypeAndKey('StudentEnrolled', 'course', courseKey)
+            .read();
+
+          const result = await writerStore.append([
+            { type: 'StudentEnrolled', data: { courseId: courseKey, studentId: `student-concurrent-diff-${iter}-${w}-${attempts}` } },
+          ], read.appendCondition);
+
+          if (result.conflict) {
+            conflicts++;
+          } else {
+            successes++;
+            done = true;
+          }
+        }
+      }));
+      times.push(performance.now() - start);
+      totalConflicts += conflicts;
+      totalSuccessful += successes;
+
+      for (const ws of writerStores) {
+        await ws.close();
+      }
+    }
+
+    const avgTime = times.reduce((a, b) => a + b, 0) / times.length;
+    const avgConflicts = Math.round(totalConflicts / CONFLICT_ITERATIONS);
+    const avgSuccessful = Math.round(totalSuccessful / CONFLICT_ITERATIONS);
+    console.log(`  ${`${CONCURRENT_WRITERS} writers, different keys`.padEnd(nameCol)} ${avgTime.toFixed(1)} ms total | ${avgConflicts} conflicts | ${avgSuccessful} successful`);
+  }
+
+  console.log('');
+}
+
 // --- Main ---
 
 async function main() {
@@ -446,6 +655,12 @@ async function main() {
       sortedResults[q].push(scaleResults[q]);
     }
     process.stdout.write(`\r  ✓ ${ds.label} queries done                                    \n`);
+  }
+
+  // Run conflict benchmarks if requested (on the last/largest dataset)
+  if (runConflicts && store) {
+    await runConflictBenchmarks(store);
+    await runConcurrentWriterBenchmarks();
   }
 
   if (store) {
