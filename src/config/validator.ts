@@ -103,21 +103,11 @@ export function validateConfig(config: ConsistencyConfig): void {
       continue;
     }
 
-    // Check for duplicate key names within the same event type
-    const keyNames = new Set<string>();
+    // Validate each key definition (duplicate key names are allowed —
+    // e.g. UsernameChanged needs two 'username' keys for old + new value)
     for (let i = 0; i < eventConfig.keys.length; i++) {
       const keyDef = eventConfig.keys[i];
-      
-      // Validate the key definition
       errors.push(...validateKeyDef(eventType, keyDef, i));
-
-      // Check for duplicates
-      if (keyDef.name && keyNames.has(keyDef.name)) {
-        errors.push(
-          `eventTypes.${eventType}.keys has duplicate key name "${keyDef.name}"`
-        );
-      }
-      keyNames.add(keyDef.name);
     }
   }
 

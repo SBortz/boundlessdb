@@ -170,19 +170,19 @@ describe('Config Validation', () => {
       expect(() => validateConfig(config)).toThrow(ConfigValidationError);
     });
 
-    it('rejects duplicate key names in same event type', () => {
+    it('allows duplicate key names in same event type (e.g. UsernameChanged with old + new)', () => {
       const config: ConsistencyConfig = {
         eventTypes: {
-          Test: {
+          UsernameChanged: {
             keys: [
-              { name: 'duplicate', path: 'data.a' },
-              { name: 'duplicate', path: 'data.b' },
+              { name: 'username', path: 'data.oldUsername' },
+              { name: 'username', path: 'data.newUsername' },
             ],
           },
         },
       };
 
-      expect(() => validateConfig(config)).toThrow(ConfigValidationError);
+      expect(() => validateConfig(config)).not.toThrow();
     });
   });
 

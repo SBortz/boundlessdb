@@ -277,10 +277,8 @@ describe('DCB Example 1: Course Subscriptions', () => {
 // ════════════════════════════════════════════════════════════════════
 
 describe('DCB Example 2: Unique Username', () => {
-  // DCB spec uses duplicate tag names (username:old, username:new).
-  // BoundlessDB requires unique key names per event type, so we use
-  // username_old and username_new for UsernameChanged.
-  // The query uses OR across both key names to find all events touching a username.
+  // DCB spec: UsernameChanged has two 'username' tags (old + new value).
+  // BoundlessDB supports this — same key name with multiple paths.
   const config: ConsistencyConfig = {
     eventTypes: {
       AccountRegistered: {
@@ -291,8 +289,8 @@ describe('DCB Example 2: Unique Username', () => {
       },
       UsernameChanged: {
         keys: [
-          { name: 'username_old', path: 'data.oldUsername' },
-          { name: 'username_new', path: 'data.newUsername' },
+          { name: 'username', path: 'data.oldUsername' },
+          { name: 'username', path: 'data.newUsername' },
         ],
       },
     },
@@ -331,12 +329,9 @@ describe('DCB Example 2: Unique Username', () => {
     store: EventStore,
     cmd: { username: string },
   ) {
-    // OR-query: match username key OR username_old key OR username_new key
-    // This finds all events that reference this username value
+    // Single key query — finds all events tagged with this username
     const result = await store.query<UsernameEvent>()
       .matchKey('username', cmd.username)
-      .matchKey('username_old', cmd.username)
-      .matchKey('username_new', cmd.username)
       .read();
 
     if (isUsernameClaimed(result.events, cmd.username)) {
@@ -408,15 +403,11 @@ describe('DCB Example 2: Unique Username', () => {
     // Alice reads — username is free
     const aliceRead = await store.query<UsernameEvent>()
       .matchKey('username', 'john')
-      .matchKey('username_old', 'john')
-      .matchKey('username_new', 'john')
       .read();
 
     // Bob reads — username is free too
     const bobRead = await store.query<UsernameEvent>()
       .matchKey('username', 'john')
-      .matchKey('username_old', 'john')
-      .matchKey('username_new', 'john')
       .read();
 
     // Alice registers first
