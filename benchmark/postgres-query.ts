@@ -11,6 +11,7 @@
  *   --config <path>          Consistency config file (default: ./benchmark/consistency.config.ts)
  *   --writers <n>            Number of concurrent writers (default: 10)
  *   --writer-events <n>      Events per concurrent writer (default: 5)
+ *   --rounds <n>             Number of conflict benchmark rounds (default: 50)
  *
  * Examples:
  *   npx tsx benchmark/postgres-query.ts --events 1m
@@ -379,7 +380,7 @@ async function cleanDb() {
 
 // --- Conflict benchmarks ---
 
-const CONFLICT_ITERATIONS = 50;
+const CONFLICT_ITERATIONS = Number(getArg('--rounds')) || 50;
 const CONCURRENT_WRITERS = Number(getArg('--writers')) || 10;
 const EVENTS_PER_WRITER = Number(getArg('--writer-events')) || 5;
 
