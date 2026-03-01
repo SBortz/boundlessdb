@@ -2,6 +2,120 @@
 
 All notable changes to BoundlessDB will be documented in this file.
 
+## [0.9.0] - 2026-03-01
+
+### Breaking Changes
+
+#### Renamed: `withKey()` → `andKey()`
+
+The chaining method for AND key constraints has been renamed to make the semantics immediately clear:
+
+```typescript
+// Before (v0.8.0)
+store.query()
+  .matchType('StudentSubscribed')
+  .withKey('course', 'cs101')
+  .withKey('student', 'alice')
+  .read();
+
+// After (v0.9.0)
+store.query()
+  .matchType('StudentSubscribed')
+  .andKey('course', 'cs101')
+  .andKey('student', 'alice')
+  .read();
+```
+
+**Migration:** Find and replace `.withKey(` → `.andKey(` in your codebase.
+
+### Added
+
+#### Key-Only Queries: `matchKey(key, value)`
+
+Query events by key without specifying event types. This is the DCB-native way to query — by tags, not by event type.
+
+```typescript
+// "Everything about course cs101" — no need to list event types!
+const result = await store.query()
+  .matchKey('course', 'cs101')
+  .read();
+
+// AND: "Alice's enrollment in cs101"
+const result = await store.query()
+  .matchKey('course', 'cs101')
+  .andKey('student', 'alice')
+  .read();
+```
+
+**Why this matters:** Previously, querying by key required listing every event type manually:
+
+```typescript
+// Before: 8 event types just to query a cart 😱
+const cartEventTypes = [
+  'CartCreated', 'ItemAdded', 'ItemRemoved', 'ItemArchived',
+  'CartSubmitted', 'CartCleared', 'CartPublished', 'CartPublicationFailed',
+];
+const result = await store.read({
+  conditions: cartEventTypes.map(type => ({ type, key: 'cart', value: cartId })),
+});
+
+// After: one line ✨
+const result = await store.query()
+  .matchKey('cart', cartId)
+  .read();
+```
+
+Key-only queries work with `andKey()` for AND logic, `fromPosition()`, `limit()`, and `appendCondition`.
+
+#### Multi-Type Queries: `matchType(...types)`
+
+`matchType()` now accepts multiple types (variadic). Types within one call are OR:
+
+```typescript
+// "All course lifecycle events for cs101"
+const result = await store.query()
+  .matchType('CourseCreated', 'CourseCancelled')
+  .andKey('course', 'cs101')
+  .read();
+```
+
+This maps directly to the DCB spec's QueryItem, where a single item can have multiple types.
+
+### Query API Summary
+
+| Method | Role |
+|---|---|
+| `matchKey(key, value)` | Start condition by key (any event type). |
+| `matchType(...types)` | Start condition by type(s). |
+| `andKey(key, value)` | Add AND key constraint to last condition. |
+| `matchTypeAndKey(type, key, value)` | Shorthand for `matchType(type).andKey(key, value)`. |
+
+**Rules:**
+- `matchType()` / `matchKey()` → starts a new condition (OR between conditions)
+- `andKey()` → extends the last condition (AND within condition)
+
+### DCB Spec Mapping
+
+| DCB Spec | BoundlessDB |
+|---|---|
+| QueryItem.types (OR within) | `matchType('A', 'B')` |
+| QueryItem.tags (AND within) | `.andKey('key', 'value')` chain |
+| Tag-only QueryItem | `matchKey('key', 'value')` |
+| Multiple QueryItems (OR) | Multiple `matchType()` / `matchKey()` calls |
+
+### Tests
+
+- **214 tests** (up from 174): +40 new tests covering key-only queries, multi-type queries, AND/OR combinations, appendCondition propagation, and error cases.
+
+### Documentation
+
+- README updated with new API examples throughout
+- `docs/sqlite-queries.md`: New sections for key-only, key-only AND, multi-type queries. Decision logic expanded to all 8 condition variants.
+- Landing page: Updated highlight section and code examples
+- Issue #83: Full API documentation with all query patterns
+
+---
+
 ## [0.8.0] - 2026-02-28
 
 ### Added
