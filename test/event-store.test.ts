@@ -662,7 +662,7 @@ describe('EventStore', () => {
       });
     });
 
-    describe('.matchKeys() & .withKeys() methods', () => {
+    describe('.matchKey() method', () => {
       it('key-only match returns events across types', async () => {
         await store.append([
           { type: 'CourseCreated', data: { courseId: 'cs101', name: 'CS' } },
@@ -673,7 +673,7 @@ describe('EventStore', () => {
 
         // Key-only: all events with course=cs101, regardless of type
         const result = await store.query()
-          .matchKeys({ course: 'cs101' })
+          .matchKey('course', 'cs101')
           .read();
 
         expect(result.events).toHaveLength(2);
@@ -689,7 +689,7 @@ describe('EventStore', () => {
         ], null);
 
         const result = await store.query()
-          .matchKeys({ course: 'cs101', student: 'alice' })
+          .matchKey('course', 'cs101').withKey('student', 'alice')
           .read();
 
         expect(result.events).toHaveLength(1);
@@ -722,7 +722,7 @@ describe('EventStore', () => {
         ], null);
 
         const matchResult = await store.query()
-          .matchType('StudentSubscribed').withKeys({ course: 'cs101', student: 'alice' })
+          .matchType('StudentSubscribed').withKey('course', 'cs101').withKey('student', 'alice')
           .read();
 
         const legacyResult = await store.query()
@@ -742,7 +742,7 @@ describe('EventStore', () => {
         ], null);
 
         const result = await store.query()
-          .matchKeys({ course: 'cs101' })
+          .matchKey('course', 'cs101')
           .fromPosition(1n)
           .read();
 
@@ -758,7 +758,7 @@ describe('EventStore', () => {
         ], null);
 
         const result = await store.query()
-          .matchKeys({ course: 'cs101' })
+          .matchKey('course', 'cs101')
           .limit(2)
           .read();
 
@@ -772,7 +772,7 @@ describe('EventStore', () => {
 
         // Read with key-only condition
         const readResult = await store.query()
-          .matchKeys({ course: 'cs101' })
+          .matchKey('course', 'cs101')
           .read();
 
         // Someone else adds an event with course=cs101
@@ -797,7 +797,7 @@ describe('EventStore', () => {
 
         // Read with key-only condition for cs101
         const readResult = await store.query()
-          .matchKeys({ course: 'cs101' })
+          .matchKey('course', 'cs101')
           .read();
 
         // Someone adds event for math201 (different key value)

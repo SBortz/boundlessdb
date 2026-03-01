@@ -77,37 +77,18 @@ export class QueryBuilder<E extends Event> {
   }
 
   /**
-   * Key-only query: match events with ALL specified keys, regardless of event type.
+   * Key-only query: match events by key, regardless of event type.
+   * Starts a new condition (OR with previous conditions).
+   * Use `.withKey()` after to add more key constraints (AND).
    * 
    * @example
    * ```typescript
-   * // Key-only
-   * .matchKeys({ course: 'cs101' })
-   * 
-   * // Key-only AND (multiple keys)
-   * .matchKeys({ course: 'cs101', student: 'alice' })
+   * .matchKey('cart', 'abc-123')  // all events with cart=abc-123
+   * .matchKey('course', 'cs101').withKey('student', 'alice')  // AND
    * ```
    */
-  matchKeys(keys: Record<string, string>): this {
-    const keyEntries = Object.entries(keys).map(([name, value]) => ({ name, value }));
-    this.conditions.push({ keys: keyEntries } as KeyOnlyCondition);
-    return this;
-  }
-
-  /**
-   * Add multiple key constraints to the last condition (AND), using an object.
-   * Must be called after `.matchType()` or `.matchTypeAndKey()`.
-   * Shorthand for multiple `.withKey()` calls.
-   * 
-   * @example
-   * ```typescript
-   * .matchType('StudentSubscribed').withKeys({ course: 'cs101', student: 'alice' })
-   * ```
-   */
-  withKeys(keys: Record<string, string>): this {
-    for (const [name, value] of Object.entries(keys)) {
-      this.withKey(name, value);
-    }
+  matchKey(key: string, value: string): this {
+    this.conditions.push({ keys: [{ name: key, value }] } as KeyOnlyCondition);
     return this;
   }
 
@@ -126,7 +107,7 @@ export class QueryBuilder<E extends Event> {
    */
   withKey(key: string, value: string): this {
     if (this.conditions.length === 0) {
-      throw new Error('.withKey() requires a preceding .matchType() or .matchTypeAndKey()');
+      throw new Error('.withKey() requires a preceding .matchType(), .matchTypeAndKey(), or .matchKey()');
     }
 
     const lastIdx = this.conditions.length - 1;
