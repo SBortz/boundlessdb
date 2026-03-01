@@ -386,6 +386,7 @@ const EVENTS_PER_WRITER = Number(getArg('--writer-events')) || 5;
 
 async function runConflictBenchmarks(store: EventStore) {
   console.log(`\n  === Conflict Benchmarks ===\n`);
+  const conflictKey = `course-conflict-${Date.now()}`;
 
   const nameCol = 40;
 
@@ -394,12 +395,12 @@ async function runConflictBenchmarks(store: EventStore) {
     const times: number[] = [];
     for (let i = 0; i < CONFLICT_ITERATIONS; i++) {
       const read = await store.query()
-        .matchTypeAndKey('StudentEnrolled', 'course', 'course-conflict-test')
+        .matchTypeAndKey('StudentEnrolled', 'course', conflictKey)
         .read();
 
       const start = performance.now();
       await store.append([
-        { type: 'LessonCompleted', data: { courseId: 'course-conflict-test', studentId: 'student-conflict-baseline', lessonId: `lesson-baseline-${i}` } },
+        { type: 'LessonCompleted', data: { courseId: conflictKey, studentId: 'student-conflict-baseline', lessonId: `lesson-baseline-${i}` } },
       ], read.appendCondition);
       times.push(performance.now() - start);
     }
@@ -412,17 +413,17 @@ async function runConflictBenchmarks(store: EventStore) {
     const times: number[] = [];
     for (let i = 0; i < CONFLICT_ITERATIONS; i++) {
       const read = await store.query()
-        .matchTypeAndKey('StudentEnrolled', 'course', 'course-conflict-test')
+        .matchTypeAndKey('StudentEnrolled', 'course', conflictKey)
         .read();
 
       // Make the condition stale
       await store.append([
-        { type: 'StudentEnrolled', data: { courseId: 'course-conflict-test', studentId: `student-stale-pg-${i}` } },
+        { type: 'StudentEnrolled', data: { courseId: conflictKey, studentId: `student-stale-pg-${i}` } },
       ], null);
 
       const start = performance.now();
       const result = await store.append([
-        { type: 'StudentEnrolled', data: { courseId: 'course-conflict-test', studentId: `student-conflict-pg-${i}` } },
+        { type: 'StudentEnrolled', data: { courseId: conflictKey, studentId: `student-conflict-pg-${i}` } },
       ], read.appendCondition);
       times.push(performance.now() - start);
 
@@ -439,25 +440,25 @@ async function runConflictBenchmarks(store: EventStore) {
     const times: number[] = [];
     for (let i = 0; i < CONFLICT_ITERATIONS; i++) {
       const read = await store.query()
-        .matchTypeAndKey('StudentEnrolled', 'course', 'course-conflict-test')
+        .matchTypeAndKey('StudentEnrolled', 'course', conflictKey)
         .read();
 
       // Make the condition stale
       await store.append([
-        { type: 'StudentEnrolled', data: { courseId: 'course-conflict-test', studentId: `student-retry-stale-pg-${i}` } },
+        { type: 'StudentEnrolled', data: { courseId: conflictKey, studentId: `student-retry-stale-pg-${i}` } },
       ], null);
 
       const start = performance.now();
       const staleResult = await store.append([
-        { type: 'StudentEnrolled', data: { courseId: 'course-conflict-test', studentId: `student-retry-pg-${i}` } },
+        { type: 'StudentEnrolled', data: { courseId: conflictKey, studentId: `student-retry-pg-${i}` } },
       ], read.appendCondition);
 
       if (staleResult.conflict) {
         const reRead = await store.query()
-          .matchTypeAndKey('StudentEnrolled', 'course', 'course-conflict-test')
+          .matchTypeAndKey('StudentEnrolled', 'course', conflictKey)
           .read();
         await store.append([
-          { type: 'StudentEnrolled', data: { courseId: 'course-conflict-test', studentId: `student-retry-pg-${i}` } },
+          { type: 'StudentEnrolled', data: { courseId: conflictKey, studentId: `student-retry-pg-${i}` } },
         ], reRead.appendCondition);
       }
       times.push(performance.now() - start);
@@ -560,8 +561,9 @@ async function runConcurrentWriterBenchmarks() {
     process.stdout.write(`\r${finalLine.padEnd(120)}\n`);
   }
 
-  await runWriterScenario('same key', () => 'course-writer-same');
-  await runWriterScenario('different keys', (w) => `course-writer-${w}`);
+  const runId = Date.now();
+  await runWriterScenario('same key', () => `course-writer-same-${runId}`);
+  await runWriterScenario('different keys', (w) => `course-writer-${runId}-${w}`);
 
   console.log('');
 }
