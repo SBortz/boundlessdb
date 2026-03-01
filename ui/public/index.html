@@ -1001,6 +1001,11 @@ $ npx tsx scripts/reindex.ts --config ./consistency.ts --db ./events.sqlite
       </table>
     </div>
 
+    <div style="margin-top:1rem; padding:0.75rem 1rem; background:#0a1628; border:1px solid #0f3460; border-radius:8px; font-size:0.8rem; color:#666;">
+      <strong style="color:#888;">Parameters:</strong>
+      50 rounds · 10 app-level retries · PostgreSQL SERIALIZABLE · Decorrelated jitter backoff (50ms base, 2s cap) · 10 internal retries (40001)
+    </div>
+
     <div class="flow-note" style="margin-top:1rem;">
       💡 <strong>Same key = serialized</strong> (conflicts, retries). <strong>Different keys = full parallelism</strong> (zero conflicts).
       DCB boundaries map directly to PostgreSQL SERIALIZABLE concurrency — no tuning required.
