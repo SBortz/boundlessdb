@@ -402,7 +402,7 @@ describe('store.all() — Read All Events', () => {
   });
 });
 
-describe('QueryBuilder — .match() Method', () => {
+describe('QueryBuilder — .matchKeys() & .withKeys() Methods', () => {
   const config = {
     eventTypes: {
       CourseCreated: {
@@ -445,9 +445,9 @@ describe('QueryBuilder — .match() Method', () => {
   });
 
   // --- Type-only ---
-  it('match(type) works like matchType (type-only)', async () => {
+  it('matchType still works (type-only)', async () => {
     const result = await store.query<MatchTestEvent>()
-      .match('CourseCreated')
+      .matchType('CourseCreated')
       .read();
 
     expect(result.count).toBe(2);
@@ -455,9 +455,9 @@ describe('QueryBuilder — .match() Method', () => {
   });
 
   // --- Type + single key ---
-  it('match(type, keys) with single key', async () => {
+  it('matchType().withKeys() with single key', async () => {
     const result = await store.query<MatchTestEvent>()
-      .match('StudentEnrolled', { course: 'cs101' })
+      .matchType('StudentEnrolled').withKeys({ course: 'cs101' })
       .read();
 
     expect(result.count).toBe(2);
@@ -465,9 +465,9 @@ describe('QueryBuilder — .match() Method', () => {
   });
 
   // --- Type + multiple keys (AND) ---
-  it('match(type, keys) with multiple keys (AND)', async () => {
+  it('matchType().withKeys() with multiple keys (AND)', async () => {
     const result = await store.query<MatchTestEvent>()
-      .match('StudentEnrolled', { course: 'cs101', student: 'alice' })
+      .matchType('StudentEnrolled').withKeys({ course: 'cs101', student: 'alice' })
       .read();
 
     expect(result.count).toBe(1);
@@ -475,9 +475,9 @@ describe('QueryBuilder — .match() Method', () => {
   });
 
   // --- Key-only (single key) ---
-  it('match(keys) key-only with single key', async () => {
+  it('matchKeys() with single key', async () => {
     const result = await store.query<MatchTestEvent>()
-      .match({ course: 'cs101' })
+      .matchKeys({ course: 'cs101' })
       .read();
 
     // Should find: CourseCreated cs101, StudentEnrolled cs101 (alice), StudentEnrolled cs101 (bob), CourseCancelled cs101
@@ -489,9 +489,9 @@ describe('QueryBuilder — .match() Method', () => {
   });
 
   // --- Key-only (multiple keys = AND) ---
-  it('match(keys) key-only with multiple keys (AND)', async () => {
+  it('matchKeys() with multiple keys (AND)', async () => {
     const result = await store.query<MatchTestEvent>()
-      .match({ course: 'cs101', student: 'alice' })
+      .matchKeys({ course: 'cs101', student: 'alice' })
       .read();
 
     // Only StudentEnrolled has both keys: just alice in cs101
@@ -501,9 +501,9 @@ describe('QueryBuilder — .match() Method', () => {
   });
 
   // --- Key-only across types ---
-  it('match(keys) key-only returns events across all types', async () => {
+  it('matchKeys() returns events across all types', async () => {
     const result = await store.query<MatchTestEvent>()
-      .match({ student: 'alice' })
+      .matchKeys({ student: 'alice' })
       .read();
 
     // alice enrolled in cs101 and math201 — 2 events
@@ -512,16 +512,16 @@ describe('QueryBuilder — .match() Method', () => {
   });
 
   // --- .match() with .fromPosition() ---
-  it('match(keys) with fromPosition', async () => {
+  it('matchKeys() with fromPosition', async () => {
     const all = await store.query<MatchTestEvent>()
-      .match({ course: 'cs101' })
+      .matchKeys({ course: 'cs101' })
       .read();
 
     expect(all.count).toBe(4);
 
     // Read from after position of second event
     const fromPos = await store.query<MatchTestEvent>()
-      .match({ course: 'cs101' })
+      .matchKeys({ course: 'cs101' })
       .fromPosition(all.events[1].position)
       .read();
 
@@ -529,9 +529,9 @@ describe('QueryBuilder — .match() Method', () => {
   });
 
   // --- .match() with .limit() ---
-  it('match(keys) with limit', async () => {
+  it('matchKeys() with limit', async () => {
     const result = await store.query<MatchTestEvent>()
-      .match({ course: 'cs101' })
+      .matchKeys({ course: 'cs101' })
       .limit(2)
       .read();
 
@@ -539,9 +539,9 @@ describe('QueryBuilder — .match() Method', () => {
   });
 
   // --- .match() with .fromPosition() + .limit() ---
-  it('match(keys) with fromPosition + limit', async () => {
+  it('matchKeys() with fromPosition + limit', async () => {
     const result = await store.query<MatchTestEvent>()
-      .match({ course: 'cs101' })
+      .matchKeys({ course: 'cs101' })
       .fromPosition(0n)
       .limit(2)
       .read();
@@ -551,9 +551,9 @@ describe('QueryBuilder — .match() Method', () => {
   });
 
   // --- appendCondition with key-only match ---
-  it('key-only match appendCondition propagates correctly', async () => {
+  it('matchKeys() appendCondition propagates correctly', async () => {
     const result = await store.query<MatchTestEvent>()
-      .match({ course: 'cs101' })
+      .matchKeys({ course: 'cs101' })
       .read();
 
     expect(result.appendCondition).toBeDefined();
@@ -563,9 +563,9 @@ describe('QueryBuilder — .match() Method', () => {
   });
 
   // --- appendCondition with type + keys match ---
-  it('type+keys match appendCondition propagates correctly', async () => {
+  it('matchType().withKeys() appendCondition propagates correctly', async () => {
     const result = await store.query<MatchTestEvent>()
-      .match('StudentEnrolled', { course: 'cs101', student: 'alice' })
+      .matchType('StudentEnrolled').withKeys({ course: 'cs101', student: 'alice' })
       .read();
 
     expect(result.appendCondition).toBeDefined();
@@ -578,10 +578,10 @@ describe('QueryBuilder — .match() Method', () => {
   });
 
   // --- Multiple .match() calls (OR across conditions) ---
-  it('multiple .match() calls combine as OR', async () => {
+  it('multiple conditions combine as OR', async () => {
     const result = await store.query<MatchTestEvent>()
-      .match('CourseCancelled')
-      .match({ student: 'alice' })
+      .matchType('CourseCancelled')
+      .matchKeys({ student: 'alice' })
       .read();
 
     // CourseCancelled (1) + alice enrollments (2) = 3
@@ -592,10 +592,10 @@ describe('QueryBuilder — .match() Method', () => {
   });
 
   // --- .match() mixed with legacy methods ---
-  it('match() can be mixed with matchType and matchTypeAndKey', async () => {
+  it('matchKeys() can be mixed with matchType and matchTypeAndKey', async () => {
     const result = await store.query<MatchTestEvent>()
       .matchType('CourseCancelled')
-      .match({ student: 'bob' })
+      .matchKeys({ student: 'bob' })
       .read();
 
     // CourseCancelled cs101 (1) + bob enrolled cs101 (1) = 2
@@ -605,7 +605,7 @@ describe('QueryBuilder — .match() Method', () => {
   // --- Empty key-only result ---
   it('match(keys) returns empty for non-existent key', async () => {
     const result = await store.query<MatchTestEvent>()
-      .match({ course: 'nonexistent' })
+      .matchKeys({ course: 'nonexistent' })
       .read();
 
     expect(result.isEmpty()).toBe(true);
@@ -615,7 +615,7 @@ describe('QueryBuilder — .match() Method', () => {
   // --- match(type) for non-existent type ---
   it('match(type) returns empty for non-existent type', async () => {
     const result = await store.query<MatchTestEvent>()
-      .match('NonExistent')
+      .matchType('NonExistent')
       .read();
 
     expect(result.isEmpty()).toBe(true);

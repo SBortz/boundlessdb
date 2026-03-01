@@ -77,45 +77,36 @@ export class QueryBuilder<E extends Event> {
   }
 
   /**
-   * Unified match method with three overloads:
-   * - `match(keys)` — key-only: match events with ALL specified keys, any type
-   * - `match(type)` — type-only: match all events of the given type
-   * - `match(type, keys)` — type + keys: match events of type with ALL keys
+   * Key-only query: match events with ALL specified keys, regardless of event type.
    * 
    * @example
    * ```typescript
    * // Key-only
-   * .match({ course: 'cs101' })
+   * .matchKeys({ course: 'cs101' })
    * 
    * // Key-only AND (multiple keys)
-   * .match({ course: 'cs101', student: 'alice' })
-   * 
-   * // Type-only
-   * .match('CourseCreated')
-   * 
-   * // Type + keys
-   * .match('StudentEnrolled', { course: 'cs101' })
-   * 
-   * // Type + AND keys
-   * .match('StudentEnrolled', { course: 'cs101', student: 'alice' })
+   * .matchKeys({ course: 'cs101', student: 'alice' })
    * ```
    */
-  match(keys: Record<string, string>): this;
-  match(type: string): this;
-  match(type: string, keys: Record<string, string>): this;
-  match(typeOrKeys: string | Record<string, string>, keys?: Record<string, string>): this {
-    if (typeof typeOrKeys === 'string') {
-      // type-only or type + keys
-      if (keys) {
-        const keyEntries = Object.entries(keys).map(([name, value]) => ({ name, value }));
-        this.conditions.push({ type: typeOrKeys, keys: keyEntries } as MultiKeyConstrainedCondition);
-      } else {
-        this.conditions.push({ type: typeOrKeys });
-      }
-    } else {
-      // key-only: Record<string, string>
-      const keyEntries = Object.entries(typeOrKeys).map(([name, value]) => ({ name, value }));
-      this.conditions.push({ keys: keyEntries } as KeyOnlyCondition);
+  matchKeys(keys: Record<string, string>): this {
+    const keyEntries = Object.entries(keys).map(([name, value]) => ({ name, value }));
+    this.conditions.push({ keys: keyEntries } as KeyOnlyCondition);
+    return this;
+  }
+
+  /**
+   * Add multiple key constraints to the last condition (AND), using an object.
+   * Must be called after `.matchType()` or `.matchTypeAndKey()`.
+   * Shorthand for multiple `.withKey()` calls.
+   * 
+   * @example
+   * ```typescript
+   * .matchType('StudentSubscribed').withKeys({ course: 'cs101', student: 'alice' })
+   * ```
+   */
+  withKeys(keys: Record<string, string>): this {
+    for (const [name, value] of Object.entries(keys)) {
+      this.withKey(name, value);
     }
     return this;
   }
