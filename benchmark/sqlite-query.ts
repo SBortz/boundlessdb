@@ -6,16 +6,13 @@
  *
  * Options:
  *   --events <size>          Target event count (e.g. 10k, 1m, 50m). Required.
- *   --disk                   Use on-disk database (default: in-memory)
  *   --sequential             Disable shuffle (default: shuffled)
  *   --db <path>              SQLite database path (default: ./boundless-bench.sqlite)
  *   --config <path>          Consistency config file (default: ./benchmark/consistency.config.ts)
- *   --conflicts              Run additional conflict detection benchmarks
  *
  * Examples:
- *   npx tsx benchmark/sqlite-query.ts --events 1m --disk
- *   npx tsx benchmark/sqlite-query.ts --events 10k
- *   npx tsx benchmark/sqlite-query.ts --events 1m --disk --config ./my-config.ts
+ *   npx tsx benchmark/sqlite-query.ts --events 1m
+ *   npx tsx benchmark/sqlite-query.ts --events 1m --config ./my-config.ts
  */
 
 import { EventStore } from '../src/event-store.js';
@@ -37,9 +34,7 @@ const EVENTS_PER_COURSE = 1 + STUDENTS * (1 + LESSONS + 1); // 2005
 // --- CLI args ---
 
 const args = process.argv.slice(2);
-const useDisk = args.includes('--disk');
 const useShuffle = !args.includes('--sequential');
-const runConflicts = args.includes('--conflicts');
 
 function getArg(name: string): string | undefined {
   const idx = args.indexOf(name);
@@ -83,8 +78,8 @@ function buildDataset(target: number) {
 
 if (sizeArgs.length === 0) {
   console.error('Usage: npx tsx benchmark/sqlite-query.ts --events <size> [options]');
-  console.error('Options: --disk --sequential --db <path> --config <path>');
-  console.error('Example: npx tsx benchmark/sqlite-query.ts --events 1m --disk');
+  console.error('Options: --sequential --db <path> --config <path>');
+  console.error('Example: npx tsx benchmark/sqlite-query.ts --events 1m');
   process.exit(1);
 }
 const sizes = sizeArgs.map(parseSize);
@@ -457,9 +452,8 @@ async function runConflictBenchmarks(store: EventStore) {
 // --- Main ---
 
 async function main() {
-  const mode = useDisk ? 'on-disk' : 'in-memory';
   const runMode = useShuffle ? 'shuffle' : 'sequential';
-  console.log(`\n  ⚡ SQLite Benchmark (${mode}, ${runMode})`);
+  console.log(`\n  ⚡ SQLite Benchmark (on-disk, ${runMode})`);
   console.log(`  ${ITERATIONS} iterations per query`);
   console.log(`  Scales: ${datasets.map(d => d.label).join(', ')}\n`);
 
@@ -471,14 +465,12 @@ async function main() {
   const allResults: Array<Array<{ avgMs: number; p50Ms: number; p99Ms: number; results: number }>> = queries.map(() => []);
   const sortedResults: Array<Array<{ avgMs: number; p50Ms: number; p99Ms: number; results: number }>> = queries.map(() => []);
 
-  // For on-disk: single file, extended incrementally
-  // For in-memory: fresh store per scale
-  const dbPath = useDisk ? DB_PATH : ':memory:';
+  const dbPath = DB_PATH;
   let storage: SqliteStorage | null = null;
   let store: EventStore | null = null;
   let existingCourses = 0;
 
-  if (useDisk) {
+  {
     const fs = await import('fs');
     if (fs.existsSync(dbPath)) {
       try {
@@ -501,27 +493,20 @@ async function main() {
   for (let d = 0; d < sortedDatasets.length; d++) {
     const ds = sortedDatasets[d];
 
-    if (!useDisk) {
-      // In-memory: fresh store per scale
-      storage = new SqliteStorage(':memory:');
+    // On-disk: extend if needed
+    if (!storage || !store) {
+      storage = new SqliteStorage(dbPath);
       store = new EventStore({ storage, ...STORE_CONFIG });
-      await generateEvents(store, ds.courses, ds.students, ds.lessons, ds.label);
-    } else {
-      // On-disk: extend if needed
-      if (!storage || !store) {
-        storage = new SqliteStorage(dbPath);
-        store = new EventStore({ storage, ...STORE_CONFIG });
-      }
+    }
 
-      if (existingCourses >= ds.courses) {
-        const pos = Number(await storage.getLatestPosition());
-        console.log(`  ${ds.label} cached (${formatNum(pos)} events, ${formatNum(existingCourses)} courses >= ${formatNum(ds.courses)} needed)`);
-      } else {
-        const needed = ds.courses - existingCourses;
-        console.log(`  ${ds.label} extending: ${formatNum(existingCourses)} → ${formatNum(ds.courses)} courses (+${formatNum(needed)})`);
-        await generateEvents(store, ds.courses, ds.students, ds.lessons, ds.label, existingCourses);
-        existingCourses = ds.courses;
-      }
+    if (existingCourses >= ds.courses) {
+      const pos = Number(await storage.getLatestPosition());
+      console.log(`  ${ds.label} cached (${formatNum(pos)} events, ${formatNum(existingCourses)} courses >= ${formatNum(ds.courses)} needed)`);
+    } else {
+      const needed = ds.courses - existingCourses;
+      console.log(`  ${ds.label} extending: ${formatNum(existingCourses)} → ${formatNum(ds.courses)} courses (+${formatNum(needed)})`);
+      await generateEvents(store, ds.courses, ds.students, ds.lessons, ds.label, existingCourses);
+      existingCourses = ds.courses;
     }
 
     // Warmup pass (sequential mode only): populate OS page cache
@@ -542,22 +527,15 @@ async function main() {
     }
     process.stdout.write(`\r  ✓ ${ds.label} queries done                                    \n`);
 
-    if (!useDisk && !runConflicts) {
-      await store!.close();
-    }
   }
 
-  // Run conflict benchmarks if requested (on the last/largest dataset)
-  if (runConflicts && store) {
+  // Run conflict benchmarks (on the last/largest dataset)
+  if (store) {
     await runConflictBenchmarks(store);
   }
 
-  // Close remaining stores
-  if (!useDisk) {
-    if (store && runConflicts) {
-      await store.close();
-    }
-  } else if (store) {
+  // Close store
+  if (store) {
     await store.close();
   }
 
@@ -607,7 +585,7 @@ async function main() {
     );
   }
 
-  console.log(`\n  Mode: ${mode} | Order: ${runMode} | Iterations: ${ITERATIONS} | Storage: SQLite (better-sqlite3)\n`);
+  console.log(`\n  Mode: on-disk | Order: ${runMode} | Iterations: ${ITERATIONS} | Storage: SQLite (better-sqlite3)\n`);
 }
 
 main().catch(console.error);
