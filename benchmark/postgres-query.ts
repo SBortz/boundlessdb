@@ -9,7 +9,6 @@
  *   --sequential             Disable shuffle (default: shuffled)
  *   --connection <url>       PostgreSQL connection string (default: env DATABASE_URL or localhost:5433)
  *   --config <path>          Consistency config file (default: ./benchmark/consistency.config.ts)
- *   --conflicts              Run additional conflict & concurrent writer benchmarks
  *
  * Examples:
  *   npx tsx benchmark/postgres-query.ts --events 1m
@@ -37,7 +36,6 @@ const EVENTS_PER_COURSE = 1 + STUDENTS * (1 + LESSONS + 1); // 2005
 
 const args = process.argv.slice(2);
 const useShuffle = !args.includes('--sequential');
-const runConflicts = args.includes('--conflicts');
 
 function getArg(name: string): string | undefined {
   const idx = args.indexOf(name);
@@ -617,7 +615,7 @@ async function main() {
   }
 
   // Run conflict benchmarks if requested (on the last/largest dataset)
-  if (runConflicts && store) {
+  if (store) {
     await runConflictBenchmarks(store);
     await runConcurrentWriterBenchmarks();
   }
