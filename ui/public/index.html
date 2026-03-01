@@ -506,22 +506,21 @@
     <div class="tabs-content-wrapper">
       <div class="tab-content active" id="tab-query">
         
-        <pre><code><span class="keyword">const</span> { events, appendCondition } = <span class="keyword">await</span> store.<span class="function">query</span>&lt;CourseEvent&gt;()
-  .<span class="function">matchType</span>(<span class="string">'CourseCreated'</span>)                              <span class="comment">// all CourseCreated</span>
-  .<span class="function">matchType</span>(<span class="string">'StudentSubscribed'</span>)
-    .<span class="function">withKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>)                           <span class="comment">// type + keys (AND)</span>
-    .<span class="function">withKey</span>(<span class="string">'student'</span>, <span class="string">'alice'</span>)
+        <pre><code><span class="comment">// "Has Alice enrolled in CS101?" — query by keys, not event types</span>
+<span class="keyword">const</span> { events, appendCondition } = <span class="keyword">await</span> store.<span class="function">query</span>&lt;CourseEvent&gt;()
+  .<span class="function">matchKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>)
+  .<span class="function">andKey</span>(<span class="string">'student'</span>, <span class="string">'alice'</span>)
   .<span class="function">read</span>();
 
-<span class="comment">// Build state</span>
+<span class="comment">// Build state from matching events</span>
 <span class="keyword">const</span> state: CourseState = events.<span class="function">reduce</span>(evolve, initialState);</code></pre>
       </div>
       
       <div class="tab-content" id="tab-append">
         
-        <pre><code><span class="keyword">const</span> { events, appendCondition } = <span class="keyword">await</span> store.<span class="function">query</span>&lt;CourseEvent&gt;()
-  .<span class="function">matchType</span>(<span class="string">'CourseCreated'</span>)                        <span class="comment">// all CourseCreated</span>
-  .<span class="function">matchTypeAndKey</span>(<span class="string">'StudentSubscribed'</span>, <span class="string">'course'</span>, <span class="string">'cs101'</span>)  <span class="comment">// type + key</span>
+        <pre><code><span class="comment">// Read by key — no need to list event types!</span>
+<span class="keyword">const</span> { events, appendCondition } = <span class="keyword">await</span> store.<span class="function">query</span>&lt;CourseEvent&gt;()
+  .<span class="function">matchKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>)
   .<span class="function">read</span>();
 
 <span class="comment">// Build state</span>
@@ -530,7 +529,7 @@
 <span class="comment">// Business logic</span>
 <span class="keyword">const</span> newEvents: CourseEvent[] = <span class="function">decide</span>(command, state);
 
-<span class="comment">// Append</span>
+<span class="comment">// Append — conflicts if ANY event with course=cs101 was added since read</span>
 <span class="keyword">await</span> store.<span class="function">append</span>(newEvents, appendCondition);</code></pre>
       </div>
       
@@ -594,7 +593,7 @@
     <div class="feature">
       <div class="feature-icon">🔗</div>
       <h3>Multi-Key AND Queries</h3>
-      <p>Chain <code>.withKey()</code> for AND semantics — match events where ALL keys match in one query.</p>
+      <p>Chain <code>.andKey()</code> for AND semantics — match events where ALL keys match in one query.</p>
     </div>
     <div class="feature">
       <div class="feature-icon">📦</div>
@@ -689,7 +688,7 @@ appendCondition = {
       <div class="case-content active" id="case-read">
         <pre><code><span class="comment">// Standard flow: Read first, then append</span>
 <span class="keyword">const</span> result = <span class="keyword">await</span> store.<span class="function">query</span>()
-  .<span class="function">matchTypeAndKey</span>(<span class="string">'StudentSubscribed'</span>, <span class="string">'course'</span>, <span class="string">'cs101'</span>)
+  .<span class="function">matchKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>)
   .<span class="function">read</span>();
 
 <span class="comment">// appendCondition = { failIfEventsMatch: [...], after: position }</span>
@@ -742,19 +741,26 @@ appendCondition = {
   
   <div class="code-section">
     <h2>Query Across Multiple Dimensions</h2>
-    <pre><code><span class="comment">// Traditional streams: ONE boundary (e.g., per course)</span>
-<span class="comment">// DCB: Query ANY combination of keys!</span>
+    <pre><code><span class="comment">// Key-only: "Everything about course cs101"</span>
+store.<span class="function">query</span>().<span class="function">matchKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>).<span class="function">read</span>()
 
-<span class="comment">// "Has Alice already enrolled in CS101?"</span>
-<span class="comment">// Multi-key AND: must match BOTH keys on the SAME event</span>
-<span class="keyword">const</span> result = <span class="keyword">await</span> store.<span class="function">query</span>()
-  .<span class="function">matchType</span>(<span class="string">'StudentSubscribed'</span>)
-  .<span class="function">withKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>)
-  .<span class="function">withKey</span>(<span class="string">'student'</span>, <span class="string">'alice'</span>)
-  .<span class="function">read</span>();
+<span class="comment">// Multi-key AND: "Alice's enrollment in cs101"</span>
+store.<span class="function">query</span>()
+  .<span class="function">matchKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>)
+  .<span class="function">andKey</span>(<span class="string">'student'</span>, <span class="string">'alice'</span>)
+  .<span class="function">read</span>()
 
-<span class="comment">// .withKey().withKey() = AND (same event must have ALL keys)</span>
-<span class="comment">// Two .matchTypeAndKey() = OR (events matching EITHER condition)</span></code></pre>
+<span class="comment">// Multi-type + key: "Course lifecycle events for cs101"</span>
+store.<span class="function">query</span>()
+  .<span class="function">matchType</span>(<span class="string">'CourseCreated'</span>, <span class="string">'CourseCancelled'</span>)
+  .<span class="function">andKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>)
+  .<span class="function">read</span>()
+
+<span class="comment">// OR: "All cancellations OR everything about Alice"</span>
+store.<span class="function">query</span>()
+  .<span class="function">matchType</span>(<span class="string">'CourseCancelled'</span>)          <span class="comment">// condition 1</span>
+  .<span class="function">matchKey</span>(<span class="string">'student'</span>, <span class="string">'alice'</span>)          <span class="comment">// condition 2 (OR)</span>
+  .<span class="function">read</span>()</code></pre>
   </div>
   
   <div class="code-section">

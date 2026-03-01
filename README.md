@@ -84,26 +84,21 @@ event_keys: [pos:1, course, cs101], [pos:1, student, alice]
 ```
 
 ### 4️⃣ Query by Keys
-Find all events matching any combination of key conditions:
+Find all events matching key conditions — no need to list event types:
 ```typescript
-const result = await store.read({
-  conditions: [
-    { type: 'StudentSubscribed', key: 'course', value: 'cs101' }
-  ]
-});
+const result = await store.query()
+  .matchKey('course', 'cs101')
+  .read();
 // result.appendCondition captures: "I read all matching events up to position X"
 ```
 
 ## The DCB Pattern: Read → Decide → Write
 
 ```typescript
-// 1️⃣ READ — Query events and get an appendCondition
-const { events, appendCondition } = await store.read({
-  conditions: [
-    { type: 'CourseCreated', key: 'course', value: 'cs101' },
-    { type: 'StudentSubscribed', key: 'course', value: 'cs101' },
-  ]
-});
+// 1️⃣ READ — Query by key and get an appendCondition
+const { events, appendCondition } = await store.query<CourseEvent>()
+  .matchKey('course', 'cs101')
+  .read();
 
 // 2️⃣ DECIDE — Build state, run business logic
 const state = events.reduce(evolve, initialState);
@@ -154,12 +149,29 @@ if (result.conflict) {
 Build queries with a chainable API:
 
 ```typescript
+// Key-only: everything about course cs101 (any event type!)
 const { events, appendCondition } = await store.query<CourseEvent>()
-  .matchType('CourseCreated')                              // all events of type
-  .matchTypeAndKey('StudentSubscribed', 'course', 'cs101') // type + key = value
-  .withKey('student', 'alice')                             // AND: also match student key
-  .fromPosition(100n)                                      // start from position
-  .limit(50)                                               // limit results
+  .matchKey('course', 'cs101')
+  .read();
+
+// Multi-key AND: Alice's enrollment in cs101
+const enrollment = await store.query<CourseEvent>()
+  .matchKey('course', 'cs101')
+  .andKey('student', 'alice')
+  .read();
+
+// Multi-type: course lifecycle events for cs101
+const lifecycle = await store.query<CourseEvent>()
+  .matchType('CourseCreated', 'CourseCancelled')
+  .andKey('course', 'cs101')
+  .read();
+
+// Type + key
+const enrollments = await store.query<CourseEvent>()
+  .matchType('StudentSubscribed')
+  .andKey('course', 'cs101')
+  .fromPosition(100n)
+  .limit(50)
   .read();
 ```
 
@@ -167,14 +179,17 @@ const { events, appendCondition } = await store.query<CourseEvent>()
 
 | Method | Description |
 |--------|-------------|
-| `matchType(type)` | Match all events of type (unconstrained) |
-| `matchTypeAndKey(type, key, value)` | Match events of type where key=value |
-| `withKey(key, value)` | Add AND key to last condition (multi-key) |
+| `matchKey(key, value)` | Match events by key, regardless of type. Starts new condition (OR). |
+| `matchType(...types)` | Match events of one or more types. Starts new condition (OR). |
+| `matchTypeAndKey(type, key, value)` | Shorthand for `matchType(type).andKey(key, value)` |
+| `andKey(key, value)` | Add AND key constraint to last condition |
 | `fromPosition(bigint)` | Start reading from position |
 | `limit(number)` | Limit number of results |
 | `read()` | Execute query, returns `QueryResult` |
 
-The fluent API is equivalent to calling `store.read()` with conditions — use whichever style you prefer.
+**Rules:**
+- `matchType()` / `matchKey()` start a **new** condition (OR between conditions)
+- `andKey()` **extends** the last condition (AND within condition)
 
 ## AppendCondition
 
@@ -191,7 +206,7 @@ interface AppendCondition {
 
 ```typescript
 const result = await store.query()
-  .matchTypeAndKey('StudentSubscribed', 'course', 'cs101')
+  .matchKey('course', 'cs101')
   .read();
 
 // appendCondition = { failIfEventsMatch: [...], after: <last_position> }
@@ -251,49 +266,45 @@ await store.append(newEvents, null);
 Traditional streams give you ONE boundary. DCB lets you query ANY combination:
 
 ```typescript
-// "Has Alice already enrolled in CS101?"
-// Multi-key AND: must match BOTH keys on the SAME event
-const result = await store.query()
-  .matchType('StudentSubscribed')
-  .withKey('course', 'cs101')
-  .withKey('student', 'alice')
-  .read();
+// Key-only: "Everything about course cs101"
+store.query().matchKey('course', 'cs101').read()
+
+// Multi-key AND: "Alice's enrollment in cs101"
+store.query()
+  .matchKey('course', 'cs101')
+  .andKey('student', 'alice')
+  .read()
+
+// Multi-type + key: "Course lifecycle events for cs101"
+store.query()
+  .matchType('CourseCreated', 'CourseCancelled')
+  .andKey('course', 'cs101')
+  .read()
+
+// OR: "All cancellations OR everything about Alice"
+store.query()
+  .matchType('CourseCancelled')          // condition 1
+  .matchKey('student', 'alice')          // condition 2 (OR)
+  .read()
 ```
 
 ### AND vs OR
 
-- **`.withKey().withKey()`** = **AND** — the same event must have ALL specified keys
-- **Two separate conditions** = **OR** — events matching EITHER condition
+- **`.andKey()`** = **AND** — extends the last condition (same event must match all keys)
+- **`.matchType()` / `.matchKey()`** = **OR** — starts a new condition (events matching either)
 
 ```typescript
 // AND: Events where course='cs101' AND student='alice' (same event)
 store.query()
-  .matchType('StudentSubscribed')
-  .withKey('course', 'cs101')
-  .withKey('student', 'alice')
+  .matchKey('course', 'cs101')
+  .andKey('student', 'alice')
   .read();
 
 // OR: Events where course='cs101' OR student='alice' (different events)
 store.query()
-  .matchTypeAndKey('StudentSubscribed', 'course', 'cs101')
-  .matchTypeAndKey('StudentSubscribed', 'student', 'alice')
+  .matchKey('course', 'cs101')
+  .matchKey('student', 'alice')
   .read();
-```
-
-Multi-key conditions also work in the object syntax:
-
-```typescript
-const result = await store.read({
-  conditions: [
-    {
-      type: 'StudentSubscribed',
-      keys: [
-        { name: 'course', value: 'cs101' },
-        { name: 'student', value: 'alice' }
-      ]
-    }
-  ]
-});
 ```
 
 ## Config-based Key Extraction
@@ -354,9 +365,10 @@ const consistency = {
 // Extracted keys: order="ORD-123", month="2026-02"
 
 // Query all orders from February 2026:
-const { events } = await store.read({
-  conditions: [{ type: 'OrderPlaced', key: 'month', value: '2026-02' }]
-});
+const { events } = await store.query()
+  .matchType('OrderPlaced')
+  .andKey('month', '2026-02')
+  .read();
 ```
 
 This is great for **Close the Books** patterns — query all events in a time period efficiently!
@@ -542,9 +554,9 @@ type ProductItemRemoved = Event<'ProductItemRemoved', {
 type CartEvents = ProductItemAdded | ProductItemRemoved;
 
 // Read with type safety
-const result = await store.read<CartEvents>({
-  conditions: [{ type: 'ProductItemAdded', key: 'cart', value: 'cart-123' }]
-});
+const result = await store.query<CartEvents>()
+  .matchKey('cart', 'cart-123')
+  .read();
 
 // TypeScript knows the event types!
 for (const event of result.events) {
@@ -556,90 +568,36 @@ for (const event of result.events) {
 
 ## Query Conditions
 
-Query conditions support both **constrained** (with key/value) and **unconstrained** (type-only) queries.
-
-### Constrained Query
-Match events of a type where a specific key has a specific value:
+The fluent query builder is the recommended API. For advanced use, conditions can also be passed directly to `store.read()`:
 
 ```typescript
-// Get ProductItemAdded events where cart='cart-123'
-const result = await store.read({
-  conditions: [
-    { type: 'ProductItemAdded', key: 'cart', value: 'cart-123' }
-  ]
-});
-```
+// Key-only: events with key, regardless of type
+{ keys: [{ name: 'course', value: 'cs101' }] }
 
-### Unconstrained Query
-Omit `key` and `value` to match **all events of a type**:
+// Type-only: all events of type
+{ type: 'CourseCreated' }
 
-```typescript
-// Get ALL ProductItemAdded events (regardless of cart)
-const result = await store.read({
-  conditions: [
-    { type: 'ProductItemAdded' }  // no key/value = match all
-  ]
-});
-```
-
-### Mixed Conditions
-Combine constrained and unconstrained in one query (OR logic):
-
-```typescript
-// "Give me the course definition + all enrollments for cs101"
-const result = await store.read({
-  conditions: [
-    { type: 'CourseCreated', key: 'course', value: 'cs101' },
-    { type: 'StudentSubscribed', key: 'course', value: 'cs101' },
-    { type: 'StudentUnsubscribed', key: 'course', value: 'cs101' },
-  ]
-});
-
-// "All courses + only Alice's enrollments"
-const result = await store.read({
-  conditions: [
-    { type: 'CourseCreated' },                                  // unconstrained: ALL courses
-    { type: 'StudentSubscribed', key: 'student', value: 'alice' } // constrained: only Alice
-  ]
-});
-```
-
-### Same Type, Multiple Values
-Query multiple values of the same key:
-
-```typescript
-// Get ProductItemAdded for cart-1 OR cart-2
-const result = await store.read({
-  conditions: [
-    { type: 'ProductItemAdded', key: 'cart', value: 'cart-1' },
-    { type: 'ProductItemAdded', key: 'cart', value: 'cart-2' }
-  ]
-});
-```
-
-### Type Safety
-With TypeScript, conditions are type-safe — three forms:
-
-```typescript
-// ✅ Unconstrained (type only)
-{ type: 'ProductItemAdded' }
-
-// ✅ Single key
+// Type + single key
 { type: 'ProductItemAdded', key: 'cart', value: 'cart-123' }
 
-// ✅ Multi-key AND
+// Type + multi-key AND
 { type: 'StudentSubscribed', keys: [
   { name: 'course', value: 'cs101' },
   { name: 'student', value: 'alice' }
 ]}
+
+// Multi-type
+{ types: ['CourseCreated', 'CourseCancelled'] }
+
+// Multi-type + keys
+{ types: ['CourseCreated', 'CourseCancelled'], keys: [{ name: 'course', value: 'cs101' }] }
 ```
 
-### Empty Conditions
-Empty conditions returns **all events** in the store:
+### All Events
 
 ```typescript
 // Get ALL events (useful for admin/debug/export)
-const result = await store.read({ conditions: [] });
+const result = await store.all().read();
 ```
 
 ## API Reference
@@ -659,9 +617,12 @@ Fluent query builder:
 
 ```typescript
 const result = await store.query<CourseEvent>()
-  .matchType('CourseCreated')                              // unconstrained (type only)
-  .matchTypeAndKey('StudentSubscribed', 'course', 'cs101') // type + single key
-  .withKey('student', 'alice')                             // AND: add key to last condition
+  .matchKey('course', 'cs101')                             // key-only (any event type)
+  .read();
+
+const result = await store.query<CourseEvent>()
+  .matchType('CourseCreated', 'CourseCancelled')           // multi-type
+  .andKey('course', 'cs101')                              // + key constraint
   .fromPosition(100n)                                      // start from position
   .limit(50)                                               // limit results
   .read();                                                 // execute, returns QueryResult
@@ -669,9 +630,10 @@ const result = await store.query<CourseEvent>()
 
 | Method | Description |
 |--------|-------------|
-| `matchType(type)` | Match all events of type (unconstrained) |
-| `matchTypeAndKey(type, key, value)` | Match events of type where key=value |
-| `withKey(key, value)` | Add AND key to last condition (multi-key) |
+| `matchKey(key, value)` | Match events by key, any type. Starts new condition (OR). |
+| `matchType(...types)` | Match events of type(s). Starts new condition (OR). |
+| `matchTypeAndKey(type, key, value)` | Shorthand for `matchType(type).andKey(key, value)` |
+| `andKey(key, value)` | Add AND key constraint to last condition |
 | `fromPosition(bigint)` | Start reading from position |
 | `limit(number)` | Limit number of results |
 | `read()` | Execute query, returns `QueryResult` |
@@ -796,4 +758,4 @@ For detailed SQL query plans and optimization notes, see [docs/sqlite-queries.md
 
 ---
 
-Built with ❤️ for [Event Sourcing](https://www.eventstore.com/event-sourcing)
+Built with ❤️ for Event Sourcing

@@ -27,6 +27,16 @@ import {
 } from './types.js';
 import { QueryBuilder, type QueryExecutor } from './query-builder.js';
 
+/** Format a query condition for debug logging */
+function formatCondition(c: QueryCondition): string {
+  if (isConstrainedCondition(c)) return `${c.type}[${c.key}=${c.value}]`;
+  if ('types' in c && 'keys' in c) return `${(c as any).types.join('|')}[${(c as any).keys.map((k: any) => `${k.name}=${k.value}`).join(',')}]`;
+  if ('types' in c) return `${(c as any).types.join('|')}[*]`;
+  if ('keys' in c && !('type' in c)) return `[${(c as any).keys.map((k: any) => `${k.name}=${k.value}`).join(',')}]`;
+  if ('type' in c) return `${(c as any).type}[*]`;
+  return '(unknown)';
+}
+
 /**
  * Generate UUID with fallback for environments without crypto.randomUUID
  */
@@ -210,7 +220,7 @@ export class EventStore {
     
     console.log('📖 READ: Querying events...');
     console.log('   Conditions:', query.conditions.map(c => 
-      isConstrainedCondition(c) ? `${c.type}[${c.key}=${c.value}]` : `${c.type}[*]`
+      formatCondition(c)
     ).join(', ') || '(none)');
     
     const events = await this.storage.query(
@@ -295,7 +305,7 @@ export class EventStore {
 
     if (condition !== null) {
       const conditionsStr = condition.failIfEventsMatch.map((c: QueryCondition) => 
-        isConstrainedCondition(c) ? `${c.type}[${c.key}=${c.value}]` : `${c.type}[*]`
+        formatCondition(c)
       ).join(', ');
       const checkFromPosition = condition.after ?? 0n;
       console.log(`🔍 CONFLICT CHECK: Looking for events since position #${checkFromPosition}`);
@@ -321,11 +331,7 @@ export class EventStore {
       console.log('');
       console.log('🔍 Query conditions you checked:');
       condition?.failIfEventsMatch.forEach((c: QueryCondition) => {
-        if (isConstrainedCondition(c)) {
-          console.log(`   • ${c.type} where ${c.key}="${c.value}"`);
-        } else {
-          console.log(`   • ${c.type} (all)`);
-        }
+        console.log(`   • ${formatCondition(c)}`);
       });
       console.log('');
       console.log('⚡ Events written SINCE your read (that match your query):');
@@ -381,7 +387,8 @@ export class EventStore {
         const normalized = normalizeCondition(cond);
         if (hasKeys(normalized)) {
           const keysStr = normalized.keys.map(k => `${k.name}:${k.value}`).sort().join('|');
-          const dedupKey = `${normalized.type}:${keysStr}`;
+          const typeStr = 'type' in normalized ? (normalized as any).type : ('types' in normalized ? (normalized as any).types.join('|') : '*');
+          const dedupKey = `${typeStr}:${keysStr}`;
           conditions.set(dedupKey, normalized);
         }
       }

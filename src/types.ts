@@ -77,10 +77,35 @@ export interface MultiKeyConstrainedCondition {
 }
 
 /**
+ * Multi-type unconstrained condition: matches ALL events of any of the given types.
+ * Used by `.matchType('TypeA', 'TypeB')` with multiple types.
+ */
+export interface MultiTypeCondition {
+  types: string[];
+}
+
+/**
+ * Multi-type constrained condition: matches events of any of the given types with ALL specified keys (AND).
+ */
+export interface MultiTypeConstrainedCondition {
+  types: string[];
+  keys: { name: string; value: string }[];
+}
+
+/**
+ * Key-only condition: matches events that have ALL specified keys, regardless of event type.
+ * Used by `.matchKey(key, value)` when no type is specified.
+ */
+export interface KeyOnlyCondition {
+  keys: { name: string; value: string }[];
+}
+
+/**
  * A single query condition:
  * - Unconstrained: `{ type }` - all events of type
  * - Constrained (legacy): `{ type, key, value }` - events of type with specific key
  * - Multi-key constrained: `{ type, keys: [...] }` - events of type with ALL specified keys (AND)
+ * - Key-only: `{ keys: [...] }` - events with ALL specified keys, any type
  * 
  * @example
  * ```typescript
@@ -95,9 +120,12 @@ export interface MultiKeyConstrainedCondition {
  * 
  * // Unconstrained: Match all events of type
  * { type: 'ProductItemAdded' }
+ * 
+ * // Key-only: Match events with keys, any type
+ * { keys: [{ name: 'course', value: 'cs101' }] }
  * ```
  */
-export type QueryCondition = UnconstrainedCondition | ConstrainedCondition | MultiKeyConstrainedCondition;
+export type QueryCondition = UnconstrainedCondition | ConstrainedCondition | MultiKeyConstrainedCondition | MultiTypeCondition | MultiTypeConstrainedCondition | KeyOnlyCondition;
 
 /**
  * Type guard: check if condition is constrained with single key (legacy format)
@@ -114,22 +142,46 @@ export function isMultiKeyCondition(c: QueryCondition): c is MultiKeyConstrained
 }
 
 /**
+ * Type guard: check if condition is multi-type (types[] without keys)
+ */
+export function isMultiTypeCondition(c: QueryCondition): c is MultiTypeCondition {
+  return 'types' in c && !('keys' in c);
+}
+
+/**
+ * Type guard: check if condition is multi-type constrained (types[] + keys[])
+ */
+export function isMultiTypeConstrainedCondition(c: QueryCondition): c is MultiTypeConstrainedCondition {
+  return 'types' in c && 'keys' in c;
+}
+
+/**
+ * Type guard: check if condition is key-only (no type/types field)
+ */
+export function isKeyOnlyCondition(c: QueryCondition): c is KeyOnlyCondition {
+  return !('type' in c) && !('types' in c) && 'keys' in c && Array.isArray((c as KeyOnlyCondition).keys);
+}
+
+/**
  * Normalize a QueryCondition to the internal multi-key format.
  * - `{ type, key, value }` → `{ type, keys: [{ name: key, value }] }`
  * - `{ type, keys: [...] }` → pass through
  * - `{ type }` → pass through (unconstrained)
+ * - `{ keys: [...] }` → pass through (key-only)
  */
-export function normalizeCondition(c: QueryCondition): UnconstrainedCondition | MultiKeyConstrainedCondition {
+export type NormalizedCondition = UnconstrainedCondition | MultiKeyConstrainedCondition | MultiTypeCondition | MultiTypeConstrainedCondition | KeyOnlyCondition;
+
+export function normalizeCondition(c: QueryCondition): NormalizedCondition {
   if (isConstrainedCondition(c)) {
     return { type: c.type, keys: [{ name: c.key, value: c.value }] };
   }
-  return c as UnconstrainedCondition | MultiKeyConstrainedCondition;
+  return c as NormalizedCondition;
 }
 
 /**
  * Check if a normalized condition has keys (is constrained)
  */
-export function hasKeys(c: UnconstrainedCondition | MultiKeyConstrainedCondition): c is MultiKeyConstrainedCondition {
+export function hasKeys(c: NormalizedCondition): c is MultiKeyConstrainedCondition | MultiTypeConstrainedCondition | KeyOnlyCondition {
   return 'keys' in c && Array.isArray((c as MultiKeyConstrainedCondition).keys) && (c as MultiKeyConstrainedCondition).keys.length > 0;
 }
 
