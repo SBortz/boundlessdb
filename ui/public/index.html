@@ -500,6 +500,7 @@
     <div class="tabs-header">
       <button class="tab-btn active" data-tab="query">Fine-Granular Querying</button>
       <button class="tab-btn" data-tab="append">Append With Dynamic Consistency</button>
+      <button class="tab-btn" data-tab="multi">Multi-Boundary Append</button>
       <button class="tab-btn" data-tab="conflict">Resolve Conflicts</button>
     </div>
     
@@ -531,6 +532,23 @@
 
 <span class="comment">// Append with optimistic concurrency</span>
 <span class="keyword">await</span> store.<span class="function">append</span>(newEvents, appendCondition);</code></pre>
+      </div>
+      
+      <div class="tab-content" id="tab-multi">
+        
+        <pre><code><span class="comment">// Read from two boundaries</span>
+<span class="keyword">const</span> cartResult = <span class="keyword">await</span> store.<span class="function">query</span>()
+  .<span class="function">matchKey</span>(<span class="string">'cart'</span>, <span class="string">'cart-42'</span>).<span class="function">read</span>();
+
+<span class="keyword">const</span> inventoryResult = <span class="keyword">await</span> store.<span class="function">query</span>()
+  .<span class="function">matchKey</span>(<span class="string">'product'</span>, <span class="string">'shoe-xl'</span>).<span class="function">read</span>();
+
+<span class="comment">// Merge conditions — protects both boundaries</span>
+<span class="keyword">const</span> merged = cartResult.appendCondition
+  .<span class="function">mergeWith</span>(inventoryResult.appendCondition);
+
+<span class="comment">// Single atomic append</span>
+<span class="keyword">await</span> store.<span class="function">append</span>(newEvents, merged);</code></pre>
       </div>
       
       <div class="tab-content" id="tab-conflict">
