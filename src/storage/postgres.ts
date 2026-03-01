@@ -86,7 +86,6 @@ export class PostgresStorage implements EventStorage {
   private maxRetries: number;
   private retryBaseMs: number;
   private retryJitter: boolean;
-
   constructor(connectionStringOrConfig: string | PoolConfig, options?: PostgresRetryOptions) {
     if (typeof connectionStringOrConfig === 'string') {
       this.pool = new Pool({ connectionString: connectionStringOrConfig });
@@ -222,7 +221,6 @@ export class PostgresStorage implements EventStorage {
         // Retry on serialization failure (PostgreSQL error code 40001)
         if (error.code === '40001' && attempt < maxRetries) {
           const delay = this.getRetryDelay(attempt);
-          console.log(`[PostgresStorage] Serialization failure, retrying (attempt ${attempt + 1}/${maxRetries}, delay ${Math.round(delay)}ms)...`);
           await new Promise(r => setTimeout(r, delay));
           continue;
         }

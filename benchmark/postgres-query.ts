@@ -469,15 +469,15 @@ async function runConflictBenchmarks(store: EventStore) {
 }
 
 async function runConcurrentWriterBenchmarks() {
-  console.log(`  === Concurrent Writer Benchmarks (PostgreSQL) ===\n`);
+  console.log(`  === Concurrent Writer Benchmarks (${CONCURRENT_WRITERS} writers × ${EVENTS_PER_WRITER} events, ${CONFLICT_ITERATIONS} rounds) ===\n`);
 
   const nameCol = 40;
 
-  // Scenario 4: Parallel writers, same key
-  {
+  async function runWriterScenario(label: string, getKey: (w: number) => string) {
     const times: number[] = [];
     let totalConflicts = 0;
     let totalSuccessful = 0;
+    let maxRetryDepth = 0;
 
     for (let iter = 0; iter < CONFLICT_ITERATIONS; iter++) {
       const writerStores: EventStore[] = [];
@@ -492,63 +492,7 @@ async function runConcurrentWriterBenchmarks() {
 
       const start = performance.now();
       await Promise.all(writerStores.map(async (writerStore, w) => {
-        let done = false;
-        let attempts = 0;
-        while (!done && attempts < 5) {
-          attempts++;
-          const read = await writerStore.query()
-            .matchTypeAndKey('StudentEnrolled', 'course', 'course-0')
-            .read();
-
-          const events = Array.from({ length: EVENTS_PER_WRITER }, (_, e) => ({
-            type: 'StudentEnrolled',
-            data: { courseId: 'course-0', studentId: `student-concurrent-same-${iter}-${w}-${attempts}-${e}` },
-          }));
-          const result = await writerStore.append(events, read.appendCondition);
-
-          if (result.conflict) {
-            conflicts++;
-          } else {
-            successes++;
-            done = true;
-          }
-        }
-      }));
-      times.push(performance.now() - start);
-      totalConflicts += conflicts;
-      totalSuccessful += successes;
-
-      for (const ws of writerStores) {
-        await ws.close();
-      }
-    }
-
-    const avgTime = times.reduce((a, b) => a + b, 0) / times.length;
-    const avgConflicts = Math.round(totalConflicts / CONFLICT_ITERATIONS);
-    const avgSuccessful = Math.round(totalSuccessful / CONFLICT_ITERATIONS);
-    console.log(`  ${`${CONCURRENT_WRITERS} writers, same key`.padEnd(nameCol)} ${avgTime.toFixed(1)} ms total | ${avgConflicts} conflicts | ${avgSuccessful} successful`);
-  }
-
-  // Scenario 5: Parallel writers, different keys
-  {
-    const times: number[] = [];
-    let totalConflicts = 0;
-    let totalSuccessful = 0;
-
-    for (let iter = 0; iter < CONFLICT_ITERATIONS; iter++) {
-      const writerStores: EventStore[] = [];
-      for (let w = 0; w < CONCURRENT_WRITERS; w++) {
-        const writerStorage = new PostgresStorage({ connectionString: DB_URL, max: 1 });
-        await writerStorage.init();
-        writerStores.push(new EventStore({ storage: writerStorage, ...STORE_CONFIG }));
-      }
-
-      let conflicts = 0;
-      let successes = 0;
-
-      const start = performance.now();
-      await Promise.all(writerStores.map(async (writerStore, w) => {
-        const courseKey = `course-concurrent-${w}`;
+        const courseKey = getKey(w);
         let done = false;
         let attempts = 0;
         while (!done && attempts < 5) {
@@ -559,7 +503,7 @@ async function runConcurrentWriterBenchmarks() {
 
           const events = Array.from({ length: EVENTS_PER_WRITER }, (_, e) => ({
             type: 'StudentEnrolled',
-            data: { courseId: courseKey, studentId: `student-concurrent-diff-${iter}-${w}-${attempts}-${e}` },
+            data: { courseId: courseKey, studentId: `student-concurrent-${label}-${iter}-${w}-${attempts}-${e}` },
           }));
           const result = await writerStore.append(events, read.appendCondition);
 
@@ -570,10 +514,16 @@ async function runConcurrentWriterBenchmarks() {
             done = true;
           }
         }
+        if (!done) maxRetryDepth = Math.max(maxRetryDepth, 5);
+        else maxRetryDepth = Math.max(maxRetryDepth, successes > 0 ? 0 : 0);
       }));
       times.push(performance.now() - start);
       totalConflicts += conflicts;
       totalSuccessful += successes;
+
+      // Live progress
+      const avgSoFar = times.reduce((a, b) => a + b, 0) / times.length;
+      process.stdout.write(`\r  ${label.padEnd(25)} ${(iter + 1).toString().padStart(3)}/${CONFLICT_ITERATIONS} | ${avgSoFar.toFixed(0)}ms avg | ${totalConflicts} conflicts | ${totalSuccessful}/${(iter + 1) * CONCURRENT_WRITERS} ok`);
 
       for (const ws of writerStores) {
         await ws.close();
@@ -583,8 +533,12 @@ async function runConcurrentWriterBenchmarks() {
     const avgTime = times.reduce((a, b) => a + b, 0) / times.length;
     const avgConflicts = Math.round(totalConflicts / CONFLICT_ITERATIONS);
     const avgSuccessful = Math.round(totalSuccessful / CONFLICT_ITERATIONS);
-    console.log(`  ${`${CONCURRENT_WRITERS} writers, different keys`.padEnd(nameCol)} ${avgTime.toFixed(1)} ms total | ${avgConflicts} conflicts | ${avgSuccessful} successful`);
+    // Clear live line and print final
+    process.stdout.write(`\r  ${label.padEnd(nameCol)} ${avgTime.toFixed(1)} ms avg | ${avgConflicts} conflicts/round | ${avgSuccessful}/${CONCURRENT_WRITERS} successful          \n`);
   }
+
+  await runWriterScenario('same key', () => 'course-0');
+  await runWriterScenario('different keys', (w) => `course-concurrent-${w}`);
 
   console.log('');
 }
