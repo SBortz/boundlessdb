@@ -90,7 +90,7 @@ Straightforward index scan. Performance scales with result count, not store size
 
 ```typescript
 const result = await store.query()
-  .matchTypeAndKey('StudentEnrolled', 'course', 'course-50')
+  .matchType('StudentEnrolled').andKey('course', 'course-50')
   .read();
 ```
 
@@ -128,7 +128,7 @@ This query runs internally when appending with an `AppendCondition`. The positio
 
 ```typescript
 const result = await store.query()
-  .matchTypeAndKey('StudentEnrolled', 'course', 'course-0')
+  .matchType('StudentEnrolled').andKey('course', 'course-0')
   .read();
 // result.appendCondition.after = 2005n (position of last matching event)
 
@@ -176,8 +176,8 @@ SEARCH e USING INTEGER PRIMARY KEY (rowid=?)
 
 ```typescript
 const result = await store.query()
-  .matchTypeAndKey('StudentEnrolled', 'course', 'course-50')
-  .matchTypeAndKey('CertificateIssued', 'course', 'course-50')
+  .matchType('StudentEnrolled').andKey('course', 'course-50')
+  .matchType('CertificateIssued').andKey('course', 'course-50')
   .read();
 ```
 
@@ -221,9 +221,9 @@ Why separate CTEs per condition instead of one CTE with `OR`?
 
 ```typescript
 const result = await store.query()
-  .matchTypeAndKey('StudentEnrolled', 'course', 'course-50')
-  .matchTypeAndKey('LessonCompleted', 'course', 'course-50')
-  .matchTypeAndKey('CertificateIssued', 'course', 'course-50')
+  .matchType('StudentEnrolled').andKey('course', 'course-50')
+  .matchType('LessonCompleted').andKey('course', 'course-50')
+  .matchType('CertificateIssued').andKey('course', 'course-50')
   .read();
 ```
 
@@ -272,7 +272,7 @@ Same pattern as #4. At 50M events, this returns ~2,004 results in **4.59ms**.
 ```typescript
 const result = await store.query()
   .matchType('CourseCreated')
-  .matchTypeAndKey('StudentEnrolled', 'course', 'course-50')
+  .matchType('StudentEnrolled').andKey('course', 'course-50')
   .read();
 ```
 
@@ -409,7 +409,7 @@ const result = await store.query()
   .matchType('StudentEnrolled')
   .andKey('course', 'course-50')
   .andKey('student', 'student-50')
-  .matchTypeAndKey('CourseCancelled', 'course', 'course-50')
+  .matchType('CourseCancelled').andKey('course', 'course-50')
   .read();
 ```
 
@@ -605,7 +605,7 @@ Condition has...
 │   ├── No position filter → Flat CTE with INDEXED BY (no type filter)
 │   └── With position filter → MATERIALIZED CTE (no type filter)
 │
-├── 1 key, 1 type (matchTypeAndKey / matchType().andKey())
+├── 1 key, 1 type (matchType().andKey())
 │   ├── No position filter → Flat CTE with INDEXED BY
 │   └── With position filter → MATERIALIZED CTE
 │
