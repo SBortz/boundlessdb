@@ -512,7 +512,7 @@ async function runConcurrentWriterBenchmarks() {
         const courseKey = getKey(w);
         let done = false;
         let attempts = 0;
-        while (!done && attempts < 5) {
+        while (!done && attempts < 10) {
           attempts++;
           const read = await writerStore.query()
             .matchTypeAndKey('StudentEnrolled', 'course', courseKey)
