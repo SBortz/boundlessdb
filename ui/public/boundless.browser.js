@@ -2191,11 +2191,37 @@ var QueryResult = class {
   }
   /** Get the append condition for use with store.append() */
   get appendCondition() {
-    return { failIfEventsMatch: this.conditions, after: this.position };
+    return createAppendCondition(this.conditions, this.position);
   }
 };
 function isConflict(result) {
   return result.conflict;
+}
+function createAppendCondition(failIfEventsMatch, after) {
+  return {
+    failIfEventsMatch,
+    after,
+    mergeWith(...others) {
+      return mergeConditions(this, ...others);
+    }
+  };
+}
+function mergeConditions(...conditions) {
+  if (conditions.length === 0) {
+    return createAppendCondition([]);
+  }
+  let maxPosition;
+  for (const c of conditions) {
+    if (c.after !== void 0) {
+      if (maxPosition === void 0 || c.after > maxPosition) {
+        maxPosition = c.after;
+      }
+    }
+  }
+  return createAppendCondition(
+    conditions.flatMap((c) => c.failIfEventsMatch),
+    maxPosition
+  );
 }
 
 // src/config/extractor.ts
@@ -2387,16 +2413,9 @@ function validateConfig(config) {
       errors.push(`eventTypes.${eventType}.keys must be an array`);
       continue;
     }
-    const keyNames = /* @__PURE__ */ new Set();
     for (let i = 0; i < eventConfig.keys.length; i++) {
       const keyDef = eventConfig.keys[i];
       errors.push(...validateKeyDef(eventType, keyDef, i));
-      if (keyDef.name && keyNames.has(keyDef.name)) {
-        errors.push(
-          `eventTypes.${eventType}.keys has duplicate key name "${keyDef.name}"`
-        );
-      }
-      keyNames.add(keyDef.name);
     }
   }
   if (errors.length > 0) {
@@ -2718,7 +2737,7 @@ var EventStore = class {
       return {
         conflict: false,
         position,
-        appendCondition: { failIfEventsMatch: condition?.failIfEventsMatch ?? [], after: position }
+        appendCondition: createAppendCondition(condition?.failIfEventsMatch ?? [], position)
       };
     }
     const keysPerEvent = events.map((event) => this.keyExtractor.extract(event));
@@ -2741,17 +2760,14 @@ var EventStore = class {
       return {
         conflict: true,
         conflictingEvents: result.conflicting,
-        appendCondition: {
-          failIfEventsMatch: condition?.failIfEventsMatch ?? [],
-          after: latestPosition
-        }
+        appendCondition: createAppendCondition(condition?.failIfEventsMatch ?? [], latestPosition)
       };
     }
     const newConditions = this.buildConditionsFromEvents(events, condition);
     return {
       conflict: false,
       position: result.position,
-      appendCondition: { failIfEventsMatch: newConditions, after: result.position }
+      appendCondition: createAppendCondition(newConditions, result.position)
     };
   }
   /**
@@ -3450,6 +3466,7 @@ export {
   isMultiKeyCondition,
   isMultiTypeCondition,
   isMultiTypeConstrainedCondition,
+  mergeConditions,
   normalizeCondition,
   validateConfig
 };
