@@ -2,11 +2,9 @@
  * Main EventStore class
  */
 
-import { randomUUID, createHash } from 'node:crypto';
 import { KeyExtractor } from './config/extractor.js';
 import { validateConfig } from './config/validator.js';
 import type { EventStorage } from './storage/interface.js';
-import { SqliteStorage } from './storage/sqlite.js';
 import {
   QueryResult,
   isConstrainedCondition,
@@ -29,6 +27,24 @@ import {
 import { QueryBuilder, type QueryExecutor } from './query-builder.js';
 
 /**
+ * Generate UUID with fallback for environments without node:crypto
+ */
+function generateUUID(): string {
+  try {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+  } catch {
+    // crypto.randomUUID might throw in insecure contexts
+  }
+  // Fallback: Math.random-based UUID v4
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = (Math.random() * 16) | 0;
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
+
+/**
  * Recursively sort object keys for deterministic JSON
  */
 function sortObjectKeys(obj: unknown): unknown {
@@ -46,11 +62,25 @@ function sortObjectKeys(obj: unknown): unknown {
 }
 
 /**
- * Compute SHA256 hash of ConsistencyConfig
+ * Compute SHA256 hash of ConsistencyConfig.
+ * Uses node:crypto (sync) — only called when storage has config hash support,
+ * which implies Node.js environment (SqliteStorage/SqlJsStorage with metadata).
  */
 function hashConfig(config: ConsistencyConfig): string {
   const normalized = JSON.stringify(sortObjectKeys(config));
-  return createHash('sha256').update(normalized).digest('hex');
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const crypto = require('node:crypto');
+    return crypto.createHash('sha256').update(normalized).digest('hex');
+  } catch {
+    // Fallback: FNV-1a hash (Browser environment)
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < normalized.length; i++) {
+      hash ^= normalized.charCodeAt(i);
+      hash = Math.imul(hash, 0x01000193);
+    }
+    return (hash >>> 0).toString(16).padStart(8, '0');
+  }
 }
 
 export interface EventStoreConfig extends EventStoreOptions {
@@ -76,27 +106,27 @@ export class EventStore {
     this.config = options.consistency;
     this.keyExtractor = new KeyExtractor(this.config);
 
-    // Check config hash and reindex if needed (SqliteStorage only)
+    // Check config hash and throw on mismatch
     this.checkAndReindexIfNeeded();
   }
 
   /**
-   * Check if config has changed since last run, reindex if needed
+   * Check if config has changed since last run, reindex if needed.
+   * Works with any storage that implements getConfigHash/setConfigHash.
    */
   private checkAndReindexIfNeeded(): void {
-    // Only works with SqliteStorage (has metadata table)
-    if (!(this.storage instanceof SqliteStorage)) {
+    const storage = this.storage as any;
+    if (typeof storage.getConfigHash !== 'function' || typeof storage.setConfigHash !== 'function') {
       return;
     }
 
     const currentHash = hashConfig(this.config);
-    const storedHash = this.storage.getConfigHash();
+    const storedHash = storage.getConfigHash();
 
     if (storedHash === null) {
       // First run — just store the hash
-      this.storage.setConfigHash(currentHash);
+      storage.setConfigHash(currentHash);
     } else if (storedHash !== currentHash) {
-      // Config changed — throw error, require explicit reindex via script
       throw new Error(
         `Config hash mismatch (stored: ${storedHash}, current: ${currentHash}). ` +
         `Run the reindex script before starting the application.`
@@ -227,7 +257,7 @@ export class EventStore {
     // Prepare events for storage
     const now = new Date();
     const eventsToStore = events.map(event => ({
-      id: randomUUID(),
+      id: generateUUID(),
       type: event.type,
       data: event.data,
       metadata: event.metadata,

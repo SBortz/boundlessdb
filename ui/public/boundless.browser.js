@@ -8,7 +8,13 @@ var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
-var __commonJS = (cb, mod) => function __require() {
+var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(x, {
+  get: (a, b) => (typeof require !== "undefined" ? require : a)[b]
+}) : x)(function(x) {
+  if (typeof require !== "undefined") return require.apply(this, arguments);
+  throw Error('Dynamic require of "' + x + '" is not supported');
+});
+var __commonJS = (cb, mod) => function __require2() {
   return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
 };
 var __copyProps = (to, from, except, desc) => {
@@ -2404,6 +2410,546 @@ function validateConfig(config) {
   }
 }
 
+// src/query-builder.ts
+var QueryBuilder = class {
+  constructor(executor) {
+    this.executor = executor;
+    __publicField(this, "conditions", []);
+    __publicField(this, "_fromPosition");
+    __publicField(this, "_limit");
+  }
+  /**
+   * Add an unconstrained condition (match events of one or more types).
+   * Use `.andKey()` after to add key constraints (AND).
+   * 
+   * @example
+   * ```typescript
+   * .matchType('CourseCreated')  // single type
+   * .matchType('CourseCreated', 'CourseCancelled')  // multiple types (OR within)
+   * .matchType('StudentSubscribed').andKey('course', 'cs101')  // type + key
+   * ```
+   */
+  matchType(...types) {
+    if (types.length === 0) {
+      throw new Error(".matchType() requires at least one type");
+    }
+    if (types.length === 1) {
+      this.conditions.push({ type: types[0] });
+    } else {
+      this.conditions.push({ types });
+    }
+    return this;
+  }
+  /**
+   * Add a constrained condition (match events of type where key equals value).
+   * Shorthand for `.matchType(type).andKey(key, value)`.
+   * Use `.andKey()` after to add more key constraints (AND).
+   * 
+   * @example
+   * ```typescript
+   * .matchTypeAndKey('StudentSubscribed', 'course', 'cs101')
+   * .matchTypeAndKey('StudentSubscribed', 'course', 'cs101').andKey('student', 'alice')
+   * ```
+   */
+  matchTypeAndKey(type, key, value) {
+    this.conditions.push({ type, keys: [{ name: key, value }] });
+    return this;
+  }
+  /**
+   * Key-only query: match events by key, regardless of event type.
+   * Starts a new condition (OR with previous conditions).
+   * Use `.andKey()` after to add more key constraints (AND).
+   * 
+   * @example
+   * ```typescript
+   * .matchKey('cart', 'abc-123')  // all events with cart=abc-123
+   * .matchKey('course', 'cs101').andKey('student', 'alice')  // AND
+   * ```
+   */
+  matchKey(key, value) {
+    this.conditions.push({ keys: [{ name: key, value }] });
+    return this;
+  }
+  /**
+   * Add a key constraint to the last condition (AND).
+   * Must be called after `.matchType()` or `.matchTypeAndKey()`.
+   * 
+   * @throws Error if no preceding condition exists
+   * 
+   * @example
+   * ```typescript
+   * .matchType('StudentSubscribed')
+   *   .andKey('course', 'cs101')
+   *   .andKey('student', 'alice')  // AND: both keys must match
+   * ```
+   */
+  andKey(key, value) {
+    if (this.conditions.length === 0) {
+      throw new Error(".andKey() requires a preceding .matchType(), .matchTypeAndKey(), or .matchKey()");
+    }
+    const lastIdx = this.conditions.length - 1;
+    const last = this.conditions[lastIdx];
+    if ("keys" in last && Array.isArray(last.keys)) {
+      last.keys.push({ name: key, value });
+    } else if ("key" in last && "value" in last) {
+      const legacy = last;
+      this.conditions[lastIdx] = {
+        type: legacy.type,
+        keys: [{ name: legacy.key, value: legacy.value }, { name: key, value }]
+      };
+    } else if ("types" in last) {
+      this.conditions[lastIdx] = {
+        types: last.types,
+        keys: [{ name: key, value }]
+      };
+    } else {
+      this.conditions[lastIdx] = {
+        type: last.type,
+        keys: [{ name: key, value }]
+      };
+    }
+    return this;
+  }
+  /**
+   * Start reading from a specific position.
+   * 
+   * @example
+   * ```typescript
+   * .fromPosition(100n)  // skip events before position 100
+   * ```
+   */
+  fromPosition(position) {
+    this._fromPosition = position;
+    return this;
+  }
+  /**
+   * Limit the number of events returned.
+   * 
+   * @example
+   * ```typescript
+   * .limit(50)  // return at most 50 events
+   * ```
+   */
+  limit(count) {
+    this._limit = count;
+    return this;
+  }
+  /**
+   * Execute the query and return results.
+   */
+  async read() {
+    return this.executor.read({
+      conditions: this.conditions,
+      fromPosition: this._fromPosition,
+      limit: this._limit
+    });
+  }
+};
+
+// src/event-store.ts
+function generateUUID() {
+  try {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
+  } catch {
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = Math.random() * 16 | 0;
+    return (c === "x" ? r : r & 3 | 8).toString(16);
+  });
+}
+function sortObjectKeys(obj) {
+  if (obj === null || typeof obj !== "object") {
+    return obj;
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(sortObjectKeys);
+  }
+  const sorted = {};
+  for (const key of Object.keys(obj).sort()) {
+    sorted[key] = sortObjectKeys(obj[key]);
+  }
+  return sorted;
+}
+function hashConfig(config) {
+  const normalized = JSON.stringify(sortObjectKeys(config));
+  try {
+    const crypto2 = __require("node:crypto");
+    return crypto2.createHash("sha256").update(normalized).digest("hex");
+  } catch {
+    let hash = 2166136261;
+    for (let i = 0; i < normalized.length; i++) {
+      hash ^= normalized.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(16).padStart(8, "0");
+  }
+}
+var EventStore = class {
+  constructor(options) {
+    __publicField(this, "storage");
+    __publicField(this, "keyExtractor");
+    __publicField(this, "config");
+    validateConfig(options.consistency);
+    this.storage = options.storage;
+    this.config = options.consistency;
+    this.keyExtractor = new KeyExtractor(this.config);
+    this.checkAndReindexIfNeeded();
+  }
+  /**
+   * Check if config has changed since last run, reindex if needed.
+   * Works with any storage that implements getConfigHash/setConfigHash.
+   */
+  checkAndReindexIfNeeded() {
+    const storage = this.storage;
+    if (typeof storage.getConfigHash !== "function" || typeof storage.setConfigHash !== "function") {
+      return;
+    }
+    const currentHash = hashConfig(this.config);
+    const storedHash = storage.getConfigHash();
+    if (storedHash === null) {
+      storage.setConfigHash(currentHash);
+    } else if (storedHash !== currentHash) {
+      throw new Error(
+        `Config hash mismatch (stored: ${storedHash}, current: ${currentHash}). Run the reindex script before starting the application.`
+      );
+    }
+  }
+  /**
+   * Create a fluent query builder.
+   * 
+   * @typeParam E - Event union type for typed results
+   * @returns QueryBuilder for chaining
+   * 
+   * @example
+   * ```typescript
+   * const result = await store.query<CourseEvent>()
+   *   .matchType('CourseCreated')
+   *   .matchKey('StudentSubscribed', 'course', 'cs101')
+   *   .fromPosition(100n)
+   *   .limit(50)
+   *   .read();
+   * ```
+   */
+  query() {
+    return new QueryBuilder(this);
+  }
+  /**
+   * Create a fluent query builder that reads all events (no type filter required).
+   * 
+   * Returns the same QueryBuilder as `query()`, but does not require any
+   * `.matchType()` or `.matchTypeAndKey()` calls before `.read()`.
+   * You can still use `.fromPosition()` and `.limit()` for pagination.
+   * 
+   * @typeParam E - Event union type for typed results
+   * @returns QueryBuilder for chaining
+   * 
+   * @example
+   * ```typescript
+   * // All events, paginated
+   * const result = await store.all().fromPosition(0n).limit(1000).read();
+   * 
+   * // All events (no filter)
+   * const result = await store.all().read();
+   * ```
+   */
+  all() {
+    return new QueryBuilder(this);
+  }
+  /**
+   * Read events matching a query
+   * 
+   * @typeParam E - Event union type for typed results
+   * @returns QueryResult with typed events and consistency token
+   * 
+   * @example
+   * ```typescript
+   * // Typed read
+   * const result = await store.read<CartEvents>({
+   *   conditions: [{ type: 'ProductItemAdded', key: 'cart', value: 'cart-123' }]
+   * });
+   * 
+   * // Untyped read (all events of type)
+   * const result = await store.read({
+   *   conditions: [{ type: 'ProductItemAdded' }]
+   * });
+   * ```
+   */
+  async read(query) {
+    const events = await this.storage.query(
+      query.conditions,
+      query.fromPosition,
+      query.limit
+    );
+    const position = events.length > 0 ? events[events.length - 1].position : await this.storage.getLatestPosition();
+    return new QueryResult(
+      events,
+      position,
+      query.conditions
+    );
+  }
+  /**
+   * Append events with optional consistency check
+   * 
+   * @typeParam E - Event type for type checking
+   * @param events Events to append
+   * @param condition Consistency check - can be:
+   *   - null: Skip consistency check (optimistic first write)
+   *   - AppendCondition: { position, conditions } from a previous read
+   * @returns AppendResult on success, ConflictResult on conflict
+   * 
+   * @example
+   * ```typescript
+   * // With appendCondition from read
+   * const result = await store.read<CartEvents>({ conditions: [...] });
+   * await store.append<CartEvents>([newEvent], result.appendCondition);
+   * 
+   * // Without consistency check (first write)
+   * await store.append<CartEvents>([newEvent], null);
+   * ```
+   */
+  async append(events, condition) {
+    if (events.length === 0) {
+      const position = await this.storage.getLatestPosition();
+      return {
+        conflict: false,
+        position,
+        appendCondition: { failIfEventsMatch: condition?.failIfEventsMatch ?? [], after: position }
+      };
+    }
+    const keysPerEvent = events.map((event) => this.keyExtractor.extract(event));
+    const now = /* @__PURE__ */ new Date();
+    const eventsToStore = events.map((event) => ({
+      id: generateUUID(),
+      type: event.type,
+      data: event.data,
+      metadata: event.metadata,
+      timestamp: now
+    }));
+    const storageCondition = condition !== null ? { failIfEventsMatch: condition.failIfEventsMatch, after: condition.after ?? 0n } : null;
+    const result = await this.storage.appendWithCondition(
+      eventsToStore,
+      keysPerEvent,
+      storageCondition
+    );
+    if (result.conflicting) {
+      const latestPosition = result.conflicting[result.conflicting.length - 1].position;
+      return {
+        conflict: true,
+        conflictingEvents: result.conflicting,
+        appendCondition: {
+          failIfEventsMatch: condition?.failIfEventsMatch ?? [],
+          after: latestPosition
+        }
+      };
+    }
+    const newConditions = this.buildConditionsFromEvents(events, condition);
+    return {
+      conflict: false,
+      position: result.position,
+      appendCondition: { failIfEventsMatch: newConditions, after: result.position }
+    };
+  }
+  /**
+   * Build conditions that cover the appended events
+   * Used to create the appendCondition returned after append
+   */
+  buildConditionsFromEvents(events, originalCondition) {
+    const conditions = /* @__PURE__ */ new Map();
+    if (originalCondition !== null) {
+      for (const cond of originalCondition.failIfEventsMatch) {
+        const normalized = normalizeCondition(cond);
+        if (hasKeys(normalized)) {
+          const keysStr = normalized.keys.map((k) => `${k.name}:${k.value}`).sort().join("|");
+          const typeStr = "type" in normalized ? normalized.type : "types" in normalized ? normalized.types.join("|") : "*";
+          const dedupKey = `${typeStr}:${keysStr}`;
+          conditions.set(dedupKey, normalized);
+        }
+      }
+    }
+    for (const event of events) {
+      const extractedKeys = this.keyExtractor.extract(event);
+      for (const extracted of extractedKeys) {
+        const cond = { type: event.type, key: extracted.name, value: extracted.value };
+        const dedupKey = `${cond.type}:${extracted.name}:${extracted.value}`;
+        conditions.set(dedupKey, cond);
+      }
+    }
+    return Array.from(conditions.values());
+  }
+  /**
+   * Get the underlying storage (for advanced use cases)
+   */
+  getStorage() {
+    return this.storage;
+  }
+  /**
+   * Close the event store
+   */
+  async close() {
+    await this.storage.close();
+  }
+};
+function createEventStore(options) {
+  return new EventStore(options);
+}
+
+// src/storage/memory.ts
+var InMemoryStorage = class {
+  constructor() {
+    __publicField(this, "events", []);
+    __publicField(this, "nextPosition", 1n);
+  }
+  async appendWithCondition(eventsToStore, keys, condition) {
+    if (eventsToStore.length !== keys.length) {
+      throw new Error("Events and keys arrays must have the same length");
+    }
+    if (eventsToStore.length === 0) {
+      const position = await this.getLatestPosition();
+      return { position };
+    }
+    if (condition !== null) {
+      const conflictingEvents = await this.query(
+        condition.failIfEventsMatch,
+        condition.after
+      );
+      if (conflictingEvents.length > 0) {
+        return { conflicting: conflictingEvents };
+      }
+    }
+    let lastPosition = 0n;
+    for (let i = 0; i < eventsToStore.length; i++) {
+      const event = eventsToStore[i];
+      const eventKeys = keys[i];
+      const position = this.nextPosition++;
+      this.events.push({
+        id: event.id,
+        type: event.type,
+        data: event.data,
+        metadata: event.metadata,
+        timestamp: event.timestamp,
+        position,
+        keys: eventKeys
+      });
+      lastPosition = position;
+    }
+    return { position: lastPosition };
+  }
+  async query(conditions, fromPosition, limit) {
+    const startPos = fromPosition ?? 0n;
+    let matching = this.events.filter((event) => event.position > startPos);
+    if (conditions.length === 0) {
+      matching.sort((a, b) => a.position < b.position ? -1 : 1);
+      const limited2 = limit !== void 0 ? matching.slice(0, limit) : matching;
+      return limited2.map(({ keys: _keys, ...event }) => event);
+    }
+    const normalized = conditions.map(normalizeCondition);
+    matching = matching.filter((event) => {
+      return normalized.some((cond) => {
+        if (isKeyOnlyCondition(cond)) {
+          return cond.keys.every(
+            (requiredKey) => event.keys.some(
+              (eventKey) => eventKey.name === requiredKey.name && eventKey.value === requiredKey.value
+            )
+          );
+        }
+        if (isMultiTypeConstrainedCondition(cond)) {
+          if (!cond.types.includes(event.type)) return false;
+          return cond.keys.every(
+            (requiredKey) => event.keys.some(
+              (eventKey) => eventKey.name === requiredKey.name && eventKey.value === requiredKey.value
+            )
+          );
+        }
+        if (isMultiTypeCondition(cond)) {
+          return cond.types.includes(event.type);
+        }
+        if (event.type !== cond.type) {
+          return false;
+        }
+        if (!hasKeys(cond)) {
+          return true;
+        }
+        return cond.keys.every(
+          (requiredKey) => event.keys.some(
+            (eventKey) => eventKey.name === requiredKey.name && eventKey.value === requiredKey.value
+          )
+        );
+      });
+    });
+    matching.sort((a, b) => a.position < b.position ? -1 : 1);
+    const limited = limit !== void 0 ? matching.slice(0, limit) : matching;
+    return limited.map(({ keys: _keys, ...event }) => event);
+  }
+  async getLatestPosition() {
+    if (this.events.length === 0) {
+      return 0n;
+    }
+    return this.events[this.events.length - 1].position;
+  }
+  async close() {
+  }
+  /**
+   * Get all events (internal/test use only)
+   * Note: Kept as public for test convenience, but not part of public API contract
+   */
+  getAllEvents() {
+    return this.events.map(({ keys: _keys, ...event }) => event);
+  }
+  /**
+   * Clear all events (for testing)
+   */
+  clear() {
+    this.events = [];
+    this.nextPosition = 1n;
+  }
+  /**
+   * Reindex all events with new keys (in-memory: just re-extract all keys in one go)
+   * @deprecated Use reindexBatch() instead
+   */
+  reindex(extractKeys) {
+    for (const internal of this.events) {
+      const event = {
+        id: internal.id,
+        type: internal.type,
+        data: internal.data,
+        metadata: internal.metadata,
+        timestamp: internal.timestamp,
+        position: internal.position
+      };
+      internal.keys = extractKeys(event);
+    }
+  }
+  /**
+   * Batch-based reindex for in-memory storage.
+   * Since everything is in memory, no batching needed — just re-extracts all keys.
+   */
+  reindexBatch(extractKeys, options) {
+    const onProgress = options?.onProgress;
+    const startTime = Date.now();
+    let totalKeys = 0;
+    for (let i = 0; i < this.events.length; i++) {
+      const internal = this.events[i];
+      const event = {
+        id: internal.id,
+        type: internal.type,
+        data: internal.data,
+        metadata: internal.metadata,
+        timestamp: internal.timestamp,
+        position: internal.position
+      };
+      const keys = extractKeys(event);
+      internal.keys = keys;
+      totalKeys += keys.length;
+      if (onProgress) {
+        onProgress(i + 1, this.events.length);
+      }
+    }
+    return { events: this.events.length, keys: totalKeys, durationMs: Date.now() - startTime };
+  }
+};
+
 // src/storage/sqljs.ts
 var import_sql = __toESM(require_sql_wasm_browser(), 1);
 var SCHEMA = `
@@ -2883,604 +3429,6 @@ ORDER BY position`;
       timestamp: new Date(row.timestamp),
       position: BigInt(row.position)
     };
-  }
-};
-
-// src/query-builder.ts
-var QueryBuilder = class {
-  constructor(executor) {
-    this.executor = executor;
-    __publicField(this, "conditions", []);
-    __publicField(this, "_fromPosition");
-    __publicField(this, "_limit");
-  }
-  /**
-   * Add an unconstrained condition (match events of one or more types).
-   * Use `.andKey()` after to add key constraints (AND).
-   * 
-   * @example
-   * ```typescript
-   * .matchType('CourseCreated')  // single type
-   * .matchType('CourseCreated', 'CourseCancelled')  // multiple types (OR within)
-   * .matchType('StudentSubscribed').andKey('course', 'cs101')  // type + key
-   * ```
-   */
-  matchType(...types) {
-    if (types.length === 0) {
-      throw new Error(".matchType() requires at least one type");
-    }
-    if (types.length === 1) {
-      this.conditions.push({ type: types[0] });
-    } else {
-      this.conditions.push({ types });
-    }
-    return this;
-  }
-  /**
-   * Add a constrained condition (match events of type where key equals value).
-   * Shorthand for `.matchType(type).andKey(key, value)`.
-   * Use `.andKey()` after to add more key constraints (AND).
-   * 
-   * @example
-   * ```typescript
-   * .matchTypeAndKey('StudentSubscribed', 'course', 'cs101')
-   * .matchTypeAndKey('StudentSubscribed', 'course', 'cs101').andKey('student', 'alice')
-   * ```
-   */
-  matchTypeAndKey(type, key, value) {
-    this.conditions.push({ type, keys: [{ name: key, value }] });
-    return this;
-  }
-  /**
-   * Key-only query: match events by key, regardless of event type.
-   * Starts a new condition (OR with previous conditions).
-   * Use `.andKey()` after to add more key constraints (AND).
-   * 
-   * @example
-   * ```typescript
-   * .matchKey('cart', 'abc-123')  // all events with cart=abc-123
-   * .matchKey('course', 'cs101').andKey('student', 'alice')  // AND
-   * ```
-   */
-  matchKey(key, value) {
-    this.conditions.push({ keys: [{ name: key, value }] });
-    return this;
-  }
-  /**
-   * Add a key constraint to the last condition (AND).
-   * Must be called after `.matchType()` or `.matchTypeAndKey()`.
-   * 
-   * @throws Error if no preceding condition exists
-   * 
-   * @example
-   * ```typescript
-   * .matchType('StudentSubscribed')
-   *   .andKey('course', 'cs101')
-   *   .andKey('student', 'alice')  // AND: both keys must match
-   * ```
-   */
-  andKey(key, value) {
-    if (this.conditions.length === 0) {
-      throw new Error(".andKey() requires a preceding .matchType(), .matchTypeAndKey(), or .matchKey()");
-    }
-    const lastIdx = this.conditions.length - 1;
-    const last = this.conditions[lastIdx];
-    if ("keys" in last && Array.isArray(last.keys)) {
-      last.keys.push({ name: key, value });
-    } else if ("key" in last && "value" in last) {
-      const legacy = last;
-      this.conditions[lastIdx] = {
-        type: legacy.type,
-        keys: [{ name: legacy.key, value: legacy.value }, { name: key, value }]
-      };
-    } else if ("types" in last) {
-      this.conditions[lastIdx] = {
-        types: last.types,
-        keys: [{ name: key, value }]
-      };
-    } else {
-      this.conditions[lastIdx] = {
-        type: last.type,
-        keys: [{ name: key, value }]
-      };
-    }
-    return this;
-  }
-  /**
-   * Start reading from a specific position.
-   * 
-   * @example
-   * ```typescript
-   * .fromPosition(100n)  // skip events before position 100
-   * ```
-   */
-  fromPosition(position) {
-    this._fromPosition = position;
-    return this;
-  }
-  /**
-   * Limit the number of events returned.
-   * 
-   * @example
-   * ```typescript
-   * .limit(50)  // return at most 50 events
-   * ```
-   */
-  limit(count) {
-    this._limit = count;
-    return this;
-  }
-  /**
-   * Execute the query and return results.
-   */
-  async read() {
-    return this.executor.read({
-      conditions: this.conditions,
-      fromPosition: this._fromPosition,
-      limit: this._limit
-    });
-  }
-};
-
-// src/event-store.browser.ts
-function formatCondition(c) {
-  if (isConstrainedCondition(c)) return `${c.type}[${c.key}=${c.value}]`;
-  if ("types" in c && "keys" in c) return `${c.types.join("|")}[${c.keys.map((k) => `${k.name}=${k.value}`).join(",")}]`;
-  if ("types" in c) return `${c.types.join("|")}[*]`;
-  if ("keys" in c && !("type" in c)) return `[${c.keys.map((k) => `${k.name}=${k.value}`).join(",")}]`;
-  if ("type" in c) return `${c.type}[*]`;
-  return "(unknown)";
-}
-function generateUUID() {
-  try {
-    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-      return crypto.randomUUID();
-    }
-  } catch (e) {
-  }
-  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
-    const arr = new Uint8Array(16);
-    crypto.getRandomValues(arr);
-    arr[6] = arr[6] & 15 | 64;
-    arr[8] = arr[8] & 63 | 128;
-    const hex = Array.from(arr, (b) => b.toString(16).padStart(2, "0")).join("");
-    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-  }
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-    const r = Math.random() * 16 | 0;
-    const v = c === "x" ? r : r & 3 | 8;
-    return v.toString(16);
-  });
-}
-function sortObjectKeys(obj) {
-  if (obj === null || typeof obj !== "object") {
-    return obj;
-  }
-  if (Array.isArray(obj)) {
-    return obj.map(sortObjectKeys);
-  }
-  const sorted = {};
-  for (const key of Object.keys(obj).sort()) {
-    sorted[key] = sortObjectKeys(obj[key]);
-  }
-  return sorted;
-}
-async function hashConfig(config) {
-  const normalized = JSON.stringify(sortObjectKeys(config));
-  const encoder = new TextEncoder();
-  const data = encoder.encode(normalized);
-  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-  const hashArray = new Uint8Array(hashBuffer);
-  return Array.from(hashArray).map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-var EventStore = class {
-  constructor(options) {
-    __publicField(this, "storage");
-    __publicField(this, "keyExtractor");
-    __publicField(this, "config");
-    __publicField(this, "initPromise", null);
-    validateConfig(options.consistency);
-    this.storage = options.storage;
-    this.config = options.consistency;
-    this.keyExtractor = new KeyExtractor(this.config);
-    console.log("\u{1F680} INIT: Creating EventStore...");
-    console.log("\u2699\uFE0F CONFIG: Consistency configuration loaded");
-    const eventTypes = Object.keys(this.config.eventTypes);
-    console.log(`   Event types: ${eventTypes.join(", ")}`);
-    eventTypes.forEach((type) => {
-      const keys = this.config.eventTypes[type].keys;
-      console.log(`   ${type}: ${keys.map((k) => k.name + " \u2190 " + k.path).join(", ")}`);
-    });
-    this.initPromise = this.checkAndReindexIfNeeded();
-  }
-  /**
-   * Ensure the store is initialized (for async operations)
-   */
-  async ensureInitialized() {
-    if (this.initPromise) {
-      await this.initPromise;
-    }
-  }
-  /**
-   * Check if config has changed since last run, reindex if needed
-   */
-  async checkAndReindexIfNeeded() {
-    if (!(this.storage instanceof SqlJsStorage)) {
-      return;
-    }
-    try {
-      await this.storage.getLatestPosition();
-      console.log("\u{1F510} HASH: Computing config hash...");
-      const currentHash = await hashConfig(this.config);
-      if (!currentHash) {
-        console.warn("[EventStore] Failed to compute config hash");
-        return;
-      }
-      console.log(`   Current config hash: ${currentHash.substring(0, 16)}...`);
-      const storedHash = await this.storage.getConfigHash();
-      console.log(`   Stored config hash: ${storedHash ? storedHash.substring(0, 16) + "..." : "(none - first run)"}`);
-      if (storedHash === null) {
-        await this.storage.setConfigHash(currentHash);
-      } else if (storedHash !== currentHash) {
-        throw new Error(
-          `Config hash mismatch (stored: ${storedHash}, current: ${currentHash}). Run the reindex script before starting the application.`
-        );
-      }
-    } catch (error) {
-      if (error instanceof Error && error.message.includes("Config hash mismatch")) {
-        throw error;
-      }
-      console.warn("\u26A0\uFE0F INIT: Config hash check failed (non-fatal):", error);
-    }
-  }
-  /**
-   * Create a fluent query builder.
-   * 
-   * @typeParam E - Event union type for typed results
-   * @returns QueryBuilder for chaining
-   */
-  query() {
-    return new QueryBuilder(this);
-  }
-  /**
-   * Create a fluent query builder that reads all events (no type filter required).
-   * 
-   * @typeParam E - Event union type for typed results
-   * @returns QueryBuilder for chaining
-   * 
-   * @example
-   * ```typescript
-   * const result = await store.all().fromPosition(0n).limit(1000).read();
-   * const result = await store.all().read();
-   * ```
-   */
-  all() {
-    return new QueryBuilder(this);
-  }
-  /**
-   * Read events matching a query
-   * 
-   * @typeParam E - Event union type for typed results
-   * @returns QueryResult with typed events and appendCondition
-   */
-  async read(query) {
-    await this.ensureInitialized();
-    console.log("\u{1F4D6} READ: Querying events...");
-    console.log("   Conditions:", query.conditions.map(
-      (c) => formatCondition(c)
-    ).join(", ") || "(none)");
-    const events = await this.storage.query(
-      query.conditions,
-      query.fromPosition,
-      query.limit
-    );
-    console.log(`   Found: ${events.length} events`);
-    const position = events.length > 0 ? events[events.length - 1].position : await this.storage.getLatestPosition();
-    console.log(`\u{1F4CD} POSITION: #${position}`);
-    console.log(`   Scope: ${query.conditions.length} condition(s)`);
-    return new QueryResult(
-      events,
-      position,
-      query.conditions
-    );
-  }
-  /**
-   * Append events with optional consistency check
-   * 
-   * @typeParam E - Event type for type checking
-   * @param events Events to append
-   * @param condition Consistency check - can be:
-   *   - null: Skip consistency check (optimistic first write)
-   *   - AppendCondition: { position, conditions } from a previous read
-   * @returns AppendResult on success, ConflictResult on conflict
-   */
-  async append(events, condition) {
-    await this.ensureInitialized();
-    console.log(`\u270F\uFE0F APPEND: ${events.length} event(s)`);
-    events.forEach((e) => console.log(`   \u2192 ${e.type}: ${JSON.stringify(e.data).substring(0, 60)}...`));
-    console.log(`   Condition: ${condition ? "AppendCondition" : "null (no conflict check)"}`);
-    if (events.length === 0) {
-      const position = await this.storage.getLatestPosition();
-      return {
-        conflict: false,
-        position,
-        appendCondition: { failIfEventsMatch: condition?.failIfEventsMatch ?? [], after: position }
-      };
-    }
-    const keysPerEvent = events.map((event) => this.keyExtractor.extract(event));
-    console.log(`\u{1F511} KEYS: Extracted from payload via config`);
-    keysPerEvent.forEach((keys, i) => {
-      console.log(`   Event ${i}: ${keys.map((k) => `${k.name}="${k.value}"`).join(", ")}`);
-    });
-    const now = /* @__PURE__ */ new Date();
-    const eventsToStore = events.map((event) => {
-      const id = generateUUID();
-      if (!id) {
-        throw new Error("Failed to generate event ID");
-      }
-      return {
-        id,
-        type: event.type,
-        data: event.data,
-        metadata: event.metadata,
-        timestamp: now
-      };
-    });
-    const storageCondition = condition !== null ? { failIfEventsMatch: condition.failIfEventsMatch, after: condition.after ?? 0n } : null;
-    if (condition !== null) {
-      const conditionsStr = condition.failIfEventsMatch.map(
-        (c) => formatCondition(c)
-      ).join(", ");
-      const checkFromPosition = condition.after ?? 0n;
-      console.log(`\u{1F50D} CONFLICT CHECK: Looking for events since position #${checkFromPosition}`);
-      console.log(`   Checking conditions: ${conditionsStr || "(none)"}`);
-    }
-    const result = await this.storage.appendWithCondition(
-      eventsToStore,
-      keysPerEvent,
-      storageCondition
-    );
-    if (result.conflicting) {
-      console.log(`   Result: ${result.conflicting.length} matching event(s) found - CONFLICT!`);
-      console.log("");
-      console.log("\u274C \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
-      console.log("   CONFLICT DETECTED");
-      console.log("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
-      console.log("");
-      console.log("\u{1F4CD} Your position: #" + (condition?.after ?? "0 (all events)"));
-      console.log("");
-      console.log("\u{1F50D} Query conditions you checked:");
-      condition?.failIfEventsMatch.forEach((c) => {
-        console.log(`   \u2022 ${formatCondition(c)}`);
-      });
-      console.log("");
-      console.log("\u26A1 Events written SINCE your read (that match your query):");
-      result.conflicting.forEach((e) => {
-        console.log(`   \u2022 Event #${e.position}: ${e.type}`);
-        console.log(`     Data: ${JSON.stringify(e.data)}`);
-      });
-      console.log("");
-      console.log("\u{1F4A1} Why conflict?");
-      console.log("   These events match your query conditions!");
-      console.log("   Your decision was based on stale data.");
-      console.log("");
-      console.log("\u{1F504} Solution: Use result.appendCondition to retry.");
-      console.log("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
-      console.log("");
-      const latestPosition = result.conflicting[result.conflicting.length - 1].position;
-      return {
-        conflict: true,
-        conflictingEvents: result.conflicting,
-        appendCondition: {
-          failIfEventsMatch: condition?.failIfEventsMatch ?? [],
-          after: latestPosition
-        }
-      };
-    }
-    console.log(`\u{1F4BE} STORED: Event(s) at position #${result.position}`);
-    const newConditions = this.buildConditionsFromEvents(events, condition);
-    console.log(`\u2705 SUCCESS: Append complete at position #${result.position}`);
-    return {
-      conflict: false,
-      position: result.position,
-      appendCondition: { failIfEventsMatch: newConditions, after: result.position }
-    };
-  }
-  /**
-   * Build conditions that cover the appended events
-   */
-  buildConditionsFromEvents(events, originalCondition) {
-    const conditions = /* @__PURE__ */ new Map();
-    if (originalCondition !== null) {
-      for (const cond of originalCondition.failIfEventsMatch) {
-        const normalized = normalizeCondition(cond);
-        if (hasKeys(normalized)) {
-          const keysStr = normalized.keys.map((k) => `${k.name}:${k.value}`).sort().join("|");
-          const typeStr = "type" in normalized ? normalized.type : "types" in normalized ? normalized.types.join("|") : "*";
-          const dedupKey = `${typeStr}:${keysStr}`;
-          conditions.set(dedupKey, normalized);
-        }
-      }
-    }
-    for (const event of events) {
-      const extractedKeys = this.keyExtractor.extract(event);
-      for (const extracted of extractedKeys) {
-        const cond = { type: event.type, key: extracted.name, value: extracted.value };
-        const dedupKey = `${cond.type}:${extracted.name}:${extracted.value}`;
-        conditions.set(dedupKey, cond);
-      }
-    }
-    return Array.from(conditions.values());
-  }
-  /**
-   * Get the underlying storage (for advanced use cases)
-   */
-  getStorage() {
-    return this.storage;
-  }
-  /**
-   * Close the event store
-   */
-  async close() {
-    await this.storage.close();
-  }
-};
-function createEventStore(options) {
-  return new EventStore(options);
-}
-
-// src/storage/memory.ts
-var InMemoryStorage = class {
-  constructor() {
-    __publicField(this, "events", []);
-    __publicField(this, "nextPosition", 1n);
-  }
-  async appendWithCondition(eventsToStore, keys, condition) {
-    if (eventsToStore.length !== keys.length) {
-      throw new Error("Events and keys arrays must have the same length");
-    }
-    if (eventsToStore.length === 0) {
-      const position = await this.getLatestPosition();
-      return { position };
-    }
-    if (condition !== null) {
-      const conflictingEvents = await this.query(
-        condition.failIfEventsMatch,
-        condition.after
-      );
-      if (conflictingEvents.length > 0) {
-        return { conflicting: conflictingEvents };
-      }
-    }
-    let lastPosition = 0n;
-    for (let i = 0; i < eventsToStore.length; i++) {
-      const event = eventsToStore[i];
-      const eventKeys = keys[i];
-      const position = this.nextPosition++;
-      this.events.push({
-        id: event.id,
-        type: event.type,
-        data: event.data,
-        metadata: event.metadata,
-        timestamp: event.timestamp,
-        position,
-        keys: eventKeys
-      });
-      lastPosition = position;
-    }
-    return { position: lastPosition };
-  }
-  async query(conditions, fromPosition, limit) {
-    const startPos = fromPosition ?? 0n;
-    let matching = this.events.filter((event) => event.position > startPos);
-    if (conditions.length === 0) {
-      matching.sort((a, b) => a.position < b.position ? -1 : 1);
-      const limited2 = limit !== void 0 ? matching.slice(0, limit) : matching;
-      return limited2.map(({ keys: _keys, ...event }) => event);
-    }
-    const normalized = conditions.map(normalizeCondition);
-    matching = matching.filter((event) => {
-      return normalized.some((cond) => {
-        if (isKeyOnlyCondition(cond)) {
-          return cond.keys.every(
-            (requiredKey) => event.keys.some(
-              (eventKey) => eventKey.name === requiredKey.name && eventKey.value === requiredKey.value
-            )
-          );
-        }
-        if (isMultiTypeConstrainedCondition(cond)) {
-          if (!cond.types.includes(event.type)) return false;
-          return cond.keys.every(
-            (requiredKey) => event.keys.some(
-              (eventKey) => eventKey.name === requiredKey.name && eventKey.value === requiredKey.value
-            )
-          );
-        }
-        if (isMultiTypeCondition(cond)) {
-          return cond.types.includes(event.type);
-        }
-        if (event.type !== cond.type) {
-          return false;
-        }
-        if (!hasKeys(cond)) {
-          return true;
-        }
-        return cond.keys.every(
-          (requiredKey) => event.keys.some(
-            (eventKey) => eventKey.name === requiredKey.name && eventKey.value === requiredKey.value
-          )
-        );
-      });
-    });
-    matching.sort((a, b) => a.position < b.position ? -1 : 1);
-    const limited = limit !== void 0 ? matching.slice(0, limit) : matching;
-    return limited.map(({ keys: _keys, ...event }) => event);
-  }
-  async getLatestPosition() {
-    if (this.events.length === 0) {
-      return 0n;
-    }
-    return this.events[this.events.length - 1].position;
-  }
-  async close() {
-  }
-  /**
-   * Get all events (internal/test use only)
-   * Note: Kept as public for test convenience, but not part of public API contract
-   */
-  getAllEvents() {
-    return this.events.map(({ keys: _keys, ...event }) => event);
-  }
-  /**
-   * Clear all events (for testing)
-   */
-  clear() {
-    this.events = [];
-    this.nextPosition = 1n;
-  }
-  /**
-   * Reindex all events with new keys (in-memory: just re-extract all keys in one go)
-   * @deprecated Use reindexBatch() instead
-   */
-  reindex(extractKeys) {
-    for (const internal of this.events) {
-      const event = {
-        id: internal.id,
-        type: internal.type,
-        data: internal.data,
-        metadata: internal.metadata,
-        timestamp: internal.timestamp,
-        position: internal.position
-      };
-      internal.keys = extractKeys(event);
-    }
-  }
-  /**
-   * Batch-based reindex for in-memory storage.
-   * Since everything is in memory, no batching needed — just re-extracts all keys.
-   */
-  reindexBatch(extractKeys, options) {
-    const onProgress = options?.onProgress;
-    const startTime = Date.now();
-    let totalKeys = 0;
-    for (let i = 0; i < this.events.length; i++) {
-      const internal = this.events[i];
-      const event = {
-        id: internal.id,
-        type: internal.type,
-        data: internal.data,
-        metadata: internal.metadata,
-        timestamp: internal.timestamp,
-        position: internal.position
-      };
-      const keys = extractKeys(event);
-      internal.keys = keys;
-      totalKeys += keys.length;
-      if (onProgress) {
-        onProgress(i + 1, this.events.length);
-      }
-    }
-    return { events: this.events.length, keys: totalKeys, durationMs: Date.now() - startTime };
   }
 };
 export {
