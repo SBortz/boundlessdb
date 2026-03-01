@@ -31,11 +31,15 @@ CREATE INDEX idx_key_position ON event_keys(key_name, key_value, position);
 
 ## Query Types
 
-Boundless has three types of `QueryCondition`:
+Boundless has these `QueryCondition` types:
 
 - **Unconstrained**: `{ type: 'CourseCreated' }` — match by event type only
 - **Constrained (single key)**: `{ type: 'StudentEnrolled', key: 'course', value: 'course-50' }` — match by type + key
-- **Constrained (multi-key AND)**: `{ type: 'StudentEnrolled', keys: [{ name: 'course', value: 'course-50' }, { name: 'student', value: 'student-50' }] }` — match by type + ALL keys (INTERSECT)
+- **Constrained (multi-key AND)**: `{ type: 'StudentEnrolled', keys: [...] }` — match by type + ALL keys (INTERSECT)
+- **Key-only**: `{ keys: [{ name: 'course', value: 'course-50' }] }` — match by key, any event type
+- **Key-only AND**: `{ keys: [{ name: 'course', value: 'course-50' }, { name: 'student', value: 'student-50' }] }` — match events having ALL keys (INTERSECT)
+- **Multi-type**: `{ types: ['CourseCreated', 'CourseCancelled'] }` — match by multiple types (OR within)
+- **Multi-type constrained**: `{ types: [...], keys: [...] }` — match by multiple types + keys
 
 Queries can combine multiple conditions. Each condition becomes its own CTE, and results are merged via `UNION ALL`. Within a multi-key condition, keys are combined via `INTERSECT`.
 
@@ -465,20 +469,161 @@ The principle remains the same as existing mixed queries:
 
 ---
 
-## 10. Decision Logic Summary
+## 10. Key-Only Query (no type filter)
+
+**Use case**: "Give me everything about course-50, regardless of event type."
+
+```typescript
+const result = await store.query()
+  .matchKey('course', 'course-50')
+  .read();
+```
+
+**Generated SQL** (no position filter):
+
+```sql
+WITH keyonly_0 AS (
+  SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
+  FROM event_keys k INDEXED BY idx_key_position
+  INNER JOIN events e ON e.position = k.position
+  WHERE k.key_name = 'course' AND k.key_value = 'course-50'
+)
+SELECT * FROM (SELECT * FROM keyonly_0) AS combined
+ORDER BY position;
+```
+
+Same structure as a constrained query, but without the `e.event_type = ?` filter. Returns events of ALL types that have the matching key.
+
+**With position filter** (AppendCondition check):
+
+```sql
+WITH keyonly_keys_0 AS MATERIALIZED (
+  SELECT position FROM event_keys INDEXED BY idx_key_position
+  WHERE key_name = 'course' AND key_value = 'course-50'
+    AND position > 2005
+),
+keyonly_0 AS (
+  SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
+  FROM keyonly_keys_0 k
+  INNER JOIN events e ON e.position = k.position
+)
+SELECT * FROM (SELECT * FROM keyonly_0) AS combined
+ORDER BY position;
+```
+
+Same MATERIALIZED strategy as constrained queries with position filter. No type filter on the events join.
+
+---
+
+## 11. Key-Only AND Query (INTERSECT, no type)
+
+**Use case**: "Has Alice interacted with course cs101 in any way?"
+
+```typescript
+const result = await store.query()
+  .matchKey('course', 'course-50')
+  .withKey('student', 'student-50')
+  .read();
+```
+
+**Generated SQL** (no position filter):
+
+```sql
+WITH keyonly_0 AS (
+  SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
+  FROM (
+    SELECT position FROM event_keys INDEXED BY idx_key_position
+    WHERE key_name = 'course' AND key_value = 'course-50'
+    INTERSECT
+    SELECT position FROM event_keys INDEXED BY idx_key_position
+    WHERE key_name = 'student' AND key_value = 'student-50'
+  ) keys
+  INNER JOIN events e ON e.position = keys.position
+)
+SELECT * FROM (SELECT * FROM keyonly_0) AS combined
+ORDER BY position;
+```
+
+Same INTERSECT pattern as multi-key constrained (section 7), but without the `WHERE e.event_type = ?` filter.
+
+---
+
+## 12. Multi-Type Query
+
+**Use case**: "Give me all course lifecycle events for course-50."
+
+```typescript
+const result = await store.query()
+  .matchType('CourseCreated', 'CourseCancelled')
+  .withKey('course', 'course-50')
+  .read();
+```
+
+**Generated SQL** (multi-type unconstrained, no keys):
+
+```sql
+-- matchType('CourseCreated', 'CourseCancelled') without keys:
+WITH multitype_0 AS (
+  SELECT position, event_id, event_type, data, metadata, timestamp
+  FROM events
+  WHERE event_type IN ('CourseCreated', 'CourseCancelled')
+)
+SELECT * FROM (SELECT * FROM multitype_0) AS combined
+ORDER BY position;
+```
+
+**Generated SQL** (multi-type + key):
+
+```sql
+-- matchType('CourseCreated', 'CourseCancelled').withKey('course', 'course-50'):
+WITH mtc_0 AS (
+  SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
+  FROM event_keys k INDEXED BY idx_key_position
+  INNER JOIN events e ON e.position = k.position
+  WHERE k.key_name = 'course' AND k.key_value = 'course-50'
+    AND e.event_type IN ('CourseCreated', 'CourseCancelled')
+)
+SELECT * FROM (SELECT * FROM mtc_0) AS combined
+ORDER BY position;
+```
+
+Same structure as single-type constrained, but `event_type = ?` becomes `event_type IN (...)`. With position filter, the MATERIALIZED strategy is used (same as section 3).
+
+---
+
+## 13. Decision Logic Summary
 
 ```
 Condition has...
-├── 0 keys (matchType only)
+├── 0 keys, 1 type (matchType)
 │   → Simple WHERE event_type IN (...) — no key join
 │
-├── 1 key (matchTypeAndKey)
+├── 0 keys, N types (matchType('A', 'B'))
+│   → Simple WHERE event_type IN (...) — no key join
+│
+├── 1 key, 0 types (matchKey)
+│   ├── No position filter → Flat CTE with INDEXED BY (no type filter)
+│   └── With position filter → MATERIALIZED CTE (no type filter)
+│
+├── 1 key, 1 type (matchTypeAndKey / matchType().withKey())
 │   ├── No position filter → Flat CTE with INDEXED BY
 │   └── With position filter → MATERIALIZED CTE
 │
-└── 2+ keys (matchType + withKey + withKey)
-    ├── No position filter → Flat CTE with INTERSECT subquery
-    └── With position filter → MATERIALIZED CTE with INTERSECT
+├── 1 key, N types (matchType('A', 'B').withKey())
+│   ├── No position filter → Flat CTE with INDEXED BY + IN (...)
+│   └── With position filter → MATERIALIZED CTE + IN (...)
+│
+├── N keys, 0 types (matchKey().withKey())
+│   ├── No position filter → Flat CTE with INTERSECT (no type filter)
+│   └── With position filter → MATERIALIZED CTE with INTERSECT
+│
+├── N keys, 1 type (matchType().withKey().withKey())
+│   ├── No position filter → Flat CTE with INTERSECT
+│   └── With position filter → MATERIALIZED CTE with INTERSECT
+│
+└── N keys, N types (matchType('A', 'B').withKey().withKey())
+    ├── No position filter → Flat CTE with INTERSECT + IN (...)
+    └── With position filter → MATERIALIZED CTE with INTERSECT + IN (...)
 
 Multiple conditions (OR) → Separate CTEs + UNION ALL
 ```
