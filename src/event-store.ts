@@ -62,25 +62,17 @@ function sortObjectKeys(obj: unknown): unknown {
 }
 
 /**
- * Compute SHA256 hash of ConsistencyConfig.
- * Uses node:crypto (sync) — only called when storage has config hash support,
- * which implies Node.js environment (SqliteStorage/SqlJsStorage with metadata).
+ * Compute a deterministic hash of ConsistencyConfig (FNV-1a).
+ * No crypto dependency — just needs to detect config changes.
  */
 function hashConfig(config: ConsistencyConfig): string {
   const normalized = JSON.stringify(sortObjectKeys(config));
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const crypto = require('node:crypto');
-    return crypto.createHash('sha256').update(normalized).digest('hex');
-  } catch {
-    // Fallback: FNV-1a hash (Browser environment)
-    let hash = 0x811c9dc5;
-    for (let i = 0; i < normalized.length; i++) {
-      hash ^= normalized.charCodeAt(i);
-      hash = Math.imul(hash, 0x01000193);
-    }
-    return (hash >>> 0).toString(16).padStart(8, '0');
+  let hash = 0x811c9dc5; // FNV offset basis
+  for (let i = 0; i < normalized.length; i++) {
+    hash ^= normalized.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193); // FNV prime
   }
+  return (hash >>> 0).toString(16).padStart(8, '0');
 }
 
 export interface EventStoreConfig extends EventStoreOptions {
