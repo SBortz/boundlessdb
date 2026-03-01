@@ -732,4 +732,60 @@ describe('QueryBuilder — .matchKey() Method', () => {
 
     expect(result.isEmpty()).toBe(true);
   });
+
+  // --- Deep chain: matchType.andKey.matchKey.andKey.matchType.andKey ---
+  it('deep chain: matchType.andKey + matchKey.andKey + matchType.andKey (3 OR conditions)', async () => {
+    const result = await store.query<MatchTestEvent>()
+      .matchType('StudentEnrolled').andKey('course', 'cs101').andKey('student', 'alice')  // Condition 1: type + 2 keys
+      .matchKey('course', 'math201')                                                       // Condition 2: key-only
+      .matchType('CourseCancelled').andKey('course', 'cs101')                              // Condition 3: type + key
+      .read();
+
+    // Condition 1: StudentEnrolled where course=cs101 AND student=alice → 1 event
+    // Condition 2: Any event with course=math201 → CourseCreated math201 + StudentEnrolled math201 alice = 2 events
+    // Condition 3: CourseCancelled where course=cs101 → 1 event
+    // Total (UNION ALL, no overlap): 4 events
+    expect(result.count).toBe(4);
+
+    const types = result.events.map(e => e.type);
+    expect(types.filter(t => t === 'StudentEnrolled')).toHaveLength(2); // alice cs101 + alice math201
+    expect(types.filter(t => t === 'CourseCreated')).toHaveLength(1);   // math201
+    expect(types.filter(t => t === 'CourseCancelled')).toHaveLength(1); // cs101
+  });
+
+  it('deep chain: matchKey.andKey + matchType (2 OR conditions)', async () => {
+    const result = await store.query<MatchTestEvent>()
+      .matchKey('course', 'cs101').andKey('student', 'bob')  // Condition 1: key-only AND → bob in cs101
+      .matchType('CourseCreated')                              // Condition 2: all CourseCreated
+      .read();
+
+    // Condition 1: Events with course=cs101 AND student=bob → StudentEnrolled bob cs101 = 1
+    // Condition 2: All CourseCreated → cs101 + math201 = 2
+    // Total: 3
+    expect(result.count).toBe(3);
+  });
+
+  it('deep chain: matchType + matchKey + matchType.andKey.andKey (3 diverse conditions)', async () => {
+    const result = await store.query<MatchTestEvent>()
+      .matchType('CourseCancelled')                                                         // Condition 1: type-only
+      .matchKey('student', 'alice')                                                         // Condition 2: key-only
+      .matchType('StudentEnrolled').andKey('course', 'cs101').andKey('student', 'bob')      // Condition 3: type + 2 keys
+      .read();
+
+    // Condition 1: CourseCancelled → cs101 = 1
+    // Condition 2: student=alice → enrolled cs101 + enrolled math201 = 2
+    // Condition 3: StudentEnrolled where course=cs101 AND student=bob → 1
+    // Total: 4
+    expect(result.count).toBe(4);
+  });
+
+  it('deep chain preserves all conditions in appendCondition', async () => {
+    const result = await store.query<MatchTestEvent>()
+      .matchType('StudentEnrolled').andKey('course', 'cs101')
+      .matchKey('student', 'alice')
+      .matchType('CourseCancelled')
+      .read();
+
+    expect(result.appendCondition.failIfEventsMatch).toHaveLength(3);
+  });
 });

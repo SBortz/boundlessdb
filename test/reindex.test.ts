@@ -263,8 +263,7 @@ describe('EventStore throws on config hash mismatch', () => {
     // Manually reindex with CONFIG_B
     storage.reindexBatch(makeExtractor(CONFIG_B));
 
-    // Compute and store new hash
-    const { createHash } = await import('node:crypto');
+    // Compute and store new hash (FNV-1a, same as EventStore)
     function sortObjectKeys(obj: unknown): unknown {
       if (obj === null || typeof obj !== 'object') return obj;
       if (Array.isArray(obj)) return obj.map(sortObjectKeys);
@@ -274,9 +273,13 @@ describe('EventStore throws on config hash mismatch', () => {
       }
       return sorted;
     }
-    const newHash = createHash('sha256')
-      .update(JSON.stringify(sortObjectKeys(CONFIG_B)))
-      .digest('hex');
+    const normalized = JSON.stringify(sortObjectKeys(CONFIG_B));
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < normalized.length; i++) {
+      hash ^= normalized.charCodeAt(i);
+      hash = Math.imul(hash, 0x01000193);
+    }
+    const newHash = (hash >>> 0).toString(16).padStart(8, '0');
     storage.setConfigHash(newHash);
 
     // Now creating store with CONFIG_B should work
