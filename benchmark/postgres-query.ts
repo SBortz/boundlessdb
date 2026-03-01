@@ -526,7 +526,8 @@ async function runConcurrentWriterBenchmarks() {
       const avgSoFar = times.reduce((a, b) => a + b, 0) / times.length;
       const avgSuccSoFar = Math.round(totalSuccessful / (iter + 1));
       const evtsSoFar = formatNum(Math.round(avgSuccSoFar * EVENTS_PER_WRITER / (avgSoFar / 1000)));
-      process.stdout.write(`\r  ${label.padEnd(25)} ${(iter + 1).toString().padStart(3)}/${CONFLICT_ITERATIONS} | ${avgSoFar.toFixed(0)}ms avg | ${totalConflicts} conflicts | ${totalSuccessful}/${(iter + 1) * CONCURRENT_WRITERS} ok | ${evtsSoFar} evt/s`);
+      const line = `  ${label.padEnd(25)} ${(iter + 1).toString().padStart(3)}/${CONFLICT_ITERATIONS} | ${avgSoFar.toFixed(0)}ms avg | ${totalConflicts} conflicts | ${totalSuccessful}/${(iter + 1) * CONCURRENT_WRITERS} ok | ${evtsSoFar} evt/s`;
+      process.stdout.write(`\r${line.padEnd(120)}`);
 
       for (const ws of writerStores) {
         await ws.close();
@@ -539,7 +540,8 @@ async function runConcurrentWriterBenchmarks() {
     const avgEvents = avgSuccessful * EVENTS_PER_WRITER;
     const throughput = Math.round(avgEvents / (avgTime / 1000));
     // Clear live line and print final
-    process.stdout.write(`\r  ${label.padEnd(nameCol)} ${avgTime.toFixed(1)} ms avg | ${avgConflicts} conflicts/round | ${avgSuccessful}/${CONCURRENT_WRITERS} successful | ${formatNum(throughput)} evt/s          \n`);
+    const finalLine = `  ${label.padEnd(nameCol)} ${avgTime.toFixed(1)} ms avg | ${avgConflicts} conflicts/round | ${avgSuccessful}/${CONCURRENT_WRITERS} successful | ${formatNum(throughput)} evt/s`;
+    process.stdout.write(`\r${finalLine.padEnd(120)}\n`);
   }
 
   await runWriterScenario('same key', () => 'course-0');
