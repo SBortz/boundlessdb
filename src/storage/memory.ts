@@ -2,7 +2,7 @@
  * In-Memory Storage implementation (for testing)
  */
 
-import { isConstrainedCondition, normalizeCondition, hasKeys, type ExtractedKey, type QueryCondition, type StoredEvent, type MultiKeyConstrainedCondition } from '../types.js';
+import { isConstrainedCondition, isKeyOnlyCondition, isMultiTypeCondition, isMultiTypeConstrainedCondition, normalizeCondition, hasKeys, type ExtractedKey, type QueryCondition, type StoredEvent, type MultiKeyConstrainedCondition, type MultiTypeCondition, type MultiTypeConstrainedCondition, type KeyOnlyCondition } from '../types.js';
 import type { EventStorage, EventToStore, StorageAppendCondition, AppendWithConditionResult } from './interface.js';
 
 interface StoredEventInternal extends StoredEvent {
@@ -92,8 +92,30 @@ export class InMemoryStorage implements EventStorage {
     matching = matching.filter(event => {
       // Must match at least one condition (OR across conditions)
       return normalized.some(cond => {
+        // Key-only condition: no type filter, just match keys
+        if (isKeyOnlyCondition(cond)) {
+          return cond.keys.every(
+            requiredKey => event.keys.some(
+              eventKey => eventKey.name === requiredKey.name && eventKey.value === requiredKey.value
+            )
+          );
+        }
+
+        // Multi-type conditions: type must be in types[]
+        if (isMultiTypeConstrainedCondition(cond)) {
+          if (!cond.types.includes(event.type)) return false;
+          return cond.keys.every(
+            requiredKey => event.keys.some(
+              eventKey => eventKey.name === requiredKey.name && eventKey.value === requiredKey.value
+            )
+          );
+        }
+        if (isMultiTypeCondition(cond)) {
+          return cond.types.includes(event.type);
+        }
+
         // Type must match
-        if (event.type !== cond.type) {
+        if (event.type !== (cond as { type: string }).type) {
           return false;
         }
 
@@ -103,7 +125,7 @@ export class InMemoryStorage implements EventStorage {
         }
 
         // Constrained: ALL keys must match (AND within a condition)
-        return cond.keys.every(
+        return (cond as MultiKeyConstrainedCondition).keys.every(
           requiredKey => event.keys.some(
             eventKey => eventKey.name === requiredKey.name && eventKey.value === requiredKey.value
           )

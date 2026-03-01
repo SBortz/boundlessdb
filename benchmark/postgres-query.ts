@@ -9,7 +9,9 @@
  *   --sequential             Disable shuffle (default: shuffled)
  *   --connection <url>       PostgreSQL connection string (default: env DATABASE_URL or localhost:5433)
  *   --config <path>          Consistency config file (default: ./benchmark/consistency.config.ts)
- *   --conflicts              Run additional conflict & concurrent writer benchmarks
+ *   --writers <n>            Number of concurrent writers (default: 10)
+ *   --writer-events <n>      Events per concurrent writer (default: 5)
+ *   --rounds <n>             Number of conflict benchmark rounds (default: 50)
  *
  * Examples:
  *   npx tsx benchmark/postgres-query.ts --events 1m
@@ -37,7 +39,6 @@ const EVENTS_PER_COURSE = 1 + STUDENTS * (1 + LESSONS + 1); // 2005
 
 const args = process.argv.slice(2);
 const useShuffle = !args.includes('--sequential');
-const runConflicts = args.includes('--conflicts');
 
 function getArg(name: string): string | undefined {
   const idx = args.indexOf(name);
@@ -82,8 +83,8 @@ function buildDataset(target: number) {
 
 if (sizeArgs.length === 0) {
   console.error('Usage: npx tsx benchmark/postgres-query.ts --events <size> [options]');
-  console.error('Options: --sequential --connection <url> --config <path>');
-  console.error('Example: npx tsx benchmark/postgres-query.ts --events 1m');
+  console.error('Options: --sequential --connection <url> --config <path> --writers <n> --writer-events <n>');
+  console.error('Example: npx tsx benchmark/postgres-query.ts --events 1m --writers 20 --writer-events 10');
   process.exit(1);
 }
 const sizes = sizeArgs.map(parseSize);
@@ -344,7 +345,7 @@ const queries: QueryDef[] = [
       let counter = 0;
       return async () => {
         const read = await store.query()
-          .matchTypeAndKey('StudentEnrolled', 'course', 'course-0')
+          .matchTypeAndKey('StudentEnrolled', 'course', 'course-1')
           .read();
         await store.append([
           { type: 'LessonCompleted', data: { courseId: 'course-cold', studentId: 'student-bench', lessonId: `lesson-${counter++}` } },
@@ -379,12 +380,13 @@ async function cleanDb() {
 
 // --- Conflict benchmarks ---
 
-const CONFLICT_ITERATIONS = 50;
-const CONCURRENT_WRITERS = 10;
-const EVENTS_PER_WRITER = 5;
+const CONFLICT_ITERATIONS = Number(getArg('--rounds')) || 50;
+const CONCURRENT_WRITERS = Number(getArg('--writers')) || 10;
+const EVENTS_PER_WRITER = Number(getArg('--writer-events')) || 5;
 
 async function runConflictBenchmarks(store: EventStore) {
   console.log(`\n  === Conflict Benchmarks ===\n`);
+  const conflictKey = `course-conflict-${Date.now()}`;
 
   const nameCol = 40;
 
@@ -393,12 +395,12 @@ async function runConflictBenchmarks(store: EventStore) {
     const times: number[] = [];
     for (let i = 0; i < CONFLICT_ITERATIONS; i++) {
       const read = await store.query()
-        .matchTypeAndKey('StudentEnrolled', 'course', 'course-0')
+        .matchTypeAndKey('StudentEnrolled', 'course', conflictKey)
         .read();
 
       const start = performance.now();
       await store.append([
-        { type: 'LessonCompleted', data: { courseId: 'course-0', studentId: 'student-conflict-baseline', lessonId: `lesson-baseline-${i}` } },
+        { type: 'LessonCompleted', data: { courseId: conflictKey, studentId: 'student-conflict-baseline', lessonId: `lesson-baseline-${i}` } },
       ], read.appendCondition);
       times.push(performance.now() - start);
     }
@@ -411,17 +413,17 @@ async function runConflictBenchmarks(store: EventStore) {
     const times: number[] = [];
     for (let i = 0; i < CONFLICT_ITERATIONS; i++) {
       const read = await store.query()
-        .matchTypeAndKey('StudentEnrolled', 'course', 'course-0')
+        .matchTypeAndKey('StudentEnrolled', 'course', conflictKey)
         .read();
 
       // Make the condition stale
       await store.append([
-        { type: 'StudentEnrolled', data: { courseId: 'course-0', studentId: `student-stale-pg-${i}` } },
+        { type: 'StudentEnrolled', data: { courseId: conflictKey, studentId: `student-stale-pg-${i}` } },
       ], null);
 
       const start = performance.now();
       const result = await store.append([
-        { type: 'StudentEnrolled', data: { courseId: 'course-0', studentId: `student-conflict-pg-${i}` } },
+        { type: 'StudentEnrolled', data: { courseId: conflictKey, studentId: `student-conflict-pg-${i}` } },
       ], read.appendCondition);
       times.push(performance.now() - start);
 
@@ -438,25 +440,25 @@ async function runConflictBenchmarks(store: EventStore) {
     const times: number[] = [];
     for (let i = 0; i < CONFLICT_ITERATIONS; i++) {
       const read = await store.query()
-        .matchTypeAndKey('StudentEnrolled', 'course', 'course-0')
+        .matchTypeAndKey('StudentEnrolled', 'course', conflictKey)
         .read();
 
       // Make the condition stale
       await store.append([
-        { type: 'StudentEnrolled', data: { courseId: 'course-0', studentId: `student-retry-stale-pg-${i}` } },
+        { type: 'StudentEnrolled', data: { courseId: conflictKey, studentId: `student-retry-stale-pg-${i}` } },
       ], null);
 
       const start = performance.now();
       const staleResult = await store.append([
-        { type: 'StudentEnrolled', data: { courseId: 'course-0', studentId: `student-retry-pg-${i}` } },
+        { type: 'StudentEnrolled', data: { courseId: conflictKey, studentId: `student-retry-pg-${i}` } },
       ], read.appendCondition);
 
       if (staleResult.conflict) {
         const reRead = await store.query()
-          .matchTypeAndKey('StudentEnrolled', 'course', 'course-0')
+          .matchTypeAndKey('StudentEnrolled', 'course', conflictKey)
           .read();
         await store.append([
-          { type: 'StudentEnrolled', data: { courseId: 'course-0', studentId: `student-retry-pg-${i}` } },
+          { type: 'StudentEnrolled', data: { courseId: conflictKey, studentId: `student-retry-pg-${i}` } },
         ], reRead.appendCondition);
       }
       times.push(performance.now() - start);
@@ -469,20 +471,23 @@ async function runConflictBenchmarks(store: EventStore) {
 }
 
 async function runConcurrentWriterBenchmarks() {
-  console.log(`  === Concurrent Writer Benchmarks (PostgreSQL) ===\n`);
+  console.log(`  === Concurrent Writer Benchmarks (${CONCURRENT_WRITERS} writers × ${EVENTS_PER_WRITER} events, ${CONFLICT_ITERATIONS} rounds) ===\n`);
 
   const nameCol = 40;
 
-  // Scenario 4: Parallel writers, same key
-  {
+  async function runWriterScenario(label: string, getKey: (w: number) => string) {
     const times: number[] = [];
     let totalConflicts = 0;
     let totalSuccessful = 0;
+    let maxRetryDepth = 0;
 
     for (let iter = 0; iter < CONFLICT_ITERATIONS; iter++) {
       const writerStores: EventStore[] = [];
+      let serializationRetries = 0;
       for (let w = 0; w < CONCURRENT_WRITERS; w++) {
-        const writerStorage = new PostgresStorage({ connectionString: DB_URL, max: 1 });
+        const writerStorage = new PostgresStorage({ connectionString: DB_URL, max: 1 }, {
+          onRetry: () => { serializationRetries++; },
+        });
         await writerStorage.init();
         writerStores.push(new EventStore({ storage: writerStorage, ...STORE_CONFIG }));
       }
@@ -490,68 +495,24 @@ async function runConcurrentWriterBenchmarks() {
       let conflicts = 0;
       let successes = 0;
 
-      const start = performance.now();
+      // Live ticker during round
+      const roundStart = performance.now();
+      const writeTick = () => {
+        const elapsed = performance.now() - roundStart;
+        const elapsedS = (elapsed / 1000).toFixed(0);
+        const evtsNow = successes * EVENTS_PER_WRITER;
+        const evtRate = elapsed > 0 ? formatNum(Math.round(evtsNow / (elapsed / 1000))) : '0';
+        const tickLine = `  ${label.padEnd(25)} ${(iter + 1).toString().padStart(3)}/${CONFLICT_ITERATIONS} | ${elapsedS}s | ${successes}/${CONCURRENT_WRITERS} done | ${conflicts} dcb | ${serializationRetries} pg40001 | ${evtRate} evt/s`;
+        process.stdout.write(`\r${tickLine.padEnd(140)}`);
+      };
+      writeTick(); // Show immediately
+      const ticker = setInterval(writeTick, 500);
+
       await Promise.all(writerStores.map(async (writerStore, w) => {
+        const courseKey = getKey(w);
         let done = false;
         let attempts = 0;
-        while (!done && attempts < 5) {
-          attempts++;
-          const read = await writerStore.query()
-            .matchTypeAndKey('StudentEnrolled', 'course', 'course-0')
-            .read();
-
-          const events = Array.from({ length: EVENTS_PER_WRITER }, (_, e) => ({
-            type: 'StudentEnrolled',
-            data: { courseId: 'course-0', studentId: `student-concurrent-same-${iter}-${w}-${attempts}-${e}` },
-          }));
-          const result = await writerStore.append(events, read.appendCondition);
-
-          if (result.conflict) {
-            conflicts++;
-          } else {
-            successes++;
-            done = true;
-          }
-        }
-      }));
-      times.push(performance.now() - start);
-      totalConflicts += conflicts;
-      totalSuccessful += successes;
-
-      for (const ws of writerStores) {
-        await ws.close();
-      }
-    }
-
-    const avgTime = times.reduce((a, b) => a + b, 0) / times.length;
-    const avgConflicts = Math.round(totalConflicts / CONFLICT_ITERATIONS);
-    const avgSuccessful = Math.round(totalSuccessful / CONFLICT_ITERATIONS);
-    console.log(`  ${`${CONCURRENT_WRITERS} writers, same key`.padEnd(nameCol)} ${avgTime.toFixed(1)} ms total | ${avgConflicts} conflicts | ${avgSuccessful} successful`);
-  }
-
-  // Scenario 5: Parallel writers, different keys
-  {
-    const times: number[] = [];
-    let totalConflicts = 0;
-    let totalSuccessful = 0;
-
-    for (let iter = 0; iter < CONFLICT_ITERATIONS; iter++) {
-      const writerStores: EventStore[] = [];
-      for (let w = 0; w < CONCURRENT_WRITERS; w++) {
-        const writerStorage = new PostgresStorage({ connectionString: DB_URL, max: 1 });
-        await writerStorage.init();
-        writerStores.push(new EventStore({ storage: writerStorage, ...STORE_CONFIG }));
-      }
-
-      let conflicts = 0;
-      let successes = 0;
-
-      const start = performance.now();
-      await Promise.all(writerStores.map(async (writerStore, w) => {
-        const courseKey = `course-concurrent-${w}`;
-        let done = false;
-        let attempts = 0;
-        while (!done && attempts < 5) {
+        while (!done && attempts < 10) {
           attempts++;
           const read = await writerStore.query()
             .matchTypeAndKey('StudentEnrolled', 'course', courseKey)
@@ -559,7 +520,7 @@ async function runConcurrentWriterBenchmarks() {
 
           const events = Array.from({ length: EVENTS_PER_WRITER }, (_, e) => ({
             type: 'StudentEnrolled',
-            data: { courseId: courseKey, studentId: `student-concurrent-diff-${iter}-${w}-${attempts}-${e}` },
+            data: { courseId: courseKey, studentId: `student-concurrent-${label}-${iter}-${w}-${attempts}-${e}` },
           }));
           const result = await writerStore.append(events, read.appendCondition);
 
@@ -570,10 +531,20 @@ async function runConcurrentWriterBenchmarks() {
             done = true;
           }
         }
+        if (!done) maxRetryDepth = Math.max(maxRetryDepth, 5);
+        else maxRetryDepth = Math.max(maxRetryDepth, successes > 0 ? 0 : 0);
       }));
-      times.push(performance.now() - start);
+      clearInterval(ticker);
+      times.push(performance.now() - roundStart);
       totalConflicts += conflicts;
       totalSuccessful += successes;
+
+      // Live progress (round summary)
+      const avgSoFar = times.reduce((a, b) => a + b, 0) / times.length;
+      const avgSuccSoFar = Math.round(totalSuccessful / (iter + 1));
+      const evtsSoFar = formatNum(Math.round(avgSuccSoFar * EVENTS_PER_WRITER / (avgSoFar / 1000)));
+      const line = `  ${label.padEnd(25)} ${(iter + 1).toString().padStart(3)}/${CONFLICT_ITERATIONS} | ${avgSoFar.toFixed(0)}ms avg | ${totalConflicts} conflicts | ${totalSuccessful}/${(iter + 1) * CONCURRENT_WRITERS} ok | ${evtsSoFar} evt/s`;
+      process.stdout.write(`\r${line.padEnd(120)}`);
 
       for (const ws of writerStores) {
         await ws.close();
@@ -583,8 +554,16 @@ async function runConcurrentWriterBenchmarks() {
     const avgTime = times.reduce((a, b) => a + b, 0) / times.length;
     const avgConflicts = Math.round(totalConflicts / CONFLICT_ITERATIONS);
     const avgSuccessful = Math.round(totalSuccessful / CONFLICT_ITERATIONS);
-    console.log(`  ${`${CONCURRENT_WRITERS} writers, different keys`.padEnd(nameCol)} ${avgTime.toFixed(1)} ms total | ${avgConflicts} conflicts | ${avgSuccessful} successful`);
+    const avgEvents = avgSuccessful * EVENTS_PER_WRITER;
+    const throughput = Math.round(avgEvents / (avgTime / 1000));
+    // Clear live line and print final
+    const finalLine = `  ${label.padEnd(nameCol)} ${avgTime.toFixed(1)} ms avg | ${avgConflicts} conflicts/round | ${avgSuccessful}/${CONCURRENT_WRITERS} successful | ${formatNum(throughput)} evt/s`;
+    process.stdout.write(`\r${finalLine.padEnd(120)}\n`);
   }
+
+  const runId = Date.now();
+  await runWriterScenario('same key', () => `course-writer-same-${runId}`);
+  await runWriterScenario('different keys', (w) => `course-writer-${runId}-${w}`);
 
   console.log('');
 }
@@ -663,7 +642,7 @@ async function main() {
   }
 
   // Run conflict benchmarks if requested (on the last/largest dataset)
-  if (runConflicts && store) {
+  if (store) {
     await runConflictBenchmarks(store);
     await runConcurrentWriterBenchmarks();
   }
@@ -718,7 +697,8 @@ async function main() {
     );
   }
 
-  console.log(`\n  Order: ${runMode} | Iterations: ${ITERATIONS} | Storage: PostgreSQL\n`);
+  const totalEvents = existingEvents;
+  console.log(`\n  Order: ${runMode} | Iterations: ${ITERATIONS} | Events: ${formatNum(totalEvents)} | Storage: PostgreSQL\n`);
 }
 
 main().catch(console.error);

@@ -2,17 +2,16 @@
  * Main EventStore class
  */
 
-import { randomUUID, createHash } from 'node:crypto';
 import { KeyExtractor } from './config/extractor.js';
 import { validateConfig } from './config/validator.js';
 import type { EventStorage } from './storage/interface.js';
-import { SqliteStorage } from './storage/sqlite.js';
 import {
   QueryResult,
   isConstrainedCondition,
   isMultiKeyCondition,
   normalizeCondition,
   hasKeys,
+  createAppendCondition,
   type AppendCondition,
   type AppendResult,
   type ConflictResult,
@@ -27,6 +26,24 @@ import {
   type StoredEvent,
 } from './types.js';
 import { QueryBuilder, type QueryExecutor } from './query-builder.js';
+
+/**
+ * Generate UUID with fallback for environments without node:crypto
+ */
+function generateUUID(): string {
+  try {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+  } catch {
+    // crypto.randomUUID might throw in insecure contexts
+  }
+  // Fallback: Math.random-based UUID v4
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = (Math.random() * 16) | 0;
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
 
 /**
  * Recursively sort object keys for deterministic JSON
@@ -46,11 +63,17 @@ function sortObjectKeys(obj: unknown): unknown {
 }
 
 /**
- * Compute SHA256 hash of ConsistencyConfig
+ * Compute a deterministic hash of ConsistencyConfig (FNV-1a).
+ * No crypto dependency — just needs to detect config changes.
  */
 function hashConfig(config: ConsistencyConfig): string {
   const normalized = JSON.stringify(sortObjectKeys(config));
-  return createHash('sha256').update(normalized).digest('hex');
+  let hash = 0x811c9dc5; // FNV offset basis
+  for (let i = 0; i < normalized.length; i++) {
+    hash ^= normalized.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193); // FNV prime
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
 }
 
 export interface EventStoreConfig extends EventStoreOptions {
@@ -76,27 +99,44 @@ export class EventStore {
     this.config = options.consistency;
     this.keyExtractor = new KeyExtractor(this.config);
 
-    // Check config hash and reindex if needed (SqliteStorage only)
+    // Check config hash and throw on mismatch
     this.checkAndReindexIfNeeded();
   }
 
   /**
-   * Check if config has changed since last run, reindex if needed
+   * Check if config has changed since last run, reindex if needed.
+   * Works with any storage that implements getConfigHash/setConfigHash.
+   * Handles both sync (SqliteStorage) and async (SqlJsStorage) methods.
    */
   private checkAndReindexIfNeeded(): void {
-    // Only works with SqliteStorage (has metadata table)
-    if (!(this.storage instanceof SqliteStorage)) {
+    const storage = this.storage as any;
+    if (typeof storage.getConfigHash !== 'function' || typeof storage.setConfigHash !== 'function') {
       return;
     }
 
     const currentHash = hashConfig(this.config);
-    const storedHash = this.storage.getConfigHash();
+    const result = storage.getConfigHash();
 
+    // Handle async storage (SqlJsStorage returns Promises)
+    if (result && typeof result.then === 'function') {
+      result.then((storedHash: string | null) => {
+        if (storedHash === null) {
+          storage.setConfigHash(currentHash);
+        } else if (storedHash !== currentHash) {
+          console.error(
+            `Config hash mismatch (stored: ${storedHash}, current: ${currentHash}). ` +
+            `Run the reindex script before starting the application.`
+          );
+        }
+      });
+      return;
+    }
+
+    // Sync storage (SqliteStorage)
+    const storedHash = result as string | null;
     if (storedHash === null) {
-      // First run — just store the hash
-      this.storage.setConfigHash(currentHash);
+      storage.setConfigHash(currentHash);
     } else if (storedHash !== currentHash) {
-      // Config changed — throw error, require explicit reindex via script
       throw new Error(
         `Config hash mismatch (stored: ${storedHash}, current: ${currentHash}). ` +
         `Run the reindex script before starting the application.`
@@ -217,7 +257,7 @@ export class EventStore {
       return {
         conflict: false,
         position,
-        appendCondition: { failIfEventsMatch: condition?.failIfEventsMatch ?? [], after: position },
+        appendCondition: createAppendCondition(condition?.failIfEventsMatch ?? [], position),
       };
     }
 
@@ -227,7 +267,7 @@ export class EventStore {
     // Prepare events for storage
     const now = new Date();
     const eventsToStore = events.map(event => ({
-      id: randomUUID(),
+      id: generateUUID(),
       type: event.type,
       data: event.data,
       metadata: event.metadata,
@@ -252,10 +292,7 @@ export class EventStore {
       return {
         conflict: true,
         conflictingEvents: result.conflicting as StoredEvent<E>[],
-        appendCondition: { 
-          failIfEventsMatch: condition?.failIfEventsMatch ?? [], 
-          after: latestPosition 
-        },
+        appendCondition: createAppendCondition(condition?.failIfEventsMatch ?? [], latestPosition),
       };
     }
 
@@ -265,7 +302,7 @@ export class EventStore {
     return {
       conflict: false,
       position: result.position!,
-      appendCondition: { failIfEventsMatch: newConditions, after: result.position! },
+      appendCondition: createAppendCondition(newConditions, result.position!),
     };
   }
 
@@ -287,7 +324,8 @@ export class EventStore {
         if (hasKeys(normalized)) {
           // Build a dedup key from all keys
           const keysStr = normalized.keys.map(k => `${k.name}:${k.value}`).sort().join('|');
-          const dedupKey = `${normalized.type}:${keysStr}`;
+          const typeStr = 'type' in normalized ? (normalized as any).type : ('types' in normalized ? (normalized as any).types.join('|') : '*');
+          const dedupKey = `${typeStr}:${keysStr}`;
           conditions.set(dedupKey, normalized);
         }
       }

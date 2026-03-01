@@ -2,7 +2,7 @@
  * Fluent Query Builder for BoundlessDB
  */
 
-import type { Event, QueryCondition, QueryResult, MultiKeyConstrainedCondition } from './types.js';
+import type { Event, QueryCondition, QueryResult, MultiKeyConstrainedCondition, MultiTypeCondition, KeyOnlyCondition } from './types.js';
 
 export interface QueryExecutor<E extends Event> {
   read(query: { 
@@ -25,15 +25,15 @@ export interface QueryExecutor<E extends Event> {
  * // Multi-key AND query:
  * const result = await store.query<CourseEvent>()
  *   .matchType('StudentSubscribed')
- *   .withKey('course', 'cs101')
- *   .withKey('student', 'alice')
+ *   .andKey('course', 'cs101')
+ *   .andKey('student', 'alice')
  *   .read();
  * 
  * // Mixed (AND + OR):
  * const result = await store.query<CourseEvent>()
  *   .matchType('StudentSubscribed')
- *   .withKey('course', 'cs101')
- *   .withKey('student', 'alice')              // AND on condition 0
+ *   .andKey('course', 'cs101')
+ *   .andKey('student', 'alice')              // AND on condition 0
  *   .matchTypeAndKey('CourseCancelled', 'course', 'cs101')  // OR (condition 1)
  *   .read();
  * ```
@@ -46,33 +46,57 @@ export class QueryBuilder<E extends Event> {
   constructor(private readonly executor: QueryExecutor<E>) {}
 
   /**
-   * Add an unconstrained condition (match all events of type).
-   * Use `.withKey()` after to add key constraints (AND).
+   * Add an unconstrained condition (match events of one or more types).
+   * Use `.andKey()` after to add key constraints (AND).
    * 
    * @example
    * ```typescript
-   * .matchType('CourseCreated')  // matches ALL CourseCreated events
-   * .matchType('StudentSubscribed').withKey('course', 'cs101')  // type + key
+   * .matchType('CourseCreated')  // single type
+   * .matchType('CourseCreated', 'CourseCancelled')  // multiple types (OR within)
+   * .matchType('StudentSubscribed').andKey('course', 'cs101')  // type + key
    * ```
    */
-  matchType(type: string): this {
-    this.conditions.push({ type });
+  matchType(...types: string[]): this {
+    if (types.length === 0) {
+      throw new Error('.matchType() requires at least one type');
+    }
+    if (types.length === 1) {
+      this.conditions.push({ type: types[0] });
+    } else {
+      this.conditions.push({ types } as MultiTypeCondition);
+    }
     return this;
   }
 
   /**
    * Add a constrained condition (match events of type where key equals value).
-   * Shorthand for `.matchType(type).withKey(key, value)`.
-   * Use `.withKey()` after to add more key constraints (AND).
+   * Shorthand for `.matchType(type).andKey(key, value)`.
+   * Use `.andKey()` after to add more key constraints (AND).
    * 
    * @example
    * ```typescript
    * .matchTypeAndKey('StudentSubscribed', 'course', 'cs101')
-   * .matchTypeAndKey('StudentSubscribed', 'course', 'cs101').withKey('student', 'alice')
+   * .matchTypeAndKey('StudentSubscribed', 'course', 'cs101').andKey('student', 'alice')
    * ```
    */
   matchTypeAndKey(type: string, key: string, value: string): this {
     this.conditions.push({ type, keys: [{ name: key, value }] } as MultiKeyConstrainedCondition);
+    return this;
+  }
+
+  /**
+   * Key-only query: match events by key, regardless of event type.
+   * Starts a new condition (OR with previous conditions).
+   * Use `.andKey()` after to add more key constraints (AND).
+   * 
+   * @example
+   * ```typescript
+   * .matchKey('cart', 'abc-123')  // all events with cart=abc-123
+   * .matchKey('course', 'cs101').andKey('student', 'alice')  // AND
+   * ```
+   */
+  matchKey(key: string, value: string): this {
+    this.conditions.push({ keys: [{ name: key, value }] } as KeyOnlyCondition);
     return this;
   }
 
@@ -85,13 +109,13 @@ export class QueryBuilder<E extends Event> {
    * @example
    * ```typescript
    * .matchType('StudentSubscribed')
-   *   .withKey('course', 'cs101')
-   *   .withKey('student', 'alice')  // AND: both keys must match
+   *   .andKey('course', 'cs101')
+   *   .andKey('student', 'alice')  // AND: both keys must match
    * ```
    */
-  withKey(key: string, value: string): this {
+  andKey(key: string, value: string): this {
     if (this.conditions.length === 0) {
-      throw new Error('.withKey() requires a preceding .matchType() or .matchTypeAndKey()');
+      throw new Error('.andKey() requires a preceding .matchType(), .matchTypeAndKey(), or .matchKey()');
     }
 
     const lastIdx = this.conditions.length - 1;
@@ -108,10 +132,16 @@ export class QueryBuilder<E extends Event> {
         type: legacy.type,
         keys: [{ name: legacy.key, value: legacy.value }, { name: key, value }],
       } as MultiKeyConstrainedCondition;
+    } else if ('types' in last) {
+      // Multi-type unconstrained — convert to multi-type constrained
+      this.conditions[lastIdx] = {
+        types: (last as MultiTypeCondition).types,
+        keys: [{ name: key, value }],
+      };
     } else {
       // Unconstrained (type only) — convert to multi-key
       this.conditions[lastIdx] = {
-        type: last.type,
+        type: (last as { type: string }).type,
         keys: [{ name: key, value }],
       } as MultiKeyConstrainedCondition;
     }

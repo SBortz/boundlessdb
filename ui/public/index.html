@@ -500,6 +500,7 @@
     <div class="tabs-header">
       <button class="tab-btn active" data-tab="query">Fine-Granular Querying</button>
       <button class="tab-btn" data-tab="append">Append With Dynamic Consistency</button>
+      <button class="tab-btn" data-tab="multi">Multi-Boundary Append</button>
       <button class="tab-btn" data-tab="conflict">Resolve Conflicts</button>
     </div>
     
@@ -507,21 +508,20 @@
       <div class="tab-content active" id="tab-query">
         
         <pre><code><span class="keyword">const</span> { events, appendCondition } = <span class="keyword">await</span> store.<span class="function">query</span>&lt;CourseEvent&gt;()
-  .<span class="function">matchType</span>(<span class="string">'CourseCreated'</span>)                              <span class="comment">// all CourseCreated</span>
-  .<span class="function">matchType</span>(<span class="string">'StudentSubscribed'</span>)
-    .<span class="function">withKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>)                           <span class="comment">// type + keys (AND)</span>
-    .<span class="function">withKey</span>(<span class="string">'student'</span>, <span class="string">'alice'</span>)
+  .<span class="function">matchKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>)
+  .<span class="function">andKey</span>(<span class="string">'student'</span>, <span class="string">'alice'</span>)
   .<span class="function">read</span>();
 
-<span class="comment">// Build state</span>
+<span class="comment">// Build state from matching events</span>
 <span class="keyword">const</span> state: CourseState = events.<span class="function">reduce</span>(evolve, initialState);</code></pre>
       </div>
       
       <div class="tab-content" id="tab-append">
         
         <pre><code><span class="keyword">const</span> { events, appendCondition } = <span class="keyword">await</span> store.<span class="function">query</span>&lt;CourseEvent&gt;()
-  .<span class="function">matchType</span>(<span class="string">'CourseCreated'</span>)                        <span class="comment">// all CourseCreated</span>
-  .<span class="function">matchTypeAndKey</span>(<span class="string">'StudentSubscribed'</span>, <span class="string">'course'</span>, <span class="string">'cs101'</span>)  <span class="comment">// type + key</span>
+  .<span class="function">matchType</span>(<span class="string">'StudentEnrolled'</span>)
+  .<span class="function">andKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>)
+  .<span class="function">andKey</span>(<span class="string">'student'</span>, <span class="string">'alice'</span>)
   .<span class="function">read</span>();
 
 <span class="comment">// Build state</span>
@@ -530,8 +530,25 @@
 <span class="comment">// Business logic</span>
 <span class="keyword">const</span> newEvents: CourseEvent[] = <span class="function">decide</span>(command, state);
 
-<span class="comment">// Append</span>
+<span class="comment">// Append with optimistic concurrency</span>
 <span class="keyword">await</span> store.<span class="function">append</span>(newEvents, appendCondition);</code></pre>
+      </div>
+      
+      <div class="tab-content" id="tab-multi">
+        
+        <pre><code><span class="comment">// Read from two boundaries</span>
+<span class="keyword">const</span> cartResult = <span class="keyword">await</span> store.<span class="function">query</span>()
+  .<span class="function">matchKey</span>(<span class="string">'cart'</span>, <span class="string">'cart-42'</span>).<span class="function">read</span>();
+
+<span class="keyword">const</span> inventoryResult = <span class="keyword">await</span> store.<span class="function">query</span>()
+  .<span class="function">matchKey</span>(<span class="string">'product'</span>, <span class="string">'shoe-xl'</span>).<span class="function">read</span>();
+
+<span class="comment">// Merge conditions — protects both boundaries</span>
+<span class="keyword">const</span> merged = cartResult.appendCondition
+  .<span class="function">mergeWith</span>(inventoryResult.appendCondition);
+
+<span class="comment">// Single atomic append</span>
+<span class="keyword">await</span> store.<span class="function">append</span>(newEvents, merged);</code></pre>
       </div>
       
       <div class="tab-content" id="tab-conflict">
@@ -594,7 +611,7 @@
     <div class="feature">
       <div class="feature-icon">🔗</div>
       <h3>Multi-Key AND Queries</h3>
-      <p>Chain <code>.withKey()</code> for AND semantics — match events where ALL keys match in one query.</p>
+      <p>Chain <code>.andKey()</code> for AND semantics — match events where ALL keys match in one query.</p>
     </div>
     <div class="feature">
       <div class="feature-icon">📦</div>
@@ -689,7 +706,7 @@ appendCondition = {
       <div class="case-content active" id="case-read">
         <pre><code><span class="comment">// Standard flow: Read first, then append</span>
 <span class="keyword">const</span> result = <span class="keyword">await</span> store.<span class="function">query</span>()
-  .<span class="function">matchTypeAndKey</span>(<span class="string">'StudentSubscribed'</span>, <span class="string">'course'</span>, <span class="string">'cs101'</span>)
+  .<span class="function">matchKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>)
   .<span class="function">read</span>();
 
 <span class="comment">// appendCondition = { failIfEventsMatch: [...], after: position }</span>
@@ -742,19 +759,26 @@ appendCondition = {
   
   <div class="code-section">
     <h2>Query Across Multiple Dimensions</h2>
-    <pre><code><span class="comment">// Traditional streams: ONE boundary (e.g., per course)</span>
-<span class="comment">// DCB: Query ANY combination of keys!</span>
+    <pre><code><span class="comment">// Key-only: "Everything about course cs101"</span>
+store.<span class="function">query</span>().<span class="function">matchKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>).<span class="function">read</span>()
 
-<span class="comment">// "Has Alice already enrolled in CS101?"</span>
-<span class="comment">// Multi-key AND: must match BOTH keys on the SAME event</span>
-<span class="keyword">const</span> result = <span class="keyword">await</span> store.<span class="function">query</span>()
-  .<span class="function">matchType</span>(<span class="string">'StudentSubscribed'</span>)
-  .<span class="function">withKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>)
-  .<span class="function">withKey</span>(<span class="string">'student'</span>, <span class="string">'alice'</span>)
-  .<span class="function">read</span>();
+<span class="comment">// Multi-key AND: "Alice's enrollment in cs101"</span>
+store.<span class="function">query</span>()
+  .<span class="function">matchKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>)
+  .<span class="function">andKey</span>(<span class="string">'student'</span>, <span class="string">'alice'</span>)
+  .<span class="function">read</span>()
 
-<span class="comment">// .withKey().withKey() = AND (same event must have ALL keys)</span>
-<span class="comment">// Two .matchTypeAndKey() = OR (events matching EITHER condition)</span></code></pre>
+<span class="comment">// Multi-type + key: "Course lifecycle events for cs101"</span>
+store.<span class="function">query</span>()
+  .<span class="function">matchType</span>(<span class="string">'CourseCreated'</span>, <span class="string">'CourseCancelled'</span>)
+  .<span class="function">andKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>)
+  .<span class="function">read</span>()
+
+<span class="comment">// OR: "All cancellations OR everything about Alice"</span>
+store.<span class="function">query</span>()
+  .<span class="function">matchType</span>(<span class="string">'CourseCancelled'</span>)          <span class="comment">// condition 1</span>
+  .<span class="function">matchKey</span>(<span class="string">'student'</span>, <span class="string">'alice'</span>)          <span class="comment">// condition 2 (OR)</span>
+  .<span class="function">read</span>()</code></pre>
   </div>
   
   <div class="code-section">
@@ -943,6 +967,72 @@ $ npx tsx scripts/reindex.ts --config ./consistency.ts --db ./events.sqlite
     <div class="flow-note" style="margin-top:1rem;">
       💡 <strong>Sub-millisecond queries</strong> for selective lookups, even with 50M events in the store.
       Shuffled execution order (no cache bias). Bold = sub-millisecond.
+    </div>
+
+    <h3 style="margin-top:2.5rem; text-align:center; color:#e0e0e0;">🔒 Conflict &amp; Concurrency (PostgreSQL, 50M events)</h3>
+    <p style="color:#888; text-align:center; margin-bottom:1rem; font-size:0.85rem;">
+      SERIALIZABLE isolation with decorrelated jitter backoff.
+    </p>
+
+    <div style="overflow-x:auto;">
+      <table style="width:100%; border-collapse:collapse; background:#0a1628; border:1px solid #0f3460; border-radius:12px; font-size:0.9rem;">
+        <thead>
+          <tr style="border-bottom:2px solid #1e3a5f;">
+            <th style="text-align:left; padding:1rem; color:#0cf;">Scenario</th>
+            <th style="text-align:right; padding:1rem; color:#ff9e64;">Latency</th>
+            <th style="text-align:right; padding:1rem; color:#888;">Conflicts</th>
+            <th style="text-align:right; padding:1rem; color:#888;">Success</th>
+            <th style="text-align:right; padding:1rem; color:#ff9e64;">Throughput</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="border-bottom:1px solid #1e3a5f;">
+            <td style="padding:0.75rem 1rem; color:#ccc;">Append with condition</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">2.35 ms</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
+          </tr>
+          <tr style="border-bottom:1px solid #1e3a5f;">
+            <td style="padding:0.75rem 1rem; color:#ccc;">Conflict detection</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64; font-weight:600;">1.00 ms</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
+          </tr>
+          <tr style="border-bottom:1px solid #1e3a5f;">
+            <td style="padding:0.75rem 1rem; color:#ccc;">Conflict + retry round-trip</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">4.13 ms</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
+          </tr>
+          <tr style="border-bottom:1px solid #1e3a5f;">
+            <td style="padding:0.75rem 1rem; color:#ccc;">10 writers × 100 events, same key</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">3,869 ms</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#ffa0a0;">39/round</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#9ece6a; font-weight:600;">10/10</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">258 evt/s</td>
+          </tr>
+          <tr>
+            <td style="padding:0.75rem 1rem; color:#ccc;">10 writers × 100 events, different keys</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">722 ms</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#9ece6a; font-weight:600;">0</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#9ece6a; font-weight:600;">10/10</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64; font-weight:600;">1,384 evt/s</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div style="margin-top:1rem; padding:0.75rem 1rem; background:#0a1628; border:1px solid #0f3460; border-radius:8px; font-size:0.8rem; color:#666;">
+      <strong style="color:#888;">Parameters:</strong>
+      50 rounds · 10 app-level retries · PostgreSQL SERIALIZABLE · Decorrelated jitter backoff (50ms base, 2s cap) · 10 internal retries (40001)
+    </div>
+
+    <div class="flow-note" style="margin-top:1rem;">
+      💡 <strong>Same key = serialized</strong> (conflicts, retries). <strong>Different keys = full parallelism</strong> (zero conflicts).
+      DCB boundaries map directly to PostgreSQL SERIALIZABLE concurrency — no tuning required.
       <a href="https://github.com/SBortz/boundlessdb/tree/main/benchmark" style="color:#0cf; text-decoration:none;">Run benchmarks yourself →</a>
     </div>
   </div>
