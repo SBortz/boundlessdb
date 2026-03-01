@@ -105,11 +105,14 @@ export class PostgresStorage implements EventStorage {
     this.onRetry = options?.onRetry;
   }
 
-  private getRetryDelay(attempt: number): number {
-    const uncapped = this.retryBaseMs * Math.pow(2, attempt);
-    const delay = Math.min(uncapped, this.retryMaxMs);
-    if (!this.retryJitter) return delay;
-    return Math.random() * delay; // Full jitter
+  private getRetryDelay(lastDelay: number): number {
+    if (!this.retryJitter) {
+      return Math.min(lastDelay * 2, this.retryMaxMs);
+    }
+    // Decorrelated jitter: random(base, lastDelay * 3), capped
+    const lo = this.retryBaseMs;
+    const hi = Math.min(lastDelay * 3, this.retryMaxMs);
+    return lo + Math.random() * (hi - lo);
   }
 
   /**
@@ -152,6 +155,7 @@ export class PostgresStorage implements EventStorage {
 
     const maxRetries = this.maxRetries;
     let attempt = 0;
+    let lastDelay = this.retryBaseMs;
 
     while (attempt < maxRetries) {
       attempt++;
@@ -229,9 +233,9 @@ export class PostgresStorage implements EventStorage {
 
         // Retry on serialization failure (PostgreSQL error code 40001)
         if (error.code === '40001' && attempt < maxRetries) {
-          const delay = this.getRetryDelay(attempt);
-          this.onRetry?.(attempt, delay);
-          await new Promise(r => setTimeout(r, delay));
+          lastDelay = this.getRetryDelay(lastDelay);
+          this.onRetry?.(attempt, lastDelay);
+          await new Promise(r => setTimeout(r, lastDelay));
           continue;
         }
 
