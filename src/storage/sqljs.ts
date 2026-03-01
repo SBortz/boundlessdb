@@ -3,7 +3,7 @@
  */
 
 import initSqlJs, { type Database as SqlJsDatabase, type SqlValue } from 'sql.js';
-import { isConstrainedCondition, isMultiKeyCondition, normalizeCondition, hasKeys, type ExtractedKey, type QueryCondition, type StoredEvent, type MultiKeyConstrainedCondition, type UnconstrainedCondition } from '../types.js';
+import { isConstrainedCondition, isMultiKeyCondition, isKeyOnlyCondition, normalizeCondition, hasKeys, type ExtractedKey, type QueryCondition, type StoredEvent, type MultiKeyConstrainedCondition, type UnconstrainedCondition, type KeyOnlyCondition } from '../types.js';
 import type { EventStorage, EventToStore, StorageAppendCondition, AppendWithConditionResult } from './interface.js';
 
 const SCHEMA = `
@@ -219,8 +219,10 @@ export class SqlJsStorage implements EventStorage {
 
     // Normalize all conditions to the internal format
     const normalized = conditions.map(normalizeCondition);
-    const constrained = normalized.filter(hasKeys);
-    const unconstrained = normalized.filter(c => !hasKeys(c)) as UnconstrainedCondition[];
+    const keyOnly = normalized.filter(isKeyOnlyCondition) as KeyOnlyCondition[];
+    const withType = normalized.filter(c => !isKeyOnlyCondition(c));
+    const constrained = withType.filter(hasKeys) as MultiKeyConstrainedCondition[];
+    const unconstrained = withType.filter(c => !hasKeys(c)) as UnconstrainedCondition[];
 
     const positionFilter = fromPosition !== undefined ? Number(fromPosition) : null;
 
@@ -240,6 +242,40 @@ export class SqlJsStorage implements EventStorage {
       }
       ctes.push(`unconstrained_matches AS (${cteSql})`);
       cteNames.push('unconstrained_matches');
+    }
+
+    // CTEs for key-only conditions (no type filter)
+    if (keyOnly.length > 0) {
+      keyOnly.forEach((c, i) => {
+        const isMultiKey = c.keys.length > 1;
+        const cteName = `keyonly_${i}`;
+
+        if (isMultiKey) {
+          const intersectParts = c.keys.map(key => {
+            let part = `SELECT position FROM event_keys WHERE key_name = ${escapeSql(key.name)} AND key_value = ${escapeSql(key.value)}`;
+            if (positionFilter !== null) {
+              part += ` AND position > ${positionFilter}`;
+            }
+            return part;
+          });
+          const cteSql = `
+            SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
+            FROM (${intersectParts.join(' INTERSECT ')}) keys
+            INNER JOIN events e ON e.position = keys.position`;
+          ctes.push(`${cteName} AS (${cteSql})`);
+        } else {
+          let cteSql = `
+            SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
+            FROM event_keys k
+            INNER JOIN events e ON e.position = k.position
+            WHERE k.key_name = ${escapeSql(c.keys[0].name)} AND k.key_value = ${escapeSql(c.keys[0].value)}`;
+          if (positionFilter !== null) {
+            cteSql += ` AND e.position > ${positionFilter}`;
+          }
+          ctes.push(`${cteName} AS (${cteSql})`);
+        }
+        cteNames.push(cteName);
+      });
     }
 
     // CTEs for constrained conditions

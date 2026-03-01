@@ -662,5 +662,175 @@ describe('EventStore', () => {
       });
     });
 
+    describe('.match() method', () => {
+      it('key-only match returns events across types', async () => {
+        await store.append([
+          { type: 'CourseCreated', data: { courseId: 'cs101', name: 'CS' } },
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } },
+          { type: 'StudentSubscribed', data: { courseId: 'math201', studentId: 'alice' } },
+          { type: 'CourseCreated', data: { courseId: 'math201', name: 'Math' } },
+        ], null);
+
+        // Key-only: all events with course=cs101, regardless of type
+        const result = await store.query()
+          .match({ course: 'cs101' })
+          .read();
+
+        expect(result.events).toHaveLength(2);
+        const types = result.events.map(e => e.type).sort();
+        expect(types).toEqual(['CourseCreated', 'StudentSubscribed']);
+      });
+
+      it('key-only AND match returns only events with ALL keys', async () => {
+        await store.append([
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } },
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'bob' } },
+          { type: 'StudentSubscribed', data: { courseId: 'math201', studentId: 'alice' } },
+        ], null);
+
+        const result = await store.query()
+          .match({ course: 'cs101', student: 'alice' })
+          .read();
+
+        expect(result.events).toHaveLength(1);
+        expect(result.events[0].data).toEqual({ courseId: 'cs101', studentId: 'alice' });
+      });
+
+      it('type-only match works like matchType', async () => {
+        await store.append([
+          { type: 'CourseCreated', data: { courseId: 'cs101', name: 'CS' } },
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } },
+        ], null);
+
+        const matchResult = await store.query()
+          .match('CourseCreated')
+          .read();
+
+        const matchTypeResult = await store.query()
+          .matchType('CourseCreated')
+          .read();
+
+        expect(matchResult.events).toHaveLength(matchTypeResult.events.length);
+        expect(matchResult.events.map(e => e.id)).toEqual(matchTypeResult.events.map(e => e.id));
+      });
+
+      it('type+keys match works like matchTypeAndKey + withKey', async () => {
+        await store.append([
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } },
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'bob' } },
+          { type: 'StudentSubscribed', data: { courseId: 'math201', studentId: 'alice' } },
+        ], null);
+
+        const matchResult = await store.query()
+          .match('StudentSubscribed', { course: 'cs101', student: 'alice' })
+          .read();
+
+        const legacyResult = await store.query()
+          .matchTypeAndKey('StudentSubscribed', 'course', 'cs101')
+          .withKey('student', 'alice')
+          .read();
+
+        expect(matchResult.events).toHaveLength(legacyResult.events.length);
+        expect(matchResult.events.map(e => e.id)).toEqual(legacyResult.events.map(e => e.id));
+      });
+
+      it('key-only match with fromPosition', async () => {
+        await store.append([
+          { type: 'CourseCreated', data: { courseId: 'cs101', name: 'CS' } },
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } },
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'bob' } },
+        ], null);
+
+        const result = await store.query()
+          .match({ course: 'cs101' })
+          .fromPosition(1n)
+          .read();
+
+        // Skips CourseCreated at position 1
+        expect(result.events).toHaveLength(2);
+      });
+
+      it('key-only match with limit', async () => {
+        await store.append([
+          { type: 'CourseCreated', data: { courseId: 'cs101', name: 'CS' } },
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } },
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'bob' } },
+        ], null);
+
+        const result = await store.query()
+          .match({ course: 'cs101' })
+          .limit(2)
+          .read();
+
+        expect(result.events).toHaveLength(2);
+      });
+
+      it('key-only appendCondition detects conflict', async () => {
+        await store.append([
+          { type: 'CourseCreated', data: { courseId: 'cs101', name: 'CS' } },
+        ], null);
+
+        // Read with key-only condition
+        const readResult = await store.query()
+          .match({ course: 'cs101' })
+          .read();
+
+        // Someone else adds an event with course=cs101
+        await store.append([
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'bob' } },
+        ], null);
+
+        // Try to append with stale appendCondition
+        const appendResult = await store.append(
+          [{ type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } }],
+          readResult.appendCondition
+        );
+
+        // Should be a conflict (bob's event has course=cs101)
+        expect(isConflict(appendResult)).toBe(true);
+      });
+
+      it('key-only appendCondition no conflict with different keys', async () => {
+        await store.append([
+          { type: 'CourseCreated', data: { courseId: 'cs101', name: 'CS' } },
+        ], null);
+
+        // Read with key-only condition for cs101
+        const readResult = await store.query()
+          .match({ course: 'cs101' })
+          .read();
+
+        // Someone adds event for math201 (different key value)
+        await store.append([
+          { type: 'CourseCreated', data: { courseId: 'math201', name: 'Math' } },
+        ], null);
+
+        // Should NOT conflict because math201 != cs101
+        const appendResult = await store.append(
+          [{ type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } }],
+          readResult.appendCondition
+        );
+
+        expect(isConflict(appendResult)).toBe(false);
+      });
+
+      it('key-only read via raw conditions (read API)', async () => {
+        await store.append([
+          { type: 'CourseCreated', data: { courseId: 'cs101', name: 'CS' } },
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } },
+          { type: 'StudentSubscribed', data: { courseId: 'math201', studentId: 'alice' } },
+        ], null);
+
+        // Use raw condition with keys[] but no type
+        const result = await store.read({
+          conditions: [
+            { keys: [{ name: 'course', value: 'cs101' }] },
+          ],
+        });
+
+        expect(result.events).toHaveLength(2);
+      });
+    });
+
   });
 });

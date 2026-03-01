@@ -3,7 +3,7 @@
  */
 
 import { Pool, PoolClient, type PoolConfig } from 'pg';
-import { isConstrainedCondition, isMultiKeyCondition, normalizeCondition, hasKeys, type ExtractedKey, type QueryCondition, type StoredEvent, type MultiKeyConstrainedCondition, type UnconstrainedCondition } from '../types.js';
+import { isConstrainedCondition, isMultiKeyCondition, isKeyOnlyCondition, normalizeCondition, hasKeys, type ExtractedKey, type QueryCondition, type StoredEvent, type MultiKeyConstrainedCondition, type UnconstrainedCondition, type KeyOnlyCondition } from '../types.js';
 import type { EventStorage, EventToStore, StorageAppendCondition, AppendWithConditionResult } from './interface.js';
 
 export interface PostgresRetryOptions {
@@ -280,8 +280,10 @@ export class PostgresStorage implements EventStorage {
 
     // Normalize all conditions
     const normalized = conditions.map(normalizeCondition);
-    const constrained = normalized.filter(hasKeys);
-    const unconstrained = normalized.filter(c => !hasKeys(c)) as UnconstrainedCondition[];
+    const keyOnly = normalized.filter(isKeyOnlyCondition) as KeyOnlyCondition[];
+    const withType = normalized.filter(c => !isKeyOnlyCondition(c));
+    const constrained = withType.filter(hasKeys) as MultiKeyConstrainedCondition[];
+    const unconstrained = withType.filter(c => !hasKeys(c)) as UnconstrainedCondition[];
 
     const ctes: string[] = [];
     const cteNames: string[] = [];
@@ -306,6 +308,61 @@ export class PostgresStorage implements EventStorage {
       }
       ctes.push(`unconstrained_matches AS (${cteSql})`);
       cteNames.push('unconstrained_matches');
+    }
+
+    // CTEs for key-only conditions (no type filter)
+    if (keyOnly.length > 0) {
+      keyOnly.forEach((c, i) => {
+        const isMultiKey = c.keys.length > 1;
+        const cteName = `keyonly_${i}`;
+
+        if (isMultiKey) {
+          const intersectParts = c.keys.map(key => {
+            const keyNameParam = `$${paramIndex}`;
+            params.push(key.name);
+            paramIndex++;
+            const keyValueParam = `$${paramIndex}`;
+            params.push(key.value);
+            paramIndex++;
+
+            let part = `
+          SELECT position FROM event_keys
+          WHERE key_name = ${keyNameParam} AND key_value = ${keyValueParam}`;
+            if (positionFilter !== null) {
+              part += ` AND position > $${paramIndex}`;
+              params.push(positionFilter);
+              paramIndex++;
+            }
+            return part;
+          });
+
+          const cteSql = `
+          SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
+          FROM (${intersectParts.join('\n          INTERSECT')}) keys
+          INNER JOIN events e ON e.position = keys.position`;
+          ctes.push(`${cteName} AS (${cteSql})`);
+        } else {
+          const keyNameParam = `$${paramIndex}`;
+          params.push(c.keys[0].name);
+          paramIndex++;
+          const keyValueParam = `$${paramIndex}`;
+          params.push(c.keys[0].value);
+          paramIndex++;
+
+          let cteSql = `
+          SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
+          FROM event_keys k
+          INNER JOIN events e ON e.position = k.position
+          WHERE k.key_name = ${keyNameParam} AND k.key_value = ${keyValueParam}`;
+          if (positionFilter !== null) {
+            cteSql += ` AND e.position > $${paramIndex}`;
+            params.push(positionFilter);
+            paramIndex++;
+          }
+          ctes.push(`${cteName} AS (${cteSql})`);
+        }
+        cteNames.push(cteName);
+      });
     }
 
     // Constrained conditions — each condition is its own CTE

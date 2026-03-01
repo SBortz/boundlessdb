@@ -14,6 +14,7 @@ export type {
   UnconstrainedCondition,
   ConstrainedCondition,
   MultiKeyConstrainedCondition,
+  KeyOnlyCondition,
   // Config types
   ConsistencyConfig,
   ConsistencyKeyDef,
@@ -26,7 +27,7 @@ export type {
   EventStoreOptions,
 } from './types.js';
 
-export { QueryResult, isConflict, isConstrainedCondition, isMultiKeyCondition, normalizeCondition, hasKeys } from './types.js';
+export { QueryResult, isConflict, isConstrainedCondition, isMultiKeyCondition, isKeyOnlyCondition, normalizeCondition, hasKeys } from './types.js';
 
 // Event Store
 export { EventStore, createEventStore, type EventStoreConfig } from './event-store.js';
