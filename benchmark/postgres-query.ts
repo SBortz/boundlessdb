@@ -531,8 +531,10 @@ async function runConcurrentWriterBenchmarks() {
     const avgTime = times.reduce((a, b) => a + b, 0) / times.length;
     const avgConflicts = Math.round(totalConflicts / CONFLICT_ITERATIONS);
     const avgSuccessful = Math.round(totalSuccessful / CONFLICT_ITERATIONS);
+    const avgEvents = avgSuccessful * EVENTS_PER_WRITER;
+    const throughput = Math.round(avgEvents / (avgTime / 1000));
     // Clear live line and print final
-    process.stdout.write(`\r  ${label.padEnd(nameCol)} ${avgTime.toFixed(1)} ms avg | ${avgConflicts} conflicts/round | ${avgSuccessful}/${CONCURRENT_WRITERS} successful          \n`);
+    process.stdout.write(`\r  ${label.padEnd(nameCol)} ${avgTime.toFixed(1)} ms avg | ${avgConflicts} conflicts/round | ${avgSuccessful}/${CONCURRENT_WRITERS} successful | ${formatNum(throughput)} evt/s          \n`);
   }
 
   await runWriterScenario('same key', () => 'course-0');
