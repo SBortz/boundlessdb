@@ -943,6 +943,81 @@ $ npx tsx scripts/reindex.ts --config ./consistency.ts --db ./events.sqlite
     <div class="flow-note" style="margin-top:1rem;">
       💡 <strong>Sub-millisecond queries</strong> for selective lookups, even with 50M events in the store.
       Shuffled execution order (no cache bias). Bold = sub-millisecond.
+    </div>
+
+    <h3 style="margin-top:2.5rem; text-align:center; color:#e0e0e0;">🔒 Conflict &amp; Concurrency (PostgreSQL, 50M events)</h3>
+    <p style="color:#888; text-align:center; margin-bottom:1rem; font-size:0.85rem;">
+      SERIALIZABLE isolation with decorrelated jitter backoff. No advisory locks needed.
+    </p>
+
+    <div style="overflow-x:auto;">
+      <table style="width:100%; border-collapse:collapse; background:#0a1628; border:1px solid #0f3460; border-radius:12px; font-size:0.9rem;">
+        <thead>
+          <tr style="border-bottom:2px solid #1e3a5f;">
+            <th style="text-align:left; padding:1rem; color:#0cf;">Scenario</th>
+            <th style="text-align:right; padding:1rem; color:#ff9e64;">Latency</th>
+            <th style="text-align:right; padding:1rem; color:#888;">Conflicts</th>
+            <th style="text-align:right; padding:1rem; color:#888;">Success</th>
+            <th style="text-align:right; padding:1rem; color:#ff9e64;">Throughput</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="border-bottom:1px solid #1e3a5f;">
+            <td style="padding:0.75rem 1rem; color:#ccc;">Append with condition</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">3.04 ms</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
+          </tr>
+          <tr style="border-bottom:1px solid #1e3a5f;">
+            <td style="padding:0.75rem 1rem; color:#ccc;">Conflict detection</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64; font-weight:600;">0.92 ms</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
+          </tr>
+          <tr style="border-bottom:1px solid #1e3a5f;">
+            <td style="padding:0.75rem 1rem; color:#ccc;">Conflict + retry round-trip</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">4.04 ms</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
+          </tr>
+          <tr style="border-bottom:1px solid #1e3a5f;">
+            <td style="padding:0.75rem 1rem; color:#ccc;">2 writers × 100 events, same key</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">145 ms</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#ffa0a0;">1/round</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#9ece6a; font-weight:600;">2/2</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64; font-weight:600;">1,376 evt/s</td>
+          </tr>
+          <tr style="border-bottom:1px solid #1e3a5f;">
+            <td style="padding:0.75rem 1rem; color:#ccc;">2 writers × 100 events, different keys</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">136 ms</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#9ece6a; font-weight:600;">0</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#9ece6a; font-weight:600;">2/2</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64; font-weight:600;">1,468 evt/s</td>
+          </tr>
+          <tr style="border-bottom:1px solid #1e3a5f;">
+            <td style="padding:0.75rem 1rem; color:#ccc;">10 writers × 100 events, same key</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">1,187 ms</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#ffa0a0;">10/round</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#9ece6a; font-weight:600;">5/5</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">421 evt/s</td>
+          </tr>
+          <tr>
+            <td style="padding:0.75rem 1rem; color:#ccc;">10 writers × 100 events, different keys</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">264 ms</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#9ece6a; font-weight:600;">0</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#9ece6a; font-weight:600;">5/5</td>
+            <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64; font-weight:600;">1,894 evt/s</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="flow-note" style="margin-top:1rem;">
+      💡 <strong>Same key = serialized</strong> (conflicts, retries). <strong>Different keys = full parallelism</strong> (zero conflicts).
+      DCB boundaries map directly to PostgreSQL SERIALIZABLE concurrency — no tuning required.
       <a href="https://github.com/SBortz/boundlessdb/tree/main/benchmark" style="color:#0cf; text-decoration:none;">Run benchmarks yourself →</a>
     </div>
   </div>
