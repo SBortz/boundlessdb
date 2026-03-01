@@ -105,6 +105,7 @@ export class EventStore {
   /**
    * Check if config has changed since last run, reindex if needed.
    * Works with any storage that implements getConfigHash/setConfigHash.
+   * Handles both sync (SqliteStorage) and async (SqlJsStorage) methods.
    */
   private checkAndReindexIfNeeded(): void {
     const storage = this.storage as any;
@@ -113,10 +114,26 @@ export class EventStore {
     }
 
     const currentHash = hashConfig(this.config);
-    const storedHash = storage.getConfigHash();
+    const result = storage.getConfigHash();
 
+    // Handle async storage (SqlJsStorage returns Promises)
+    if (result && typeof result.then === 'function') {
+      result.then((storedHash: string | null) => {
+        if (storedHash === null) {
+          storage.setConfigHash(currentHash);
+        } else if (storedHash !== currentHash) {
+          console.error(
+            `Config hash mismatch (stored: ${storedHash}, current: ${currentHash}). ` +
+            `Run the reindex script before starting the application.`
+          );
+        }
+      });
+      return;
+    }
+
+    // Sync storage (SqliteStorage)
+    const storedHash = result as string | null;
     if (storedHash === null) {
-      // First run — just store the hash
       storage.setConfigHash(currentHash);
     } else if (storedHash !== currentHash) {
       throw new Error(
