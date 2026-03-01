@@ -523,7 +523,9 @@ async function runConcurrentWriterBenchmarks() {
 
       // Live progress
       const avgSoFar = times.reduce((a, b) => a + b, 0) / times.length;
-      process.stdout.write(`\r  ${label.padEnd(25)} ${(iter + 1).toString().padStart(3)}/${CONFLICT_ITERATIONS} | ${avgSoFar.toFixed(0)}ms avg | ${totalConflicts} conflicts | ${totalSuccessful}/${(iter + 1) * CONCURRENT_WRITERS} ok`);
+      const avgSuccSoFar = Math.round(totalSuccessful / (iter + 1));
+      const evtsSoFar = formatNum(Math.round(avgSuccSoFar * EVENTS_PER_WRITER / (avgSoFar / 1000)));
+      process.stdout.write(`\r  ${label.padEnd(25)} ${(iter + 1).toString().padStart(3)}/${CONFLICT_ITERATIONS} | ${avgSoFar.toFixed(0)}ms avg | ${totalConflicts} conflicts | ${totalSuccessful}/${(iter + 1) * CONCURRENT_WRITERS} ok | ${evtsSoFar} evt/s`);
 
       for (const ws of writerStores) {
         await ws.close();
