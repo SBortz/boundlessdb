@@ -518,7 +518,9 @@
       <div class="tab-content" id="tab-append">
         
         <pre><code><span class="keyword">const</span> { events, appendCondition } = <span class="keyword">await</span> store.<span class="function">query</span>&lt;CourseEvent&gt;()
-  .<span class="function">matchKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>)
+  .<span class="function">matchType</span>(<span class="string">'StudentEnrolled'</span>)
+  .<span class="function">andKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>)
+  .<span class="function">andKey</span>(<span class="string">'student'</span>, <span class="string">'alice'</span>)
   .<span class="function">read</span>();
 
 <span class="comment">// Build state</span>
@@ -527,7 +529,7 @@
 <span class="comment">// Business logic</span>
 <span class="keyword">const</span> newEvents: CourseEvent[] = <span class="function">decide</span>(command, state);
 
-<span class="comment">// Append — conflicts if ANY event with course=cs101 was added since read</span>
+<span class="comment">// Append with optimistic concurrency</span>
 <span class="keyword">await</span> store.<span class="function">append</span>(newEvents, appendCondition);</code></pre>
       </div>
       
