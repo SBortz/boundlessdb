@@ -585,7 +585,8 @@ async function main() {
     );
   }
 
-  console.log(`\n  Mode: on-disk | Order: ${runMode} | Iterations: ${ITERATIONS} | Storage: SQLite (better-sqlite3)\n`);
+  const totalEvents = existingCourses * EVENTS_PER_COURSE;
+  console.log(`\n  Mode: on-disk | Order: ${runMode} | Iterations: ${ITERATIONS} | Events: ${formatNum(totalEvents)} | Storage: SQLite (better-sqlite3)\n`);
 }
 
 main().catch(console.error);

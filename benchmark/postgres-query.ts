@@ -9,6 +9,7 @@
  *   --sequential             Disable shuffle (default: shuffled)
  *   --connection <url>       PostgreSQL connection string (default: env DATABASE_URL or localhost:5433)
  *   --config <path>          Consistency config file (default: ./benchmark/consistency.config.ts)
+ *   --writer-events <n>      Events per concurrent writer (default: 5)
  *
  * Examples:
  *   npx tsx benchmark/postgres-query.ts --events 1m
@@ -80,8 +81,8 @@ function buildDataset(target: number) {
 
 if (sizeArgs.length === 0) {
   console.error('Usage: npx tsx benchmark/postgres-query.ts --events <size> [options]');
-  console.error('Options: --sequential --connection <url> --config <path>');
-  console.error('Example: npx tsx benchmark/postgres-query.ts --events 1m');
+  console.error('Options: --sequential --connection <url> --config <path> --writer-events <n>');
+  console.error('Example: npx tsx benchmark/postgres-query.ts --events 1m --writer-events 10');
   process.exit(1);
 }
 const sizes = sizeArgs.map(parseSize);
@@ -379,7 +380,7 @@ async function cleanDb() {
 
 const CONFLICT_ITERATIONS = 50;
 const CONCURRENT_WRITERS = 10;
-const EVENTS_PER_WRITER = 5;
+const EVENTS_PER_WRITER = Number(getArg('--writer-events')) || 5;
 
 async function runConflictBenchmarks(store: EventStore) {
   console.log(`\n  === Conflict Benchmarks ===\n`);
@@ -672,7 +673,8 @@ async function main() {
     );
   }
 
-  console.log(`\n  Order: ${runMode} | Iterations: ${ITERATIONS} | Storage: PostgreSQL\n`);
+  const totalEvents = existingEvents;
+  console.log(`\n  Order: ${runMode} | Iterations: ${ITERATIONS} | Events: ${formatNum(totalEvents)} | Storage: PostgreSQL\n`);
 }
 
 main().catch(console.error);
