@@ -402,6 +402,118 @@ describe('store.all() — Read All Events', () => {
   });
 });
 
+describe('QueryBuilder — .matchType() multi-type', () => {
+  const config = {
+    eventTypes: {
+      CourseCreated: {
+        keys: [{ name: 'course', path: 'data.courseId' }]
+      },
+      StudentEnrolled: {
+        keys: [
+          { name: 'course', path: 'data.courseId' },
+          { name: 'student', path: 'data.studentId' },
+        ]
+      },
+      CourseCancelled: {
+        keys: [{ name: 'course', path: 'data.courseId' }]
+      }
+    }
+  };
+
+  type MultiTypeEvent =
+    | Event<'CourseCreated', { courseId: string; capacity: number }>
+    | Event<'StudentEnrolled', { courseId: string; studentId: string }>
+    | Event<'CourseCancelled', { courseId: string }>;
+
+  let store: ReturnType<typeof createEventStore>;
+
+  beforeEach(async () => {
+    store = createEventStore({
+      storage: new InMemoryStorage(),
+      consistency: config
+    });
+
+    await store.append<MultiTypeEvent>([
+      { type: 'CourseCreated', data: { courseId: 'cs101', capacity: 30 } },
+      { type: 'StudentEnrolled', data: { courseId: 'cs101', studentId: 'alice' } },
+      { type: 'StudentEnrolled', data: { courseId: 'cs101', studentId: 'bob' } },
+      { type: 'CourseCreated', data: { courseId: 'math201', capacity: 25 } },
+      { type: 'StudentEnrolled', data: { courseId: 'math201', studentId: 'alice' } },
+      { type: 'CourseCancelled', data: { courseId: 'cs101' } },
+    ], null);
+  });
+
+  it('matchType with multiple types returns events of all specified types', async () => {
+    const result = await store.query<MultiTypeEvent>()
+      .matchType('CourseCreated', 'CourseCancelled')
+      .read();
+
+    expect(result.count).toBe(3); // 2 CourseCreated + 1 CourseCancelled
+    expect(result.events.every(e => e.type === 'CourseCreated' || e.type === 'CourseCancelled')).toBe(true);
+  });
+
+  it('matchType with multiple types + withKey filters by key', async () => {
+    const result = await store.query<MultiTypeEvent>()
+      .matchType('CourseCreated', 'CourseCancelled')
+      .withKey('course', 'cs101')
+      .read();
+
+    expect(result.count).toBe(2); // CourseCreated cs101 + CourseCancelled cs101
+    const types = result.events.map(e => e.type);
+    expect(types).toContain('CourseCreated');
+    expect(types).toContain('CourseCancelled');
+  });
+
+  it('matchType with multiple types + multiple withKey (AND)', async () => {
+    const result = await store.query<MultiTypeEvent>()
+      .matchType('CourseCreated', 'StudentEnrolled')
+      .withKey('course', 'cs101')
+      .withKey('student', 'alice')
+      .read();
+
+    // Only StudentEnrolled has both keys
+    expect(result.count).toBe(1);
+    expect(result.events[0].type).toBe('StudentEnrolled');
+  });
+
+  it('matchType with multiple types combined with matchKey (OR)', async () => {
+    const result = await store.query<MultiTypeEvent>()
+      .matchType('CourseCreated', 'CourseCancelled')  // Condition 1: types OR
+      .matchKey('student', 'alice')                     // Condition 2: key-only (OR)
+      .read();
+
+    // 3 (CourseCreated + CourseCancelled) + 2 (alice enrollments) = 5
+    expect(result.count).toBe(5);
+  });
+
+  it('matchType with single type still works', async () => {
+    const result = await store.query<MultiTypeEvent>()
+      .matchType('CourseCreated')
+      .read();
+
+    expect(result.count).toBe(2);
+  });
+
+  it('matchType with zero types throws', async () => {
+    expect(() => {
+      store.query<MultiTypeEvent>().matchType();
+    }).toThrow('.matchType() requires at least one type');
+  });
+
+  it('appendCondition with multi-type preserves types', async () => {
+    const result = await store.query<MultiTypeEvent>()
+      .matchType('CourseCreated', 'CourseCancelled')
+      .withKey('course', 'cs101')
+      .read();
+
+    expect(result.appendCondition).toBeDefined();
+    const cond = result.appendCondition.failIfEventsMatch[0];
+    expect('types' in cond).toBe(true);
+    expect((cond as any).types).toEqual(['CourseCreated', 'CourseCancelled']);
+    expect((cond as any).keys).toEqual([{ name: 'course', value: 'cs101' }]);
+  });
+});
+
 describe('QueryBuilder — .matchKey() Method', () => {
   const config = {
     eventTypes: {

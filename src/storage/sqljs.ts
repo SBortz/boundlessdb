@@ -3,7 +3,7 @@
  */
 
 import initSqlJs, { type Database as SqlJsDatabase, type SqlValue } from 'sql.js';
-import { isConstrainedCondition, isMultiKeyCondition, isKeyOnlyCondition, normalizeCondition, hasKeys, type ExtractedKey, type QueryCondition, type StoredEvent, type MultiKeyConstrainedCondition, type UnconstrainedCondition, type KeyOnlyCondition } from '../types.js';
+import { isConstrainedCondition, isMultiKeyCondition, isKeyOnlyCondition, isMultiTypeCondition, isMultiTypeConstrainedCondition, normalizeCondition, hasKeys, type ExtractedKey, type QueryCondition, type StoredEvent, type MultiKeyConstrainedCondition, type MultiTypeCondition, type MultiTypeConstrainedCondition, type UnconstrainedCondition, type KeyOnlyCondition } from '../types.js';
 import type { EventStorage, EventToStore, StorageAppendCondition, AppendWithConditionResult } from './interface.js';
 
 const SCHEMA = `
@@ -220,9 +220,11 @@ export class SqlJsStorage implements EventStorage {
     // Normalize all conditions to the internal format
     const normalized = conditions.map(normalizeCondition);
     const keyOnly = normalized.filter(isKeyOnlyCondition) as KeyOnlyCondition[];
-    const withType = normalized.filter(c => !isKeyOnlyCondition(c));
-    const constrained = withType.filter(hasKeys) as MultiKeyConstrainedCondition[];
-    const unconstrained = withType.filter(c => !hasKeys(c)) as UnconstrainedCondition[];
+    const multiType = normalized.filter(isMultiTypeCondition) as MultiTypeCondition[];
+    const multiTypeConstrained = normalized.filter(isMultiTypeConstrainedCondition) as MultiTypeConstrainedCondition[];
+    const singleType = normalized.filter(c => !isKeyOnlyCondition(c) && !isMultiTypeCondition(c) && !isMultiTypeConstrainedCondition(c));
+    const constrained = singleType.filter(hasKeys) as MultiKeyConstrainedCondition[];
+    const unconstrained = singleType.filter(c => !hasKeys(c)) as UnconstrainedCondition[];
 
     const positionFilter = fromPosition !== undefined ? Number(fromPosition) : null;
 
@@ -242,6 +244,67 @@ export class SqlJsStorage implements EventStorage {
       }
       ctes.push(`unconstrained_matches AS (${cteSql})`);
       cteNames.push('unconstrained_matches');
+    }
+
+    // CTE for multi-type unconstrained conditions
+    if (multiType.length > 0) {
+      multiType.forEach((c, i) => {
+        const typePlaceholders = c.types.map(() => '?').join(', ');
+        let cteSql = `
+        SELECT position, event_id, event_type, data, metadata, timestamp
+        FROM events
+        WHERE event_type IN (${typePlaceholders})`;
+        if (positionFilter !== null) {
+          cteSql += ' AND position > ?';
+        }
+        ctes.push(`multitype_${i} AS (${cteSql})`);
+        cteNames.push(`multitype_${i}`);
+        params.push(...c.types);
+        if (positionFilter !== null) params.push(positionFilter);
+      });
+    }
+
+    // CTEs for multi-type constrained conditions (types[] + keys)
+    if (multiTypeConstrained.length > 0) {
+      multiTypeConstrained.forEach((c, i) => {
+        const isMultiKey = c.keys.length > 1;
+        const typePlaceholders = c.types.map(() => '?').join(', ');
+
+        if (isMultiKey) {
+          const cteName = `mtc_${i}`;
+          const intersectParts = c.keys.map(() => `
+            SELECT position FROM event_keys
+            WHERE key_name = ? AND key_value = ?`);
+          const cteSql = `
+            SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
+            FROM (${intersectParts.join('\n          INTERSECT')}) keys
+            INNER JOIN events e ON e.position = keys.position
+            WHERE e.event_type IN (${typePlaceholders})`;
+          ctes.push(`${cteName} AS (${cteSql})`);
+          cteNames.push(cteName);
+          for (const key of c.keys) {
+            params.push(key.name, key.value);
+          }
+          params.push(...c.types);
+          if (positionFilter !== null) {
+            // Note: sql.js CTE-based approach doesn't use position filter inside CTE
+          }
+        } else {
+          const cteName = `mtc_${i}`;
+          let cteSql = `
+            SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
+            FROM event_keys k
+            INNER JOIN events e ON e.position = k.position
+            WHERE k.key_name = ? AND k.key_value = ? AND e.event_type IN (${typePlaceholders})`;
+          if (positionFilter !== null) {
+            cteSql += ' AND e.position > ?';
+          }
+          ctes.push(`${cteName} AS (${cteSql})`);
+          cteNames.push(cteName);
+          params.push(c.keys[0].name, c.keys[0].value, ...c.types);
+          if (positionFilter !== null) params.push(positionFilter);
+        }
+      });
     }
 
     // CTEs for key-only conditions (no type filter)

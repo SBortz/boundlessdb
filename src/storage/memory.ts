@@ -2,7 +2,7 @@
  * In-Memory Storage implementation (for testing)
  */
 
-import { isConstrainedCondition, isKeyOnlyCondition, normalizeCondition, hasKeys, type ExtractedKey, type QueryCondition, type StoredEvent, type MultiKeyConstrainedCondition, type KeyOnlyCondition } from '../types.js';
+import { isConstrainedCondition, isKeyOnlyCondition, isMultiTypeCondition, isMultiTypeConstrainedCondition, normalizeCondition, hasKeys, type ExtractedKey, type QueryCondition, type StoredEvent, type MultiKeyConstrainedCondition, type MultiTypeCondition, type MultiTypeConstrainedCondition, type KeyOnlyCondition } from '../types.js';
 import type { EventStorage, EventToStore, StorageAppendCondition, AppendWithConditionResult } from './interface.js';
 
 interface StoredEventInternal extends StoredEvent {
@@ -101,8 +101,21 @@ export class InMemoryStorage implements EventStorage {
           );
         }
 
+        // Multi-type conditions: type must be in types[]
+        if (isMultiTypeConstrainedCondition(cond)) {
+          if (!cond.types.includes(event.type)) return false;
+          return cond.keys.every(
+            requiredKey => event.keys.some(
+              eventKey => eventKey.name === requiredKey.name && eventKey.value === requiredKey.value
+            )
+          );
+        }
+        if (isMultiTypeCondition(cond)) {
+          return cond.types.includes(event.type);
+        }
+
         // Type must match
-        if (event.type !== cond.type) {
+        if (event.type !== (cond as { type: string }).type) {
           return false;
         }
 

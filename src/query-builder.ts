@@ -2,7 +2,7 @@
  * Fluent Query Builder for BoundlessDB
  */
 
-import type { Event, QueryCondition, QueryResult, MultiKeyConstrainedCondition, KeyOnlyCondition } from './types.js';
+import type { Event, QueryCondition, QueryResult, MultiKeyConstrainedCondition, MultiTypeCondition, KeyOnlyCondition } from './types.js';
 
 export interface QueryExecutor<E extends Event> {
   read(query: { 
@@ -46,17 +46,25 @@ export class QueryBuilder<E extends Event> {
   constructor(private readonly executor: QueryExecutor<E>) {}
 
   /**
-   * Add an unconstrained condition (match all events of type).
+   * Add an unconstrained condition (match events of one or more types).
    * Use `.withKey()` after to add key constraints (AND).
    * 
    * @example
    * ```typescript
-   * .matchType('CourseCreated')  // matches ALL CourseCreated events
+   * .matchType('CourseCreated')  // single type
+   * .matchType('CourseCreated', 'CourseCancelled')  // multiple types (OR within)
    * .matchType('StudentSubscribed').withKey('course', 'cs101')  // type + key
    * ```
    */
-  matchType(type: string): this {
-    this.conditions.push({ type });
+  matchType(...types: string[]): this {
+    if (types.length === 0) {
+      throw new Error('.matchType() requires at least one type');
+    }
+    if (types.length === 1) {
+      this.conditions.push({ type: types[0] });
+    } else {
+      this.conditions.push({ types } as MultiTypeCondition);
+    }
     return this;
   }
 
@@ -124,6 +132,12 @@ export class QueryBuilder<E extends Event> {
         type: legacy.type,
         keys: [{ name: legacy.key, value: legacy.value }, { name: key, value }],
       } as MultiKeyConstrainedCondition;
+    } else if ('types' in last) {
+      // Multi-type unconstrained — convert to multi-type constrained
+      this.conditions[lastIdx] = {
+        types: (last as MultiTypeCondition).types,
+        keys: [{ name: key, value }],
+      };
     } else {
       // Unconstrained (type only) — convert to multi-key
       this.conditions[lastIdx] = {
