@@ -482,8 +482,11 @@ async function runConcurrentWriterBenchmarks() {
 
     for (let iter = 0; iter < CONFLICT_ITERATIONS; iter++) {
       const writerStores: EventStore[] = [];
+      let serializationRetries = 0;
       for (let w = 0; w < CONCURRENT_WRITERS; w++) {
-        const writerStorage = new PostgresStorage({ connectionString: DB_URL, max: 1 });
+        const writerStorage = new PostgresStorage({ connectionString: DB_URL, max: 1 }, {
+          onRetry: () => { serializationRetries++; },
+        });
         await writerStorage.init();
         writerStores.push(new EventStore({ storage: writerStorage, ...STORE_CONFIG }));
       }
@@ -498,8 +501,8 @@ async function runConcurrentWriterBenchmarks() {
         const elapsedS = (elapsed / 1000).toFixed(0);
         const evtsNow = successes * EVENTS_PER_WRITER;
         const evtRate = elapsed > 0 ? formatNum(Math.round(evtsNow / (elapsed / 1000))) : '0';
-        const tickLine = `  ${label.padEnd(25)} ${(iter + 1).toString().padStart(3)}/${CONFLICT_ITERATIONS} | ${elapsedS}s | ${conflicts} conflicts | ${successes}/${CONCURRENT_WRITERS} done | ${evtRate} evt/s`;
-        process.stdout.write(`\r${tickLine.padEnd(120)}`);
+        const tickLine = `  ${label.padEnd(25)} ${(iter + 1).toString().padStart(3)}/${CONFLICT_ITERATIONS} | ${elapsedS}s | ${successes}/${CONCURRENT_WRITERS} done | ${conflicts} dcb | ${serializationRetries} pg40001 | ${evtRate} evt/s`;
+        process.stdout.write(`\r${tickLine.padEnd(140)}`);
       }, 500);
 
       await Promise.all(writerStores.map(async (writerStore, w) => {

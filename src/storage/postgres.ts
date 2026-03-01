@@ -15,6 +15,8 @@ export interface PostgresRetryOptions {
   retryMaxMs?: number;
   /** Add random jitter to retry delay (default: true) */
   retryJitter?: boolean;
+  /** Called on each serialization retry (for monitoring/metrics) */
+  onRetry?: (attempt: number, delayMs: number) => void;
 }
 
 const SCHEMA = `
@@ -89,6 +91,7 @@ export class PostgresStorage implements EventStorage {
   private retryBaseMs: number;
   private retryMaxMs: number;
   private retryJitter: boolean;
+  private onRetry?: (attempt: number, delayMs: number) => void;
   constructor(connectionStringOrConfig: string | PoolConfig, options?: PostgresRetryOptions) {
     if (typeof connectionStringOrConfig === 'string') {
       this.pool = new Pool({ connectionString: connectionStringOrConfig });
@@ -99,6 +102,7 @@ export class PostgresStorage implements EventStorage {
     this.retryBaseMs = options?.retryBaseMs ?? 50;
     this.retryMaxMs = options?.retryMaxMs ?? 2000;
     this.retryJitter = options?.retryJitter ?? true;
+    this.onRetry = options?.onRetry;
   }
 
   private getRetryDelay(attempt: number): number {
@@ -226,6 +230,7 @@ export class PostgresStorage implements EventStorage {
         // Retry on serialization failure (PostgreSQL error code 40001)
         if (error.code === '40001' && attempt < maxRetries) {
           const delay = this.getRetryDelay(attempt);
+          this.onRetry?.(attempt, delay);
           await new Promise(r => setTimeout(r, delay));
           continue;
         }
