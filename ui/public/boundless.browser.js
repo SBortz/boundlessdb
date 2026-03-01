@@ -2143,6 +2143,27 @@ var require_sql_wasm_browser = __commonJS({
 function isConstrainedCondition(c) {
   return "type" in c && "key" in c && "value" in c;
 }
+function isMultiKeyCondition(c) {
+  return "type" in c && "keys" in c && Array.isArray(c.keys);
+}
+function isMultiTypeCondition(c) {
+  return "types" in c && !("keys" in c);
+}
+function isMultiTypeConstrainedCondition(c) {
+  return "types" in c && "keys" in c;
+}
+function isKeyOnlyCondition(c) {
+  return !("type" in c) && !("types" in c) && "keys" in c && Array.isArray(c.keys);
+}
+function normalizeCondition(c) {
+  if (isConstrainedCondition(c)) {
+    return { type: c.type, keys: [{ name: c.key, value: c.value }] };
+  }
+  return c;
+}
+function hasKeys(c) {
+  return "keys" in c && Array.isArray(c.keys) && c.keys.length > 0;
+}
 var QueryResult = class {
   constructor(events, position, conditions) {
     __publicField(this, "events");
@@ -2444,17 +2465,28 @@ var SqlJsStorage = class {
     }
     return this.db;
   }
-  async append(eventsToStore, keys) {
+  async appendWithCondition(eventsToStore, keys, condition) {
     const db = await this.ensureInitialized();
     if (eventsToStore.length !== keys.length) {
       throw new Error("Events and keys arrays must have the same length");
     }
     if (eventsToStore.length === 0) {
-      return this.getLatestPosition();
+      const position = await this.getLatestPosition();
+      return { position };
     }
     let lastPosition = 0n;
     db.run("BEGIN TRANSACTION");
     try {
+      if (condition !== null) {
+        const conflictingEvents = await this.query(
+          condition.failIfEventsMatch,
+          condition.after
+        );
+        if (conflictingEvents.length > 0) {
+          db.run("ROLLBACK");
+          return { conflicting: conflictingEvents };
+        }
+      }
       const escapeSql = (s) => {
         if (s === null) return "NULL";
         return "'" + s.replace(/'/g, "''") + "'";
@@ -2486,7 +2518,7 @@ var SqlJsStorage = class {
       db.run("ROLLBACK");
       throw error;
     }
-    return lastPosition;
+    return { position: lastPosition };
   }
   async query(conditions, fromPosition, limit) {
     const db = await this.ensureInitialized();
@@ -2515,51 +2547,142 @@ var SqlJsStorage = class {
         return this.rowToEvent(obj);
       });
     }
-    const constrained = conditions.filter(isConstrainedCondition);
-    const unconstrained = conditions.filter((c) => !isConstrainedCondition(c));
-    const whereClauses = [];
+    const normalized = conditions.map(normalizeCondition);
+    const keyOnly = normalized.filter(isKeyOnlyCondition);
+    const multiType = normalized.filter(isMultiTypeCondition);
+    const multiTypeConstrained = normalized.filter(isMultiTypeConstrainedCondition);
+    const singleType = normalized.filter((c) => !isKeyOnlyCondition(c) && !isMultiTypeCondition(c) && !isMultiTypeConstrainedCondition(c));
+    const constrained = singleType.filter(hasKeys);
+    const unconstrained = singleType.filter((c) => !hasKeys(c));
+    const positionFilter = fromPosition !== void 0 ? Number(fromPosition) : null;
+    const ctes = [];
+    const cteNames = [];
     if (unconstrained.length > 0) {
       const typeList = unconstrained.map((c) => escapeSql(c.type)).join(", ");
-      whereClauses.push(`e.event_type IN (${typeList})`);
+      let cteSql = `
+        SELECT position, event_id, event_type, data, metadata, timestamp
+        FROM events
+        WHERE event_type IN (${typeList})`;
+      if (positionFilter !== null) {
+        cteSql += ` AND position > ${positionFilter}`;
+      }
+      ctes.push(`unconstrained_matches AS (${cteSql})`);
+      cteNames.push("unconstrained_matches");
+    }
+    if (multiType.length > 0) {
+      multiType.forEach((c, i) => {
+        const typeList = c.types.map((t) => escapeSql(t)).join(", ");
+        let cteSql = `
+        SELECT position, event_id, event_type, data, metadata, timestamp
+        FROM events
+        WHERE event_type IN (${typeList})`;
+        if (positionFilter !== null) {
+          cteSql += ` AND position > ${positionFilter}`;
+        }
+        ctes.push(`multitype_${i} AS (${cteSql})`);
+        cteNames.push(`multitype_${i}`);
+      });
+    }
+    if (multiTypeConstrained.length > 0) {
+      multiTypeConstrained.forEach((c, i) => {
+        const isMultiKey = c.keys.length > 1;
+        const typeList = c.types.map((t) => escapeSql(t)).join(", ");
+        if (isMultiKey) {
+          const cteName = `mtc_${i}`;
+          const intersectParts = c.keys.map(
+            (key) => `SELECT position FROM event_keys WHERE key_name = ${escapeSql(key.name)} AND key_value = ${escapeSql(key.value)}`
+          );
+          const cteSql = `
+            SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
+            FROM (${intersectParts.join("\n          INTERSECT")}) keys
+            INNER JOIN events e ON e.position = keys.position
+            WHERE e.event_type IN (${typeList})`;
+          ctes.push(`${cteName} AS (${cteSql})`);
+          cteNames.push(cteName);
+        } else {
+          const cteName = `mtc_${i}`;
+          let cteSql = `
+            SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
+            FROM event_keys k
+            INNER JOIN events e ON e.position = k.position
+            WHERE k.key_name = ${escapeSql(c.keys[0].name)} AND k.key_value = ${escapeSql(c.keys[0].value)}
+            AND e.event_type IN (${typeList})`;
+          if (positionFilter !== null) {
+            cteSql += ` AND e.position > ${positionFilter}`;
+          }
+          ctes.push(`${cteName} AS (${cteSql})`);
+          cteNames.push(cteName);
+        }
+      });
+    }
+    if (keyOnly.length > 0) {
+      keyOnly.forEach((c, i) => {
+        const isMultiKey = c.keys.length > 1;
+        const cteName = `keyonly_${i}`;
+        if (isMultiKey) {
+          const intersectParts = c.keys.map((key) => {
+            let part = `SELECT position FROM event_keys WHERE key_name = ${escapeSql(key.name)} AND key_value = ${escapeSql(key.value)}`;
+            if (positionFilter !== null) {
+              part += ` AND position > ${positionFilter}`;
+            }
+            return part;
+          });
+          const cteSql = `
+            SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
+            FROM (${intersectParts.join(" INTERSECT ")}) keys
+            INNER JOIN events e ON e.position = keys.position`;
+          ctes.push(`${cteName} AS (${cteSql})`);
+        } else {
+          let cteSql = `
+            SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
+            FROM event_keys k
+            INNER JOIN events e ON e.position = k.position
+            WHERE k.key_name = ${escapeSql(c.keys[0].name)} AND k.key_value = ${escapeSql(c.keys[0].value)}`;
+          if (positionFilter !== null) {
+            cteSql += ` AND e.position > ${positionFilter}`;
+          }
+          ctes.push(`${cteName} AS (${cteSql})`);
+        }
+        cteNames.push(cteName);
+      });
     }
     if (constrained.length > 0) {
-      const constrainedClauses = constrained.map(
-        (c) => `(e.event_type = ${escapeSql(c.type)} AND k.key_name = ${escapeSql(c.key)} AND k.key_value = ${escapeSql(c.value)})`
-      );
-      whereClauses.push(`(${constrainedClauses.join(" OR ")})`);
+      constrained.forEach((c, i) => {
+        const isMultiKey = c.keys.length > 1;
+        const cteName = `constrained_${i}`;
+        if (isMultiKey) {
+          const intersectParts = c.keys.map((key) => {
+            let part = `SELECT position FROM event_keys WHERE key_name = ${escapeSql(key.name)} AND key_value = ${escapeSql(key.value)}`;
+            if (positionFilter !== null) {
+              part += ` AND position > ${positionFilter}`;
+            }
+            return part;
+          });
+          const cteSql = `
+            SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
+            FROM (${intersectParts.join(" INTERSECT ")}) keys
+            INNER JOIN events e ON e.position = keys.position
+            WHERE e.event_type = ${escapeSql(c.type)}`;
+          ctes.push(`${cteName} AS (${cteSql})`);
+        } else {
+          let cteSql = `
+            SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
+            FROM event_keys k
+            INNER JOIN events e ON e.position = k.position
+            WHERE k.key_name = ${escapeSql(c.keys[0].name)} AND k.key_value = ${escapeSql(c.keys[0].value)}
+              AND e.event_type = ${escapeSql(c.type)}`;
+          if (positionFilter !== null) {
+            cteSql += ` AND e.position > ${positionFilter}`;
+          }
+          ctes.push(`${cteName} AS (${cteSql})`);
+        }
+        cteNames.push(cteName);
+      });
     }
-    const needsJoin = constrained.length > 0;
-    let sql;
-    if (needsJoin) {
-      sql = `
-        SELECT DISTINCT
-          e.position,
-          e.event_id,
-          e.event_type,
-          e.data,
-          e.metadata,
-          e.timestamp
-        FROM events e
-        LEFT JOIN event_keys k ON e.position = k.position
-        WHERE (${whereClauses.join(" OR ")})
-      `;
-    } else {
-      sql = `
-        SELECT
-          position,
-          event_id,
-          event_type,
-          data,
-          metadata,
-          timestamp
-        FROM events e
-        WHERE (${whereClauses.join(" OR ")})
-      `;
-    }
-    if (fromPosition !== void 0) {
-      sql += ` AND e.position > ${Number(fromPosition)}`;
-    }
-    sql += " ORDER BY e.position";
+    const unionParts = cteNames.map((name) => `SELECT * FROM ${name}`);
+    let sql = `WITH ${ctes.join(",\n")}
+SELECT * FROM (${unionParts.join(" UNION ALL ")}) AS combined
+ORDER BY position`;
     if (limit !== void 0) {
       sql += ` LIMIT ${Number(limit)}`;
     }
@@ -2574,9 +2697,6 @@ var SqlJsStorage = class {
       });
       return this.rowToEvent(obj);
     });
-  }
-  async getEventsSince(conditions, sincePosition) {
-    return this.query(conditions, sincePosition);
   }
   async getLatestPosition() {
     const db = await this.ensureInitialized();
@@ -2659,6 +2779,7 @@ var SqlJsStorage = class {
   }
   /**
    * Reindex all events with new keys
+   * @deprecated Use reindexBatch() for production-safe batch-based reindexing
    */
   async reindex(extractKeys) {
     const db = await this.ensureInitialized();
@@ -2681,6 +2802,78 @@ var SqlJsStorage = class {
       throw error;
     }
   }
+  /**
+   * Batch-based reindex: processes events in cursor-based batches.
+   * Crash-safe via reindex_position metadata. Resumes from last completed batch.
+   */
+  async reindexBatch(extractKeys, options) {
+    const db = await this.ensureInitialized();
+    const batchSize = options?.batchSize ?? 1e4;
+    const onProgress = options?.onProgress;
+    const startTime = Date.now();
+    const escapeSql = (s) => "'" + s.replace(/'/g, "''") + "'";
+    const countResult = db.exec("SELECT COUNT(*) as cnt FROM events");
+    const totalEvents = countResult.length > 0 ? countResult[0].values[0][0] : 0;
+    if (totalEvents === 0) {
+      db.run("DELETE FROM metadata WHERE key = 'reindex_position'");
+      return { events: 0, keys: 0, durationMs: Date.now() - startTime };
+    }
+    const resumeResult = db.exec("SELECT value FROM metadata WHERE key = 'reindex_position'");
+    let cursor = resumeResult.length > 0 && resumeResult[0].values.length > 0 ? Number(resumeResult[0].values[0][0]) : 0;
+    let totalProcessed = 0;
+    if (cursor > 0) {
+      const countDone = db.exec(`SELECT COUNT(*) as cnt FROM events WHERE position <= ${cursor}`);
+      totalProcessed = countDone.length > 0 ? countDone[0].values[0][0] : 0;
+    }
+    let totalKeys = 0;
+    while (true) {
+      const batchResult = db.exec(
+        `SELECT position, event_id, event_type, data, metadata, timestamp
+         FROM events
+         WHERE position > ${cursor}
+         ORDER BY position
+         LIMIT ${batchSize}`
+      );
+      if (batchResult.length === 0 || batchResult[0].values.length === 0) break;
+      const columns = batchResult[0].columns || batchResult[0].lc;
+      const rows = batchResult[0].values;
+      const parsedRows = rows.map((row) => {
+        const obj = {};
+        columns.forEach((col, i) => {
+          obj[col] = row[i];
+        });
+        return obj;
+      });
+      const minPos = parsedRows[0].position;
+      const maxPos = parsedRows[parsedRows.length - 1].position;
+      db.run("BEGIN TRANSACTION");
+      try {
+        db.run(`DELETE FROM event_keys WHERE position >= ${minPos} AND position <= ${maxPos}`);
+        for (const row of parsedRows) {
+          const event = this.rowToEvent(row);
+          const keys = extractKeys(event);
+          for (const key of keys) {
+            db.run(
+              `INSERT INTO event_keys (position, key_name, key_value) VALUES (${Number(row.position)}, ${escapeSql(key.name)}, ${escapeSql(key.value)})`
+            );
+            totalKeys++;
+          }
+        }
+        db.run(`INSERT OR REPLACE INTO metadata (key, value) VALUES ('reindex_position', '${maxPos}')`);
+        db.run("COMMIT");
+      } catch (error) {
+        db.run("ROLLBACK");
+        throw error;
+      }
+      cursor = maxPos;
+      totalProcessed += parsedRows.length;
+      if (onProgress) {
+        onProgress(totalProcessed, totalEvents);
+      }
+    }
+    db.run("DELETE FROM metadata WHERE key = 'reindex_position'");
+    return { events: totalProcessed, keys: totalKeys, durationMs: Date.now() - startTime };
+  }
   rowToEvent(row) {
     return {
       id: row.event_id,
@@ -2693,7 +2886,151 @@ var SqlJsStorage = class {
   }
 };
 
+// src/query-builder.ts
+var QueryBuilder = class {
+  constructor(executor) {
+    this.executor = executor;
+    __publicField(this, "conditions", []);
+    __publicField(this, "_fromPosition");
+    __publicField(this, "_limit");
+  }
+  /**
+   * Add an unconstrained condition (match events of one or more types).
+   * Use `.andKey()` after to add key constraints (AND).
+   * 
+   * @example
+   * ```typescript
+   * .matchType('CourseCreated')  // single type
+   * .matchType('CourseCreated', 'CourseCancelled')  // multiple types (OR within)
+   * .matchType('StudentSubscribed').andKey('course', 'cs101')  // type + key
+   * ```
+   */
+  matchType(...types) {
+    if (types.length === 0) {
+      throw new Error(".matchType() requires at least one type");
+    }
+    if (types.length === 1) {
+      this.conditions.push({ type: types[0] });
+    } else {
+      this.conditions.push({ types });
+    }
+    return this;
+  }
+  /**
+   * Add a constrained condition (match events of type where key equals value).
+   * Shorthand for `.matchType(type).andKey(key, value)`.
+   * Use `.andKey()` after to add more key constraints (AND).
+   * 
+   * @example
+   * ```typescript
+   * .matchTypeAndKey('StudentSubscribed', 'course', 'cs101')
+   * .matchTypeAndKey('StudentSubscribed', 'course', 'cs101').andKey('student', 'alice')
+   * ```
+   */
+  matchTypeAndKey(type, key, value) {
+    this.conditions.push({ type, keys: [{ name: key, value }] });
+    return this;
+  }
+  /**
+   * Key-only query: match events by key, regardless of event type.
+   * Starts a new condition (OR with previous conditions).
+   * Use `.andKey()` after to add more key constraints (AND).
+   * 
+   * @example
+   * ```typescript
+   * .matchKey('cart', 'abc-123')  // all events with cart=abc-123
+   * .matchKey('course', 'cs101').andKey('student', 'alice')  // AND
+   * ```
+   */
+  matchKey(key, value) {
+    this.conditions.push({ keys: [{ name: key, value }] });
+    return this;
+  }
+  /**
+   * Add a key constraint to the last condition (AND).
+   * Must be called after `.matchType()` or `.matchTypeAndKey()`.
+   * 
+   * @throws Error if no preceding condition exists
+   * 
+   * @example
+   * ```typescript
+   * .matchType('StudentSubscribed')
+   *   .andKey('course', 'cs101')
+   *   .andKey('student', 'alice')  // AND: both keys must match
+   * ```
+   */
+  andKey(key, value) {
+    if (this.conditions.length === 0) {
+      throw new Error(".andKey() requires a preceding .matchType(), .matchTypeAndKey(), or .matchKey()");
+    }
+    const lastIdx = this.conditions.length - 1;
+    const last = this.conditions[lastIdx];
+    if ("keys" in last && Array.isArray(last.keys)) {
+      last.keys.push({ name: key, value });
+    } else if ("key" in last && "value" in last) {
+      const legacy = last;
+      this.conditions[lastIdx] = {
+        type: legacy.type,
+        keys: [{ name: legacy.key, value: legacy.value }, { name: key, value }]
+      };
+    } else if ("types" in last) {
+      this.conditions[lastIdx] = {
+        types: last.types,
+        keys: [{ name: key, value }]
+      };
+    } else {
+      this.conditions[lastIdx] = {
+        type: last.type,
+        keys: [{ name: key, value }]
+      };
+    }
+    return this;
+  }
+  /**
+   * Start reading from a specific position.
+   * 
+   * @example
+   * ```typescript
+   * .fromPosition(100n)  // skip events before position 100
+   * ```
+   */
+  fromPosition(position) {
+    this._fromPosition = position;
+    return this;
+  }
+  /**
+   * Limit the number of events returned.
+   * 
+   * @example
+   * ```typescript
+   * .limit(50)  // return at most 50 events
+   * ```
+   */
+  limit(count) {
+    this._limit = count;
+    return this;
+  }
+  /**
+   * Execute the query and return results.
+   */
+  async read() {
+    return this.executor.read({
+      conditions: this.conditions,
+      fromPosition: this._fromPosition,
+      limit: this._limit
+    });
+  }
+};
+
 // src/event-store.browser.ts
+function formatCondition(c) {
+  if (isConstrainedCondition(c)) return `${c.type}[${c.key}=${c.value}]`;
+  if ("types" in c && "keys" in c) return `${c.types.join("|")}[${c.keys.map((k) => `${k.name}=${k.value}`).join(",")}]`;
+  if ("types" in c) return `${c.types.join("|")}[*]`;
+  if ("keys" in c && !("type" in c)) return `[${c.keys.map((k) => `${k.name}=${k.value}`).join(",")}]`;
+  if ("type" in c) return `${c.type}[*]`;
+  return "(unknown)";
+}
 function generateUUID() {
   try {
     if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -2783,35 +3120,42 @@ var EventStore = class {
       const storedHash = await this.storage.getConfigHash();
       console.log(`   Stored config hash: ${storedHash ? storedHash.substring(0, 16) + "..." : "(none - first run)"}`);
       if (storedHash === null) {
-        console.log("\u{1F4DD} HASH: First run, storing config hash in database");
         await this.storage.setConfigHash(currentHash);
       } else if (storedHash !== currentHash) {
-        console.log("\u26A0\uFE0F HASH MISMATCH: Config changed since last run!");
-        console.log("\u{1F504} REINDEX: Rebuilding key index from all events...");
-        const startTime = Date.now();
-        let eventCount = 0;
-        let keyCount = 0;
-        await this.storage.reindex((event) => {
-          eventCount++;
-          const keys = this.keyExtractor.extract({
-            type: event.type,
-            data: event.data,
-            metadata: event.metadata
-          });
-          keyCount += keys.length;
-          return keys;
-        });
-        await this.storage.setConfigHash(currentHash);
-        const duration = Date.now() - startTime;
-        console.log(`\u2705 REINDEX: Complete! ${eventCount} events, ${keyCount} keys extracted (${duration}ms)`);
-      } else {
-        console.log("\u2705 HASH: Config unchanged, index is up to date");
+        throw new Error(
+          `Config hash mismatch (stored: ${storedHash}, current: ${currentHash}). Run the reindex script before starting the application.`
+        );
       }
-      console.log("\u{1F7E2} READY: EventStore initialized");
     } catch (error) {
+      if (error instanceof Error && error.message.includes("Config hash mismatch")) {
+        throw error;
+      }
       console.warn("\u26A0\uFE0F INIT: Config hash check failed (non-fatal):", error);
-      console.log("\u{1F7E2} READY: EventStore initialized (without hash check)");
     }
+  }
+  /**
+   * Create a fluent query builder.
+   * 
+   * @typeParam E - Event union type for typed results
+   * @returns QueryBuilder for chaining
+   */
+  query() {
+    return new QueryBuilder(this);
+  }
+  /**
+   * Create a fluent query builder that reads all events (no type filter required).
+   * 
+   * @typeParam E - Event union type for typed results
+   * @returns QueryBuilder for chaining
+   * 
+   * @example
+   * ```typescript
+   * const result = await store.all().fromPosition(0n).limit(1000).read();
+   * const result = await store.all().read();
+   * ```
+   */
+  all() {
+    return new QueryBuilder(this);
   }
   /**
    * Read events matching a query
@@ -2823,7 +3167,7 @@ var EventStore = class {
     await this.ensureInitialized();
     console.log("\u{1F4D6} READ: Querying events...");
     console.log("   Conditions:", query.conditions.map(
-      (c) => isConstrainedCondition(c) ? `${c.type}[${c.key}=${c.value}]` : `${c.type}[*]`
+      (c) => formatCondition(c)
     ).join(", ") || "(none)");
     const events = await this.storage.query(
       query.conditions,
@@ -2856,11 +3200,11 @@ var EventStore = class {
     events.forEach((e) => console.log(`   \u2192 ${e.type}: ${JSON.stringify(e.data).substring(0, 60)}...`));
     console.log(`   Condition: ${condition ? "AppendCondition" : "null (no conflict check)"}`);
     if (events.length === 0) {
-      const position2 = await this.storage.getLatestPosition();
+      const position = await this.storage.getLatestPosition();
       return {
         conflict: false,
-        position: position2,
-        appendCondition: { failIfEventsMatch: condition?.failIfEventsMatch ?? [], after: position2 }
+        position,
+        appendCondition: { failIfEventsMatch: condition?.failIfEventsMatch ?? [], after: position }
       };
     }
     const keysPerEvent = events.map((event) => this.keyExtractor.extract(event));
@@ -2868,56 +3212,6 @@ var EventStore = class {
     keysPerEvent.forEach((keys, i) => {
       console.log(`   Event ${i}: ${keys.map((k) => `${k.name}="${k.value}"`).join(", ")}`);
     });
-    if (condition !== null) {
-      const conditionsStr = condition.failIfEventsMatch.map(
-        (c) => isConstrainedCondition(c) ? `${c.type}[${c.key}=${c.value}]` : `${c.type}[*]`
-      ).join(", ");
-      const checkFromPosition = condition.after ?? 0n;
-      console.log(`\u{1F50D} CONFLICT CHECK: Looking for events since position #${checkFromPosition}`);
-      console.log(`   Checking conditions: ${conditionsStr || "(none)"}`);
-      const conflictingEvents = await this.storage.getEventsSince(
-        condition.failIfEventsMatch,
-        checkFromPosition
-      );
-      console.log(`   Result: ${conflictingEvents.length} matching event(s) found since #${checkFromPosition}`);
-      if (conflictingEvents.length > 0) {
-        console.log("");
-        console.log("\u274C \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
-        console.log("   CONFLICT DETECTED");
-        console.log("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
-        console.log("");
-        console.log("\u{1F4CD} Your position: #" + (condition.after ?? "0 (all events)"));
-        console.log("");
-        console.log("\u{1F50D} Query conditions you checked:");
-        condition.failIfEventsMatch.forEach((c) => {
-          if (isConstrainedCondition(c)) {
-            console.log(`   \u2022 ${c.type} where ${c.key}="${c.value}"`);
-          } else {
-            console.log(`   \u2022 ${c.type} (all)`);
-          }
-        });
-        console.log("");
-        console.log("\u26A1 Events written SINCE your read (that match your query):");
-        conflictingEvents.forEach((e) => {
-          console.log(`   \u2022 Event #${e.position}: ${e.type}`);
-          console.log(`     Data: ${JSON.stringify(e.data)}`);
-        });
-        console.log("");
-        console.log("\u{1F4A1} Why conflict?");
-        console.log("   These events match your query conditions!");
-        console.log("   Your decision was based on stale data.");
-        console.log("");
-        console.log("\u{1F504} Solution: Use result.appendCondition to retry.");
-        console.log("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
-        console.log("");
-        const latestPosition = conflictingEvents[conflictingEvents.length - 1].position;
-        return {
-          conflict: true,
-          conflictingEvents,
-          appendCondition: { failIfEventsMatch: condition.failIfEventsMatch, after: latestPosition }
-        };
-      }
-    }
     const now = /* @__PURE__ */ new Date();
     const eventsToStore = events.map((event) => {
       const id = generateUUID();
@@ -2932,14 +3226,64 @@ var EventStore = class {
         timestamp: now
       };
     });
-    const position = await this.storage.append(eventsToStore, keysPerEvent);
-    console.log(`\u{1F4BE} STORED: Event(s) at position #${position}`);
+    const storageCondition = condition !== null ? { failIfEventsMatch: condition.failIfEventsMatch, after: condition.after ?? 0n } : null;
+    if (condition !== null) {
+      const conditionsStr = condition.failIfEventsMatch.map(
+        (c) => formatCondition(c)
+      ).join(", ");
+      const checkFromPosition = condition.after ?? 0n;
+      console.log(`\u{1F50D} CONFLICT CHECK: Looking for events since position #${checkFromPosition}`);
+      console.log(`   Checking conditions: ${conditionsStr || "(none)"}`);
+    }
+    const result = await this.storage.appendWithCondition(
+      eventsToStore,
+      keysPerEvent,
+      storageCondition
+    );
+    if (result.conflicting) {
+      console.log(`   Result: ${result.conflicting.length} matching event(s) found - CONFLICT!`);
+      console.log("");
+      console.log("\u274C \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
+      console.log("   CONFLICT DETECTED");
+      console.log("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
+      console.log("");
+      console.log("\u{1F4CD} Your position: #" + (condition?.after ?? "0 (all events)"));
+      console.log("");
+      console.log("\u{1F50D} Query conditions you checked:");
+      condition?.failIfEventsMatch.forEach((c) => {
+        console.log(`   \u2022 ${formatCondition(c)}`);
+      });
+      console.log("");
+      console.log("\u26A1 Events written SINCE your read (that match your query):");
+      result.conflicting.forEach((e) => {
+        console.log(`   \u2022 Event #${e.position}: ${e.type}`);
+        console.log(`     Data: ${JSON.stringify(e.data)}`);
+      });
+      console.log("");
+      console.log("\u{1F4A1} Why conflict?");
+      console.log("   These events match your query conditions!");
+      console.log("   Your decision was based on stale data.");
+      console.log("");
+      console.log("\u{1F504} Solution: Use result.appendCondition to retry.");
+      console.log("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
+      console.log("");
+      const latestPosition = result.conflicting[result.conflicting.length - 1].position;
+      return {
+        conflict: true,
+        conflictingEvents: result.conflicting,
+        appendCondition: {
+          failIfEventsMatch: condition?.failIfEventsMatch ?? [],
+          after: latestPosition
+        }
+      };
+    }
+    console.log(`\u{1F4BE} STORED: Event(s) at position #${result.position}`);
     const newConditions = this.buildConditionsFromEvents(events, condition);
-    console.log(`\u2705 SUCCESS: Append complete at position #${position}`);
+    console.log(`\u2705 SUCCESS: Append complete at position #${result.position}`);
     return {
       conflict: false,
-      position,
-      appendCondition: { failIfEventsMatch: newConditions, after: position }
+      position: result.position,
+      appendCondition: { failIfEventsMatch: newConditions, after: result.position }
     };
   }
   /**
@@ -2949,9 +3293,12 @@ var EventStore = class {
     const conditions = /* @__PURE__ */ new Map();
     if (originalCondition !== null) {
       for (const cond of originalCondition.failIfEventsMatch) {
-        if (isConstrainedCondition(cond)) {
-          const key = `${cond.type}:${cond.key}:${cond.value}`;
-          conditions.set(key, cond);
+        const normalized = normalizeCondition(cond);
+        if (hasKeys(normalized)) {
+          const keysStr = normalized.keys.map((k) => `${k.name}:${k.value}`).sort().join("|");
+          const typeStr = "type" in normalized ? normalized.type : "types" in normalized ? normalized.types.join("|") : "*";
+          const dedupKey = `${typeStr}:${keysStr}`;
+          conditions.set(dedupKey, normalized);
         }
       }
     }
@@ -2959,8 +3306,8 @@ var EventStore = class {
       const extractedKeys = this.keyExtractor.extract(event);
       for (const extracted of extractedKeys) {
         const cond = { type: event.type, key: extracted.name, value: extracted.value };
-        const key = `${cond.type}:${cond.key}:${cond.value}`;
-        conditions.set(key, cond);
+        const dedupKey = `${cond.type}:${extracted.name}:${extracted.value}`;
+        conditions.set(dedupKey, cond);
       }
     }
     return Array.from(conditions.values());
@@ -2988,9 +3335,22 @@ var InMemoryStorage = class {
     __publicField(this, "events", []);
     __publicField(this, "nextPosition", 1n);
   }
-  async append(eventsToStore, keys) {
+  async appendWithCondition(eventsToStore, keys, condition) {
     if (eventsToStore.length !== keys.length) {
       throw new Error("Events and keys arrays must have the same length");
+    }
+    if (eventsToStore.length === 0) {
+      const position = await this.getLatestPosition();
+      return { position };
+    }
+    if (condition !== null) {
+      const conflictingEvents = await this.query(
+        condition.failIfEventsMatch,
+        condition.after
+      );
+      if (conflictingEvents.length > 0) {
+        return { conflicting: conflictingEvents };
+      }
     }
     let lastPosition = 0n;
     for (let i = 0; i < eventsToStore.length; i++) {
@@ -3008,7 +3368,7 @@ var InMemoryStorage = class {
       });
       lastPosition = position;
     }
-    return lastPosition;
+    return { position: lastPosition };
   }
   async query(conditions, fromPosition, limit) {
     const startPos = fromPosition ?? 0n;
@@ -3018,25 +3378,43 @@ var InMemoryStorage = class {
       const limited2 = limit !== void 0 ? matching.slice(0, limit) : matching;
       return limited2.map(({ keys: _keys, ...event }) => event);
     }
+    const normalized = conditions.map(normalizeCondition);
     matching = matching.filter((event) => {
-      return conditions.some((cond) => {
+      return normalized.some((cond) => {
+        if (isKeyOnlyCondition(cond)) {
+          return cond.keys.every(
+            (requiredKey) => event.keys.some(
+              (eventKey) => eventKey.name === requiredKey.name && eventKey.value === requiredKey.value
+            )
+          );
+        }
+        if (isMultiTypeConstrainedCondition(cond)) {
+          if (!cond.types.includes(event.type)) return false;
+          return cond.keys.every(
+            (requiredKey) => event.keys.some(
+              (eventKey) => eventKey.name === requiredKey.name && eventKey.value === requiredKey.value
+            )
+          );
+        }
+        if (isMultiTypeCondition(cond)) {
+          return cond.types.includes(event.type);
+        }
         if (event.type !== cond.type) {
           return false;
         }
-        if (!isConstrainedCondition(cond)) {
+        if (!hasKeys(cond)) {
           return true;
         }
-        return event.keys.some(
-          (key) => key.name === cond.key && key.value === cond.value
+        return cond.keys.every(
+          (requiredKey) => event.keys.some(
+            (eventKey) => eventKey.name === requiredKey.name && eventKey.value === requiredKey.value
+          )
         );
       });
     });
     matching.sort((a, b) => a.position < b.position ? -1 : 1);
     const limited = limit !== void 0 ? matching.slice(0, limit) : matching;
     return limited.map(({ keys: _keys, ...event }) => event);
-  }
-  async getEventsSince(conditions, sincePosition) {
-    return this.query(conditions, sincePosition);
   }
   async getLatestPosition() {
     if (this.events.length === 0) {
@@ -3060,6 +3438,50 @@ var InMemoryStorage = class {
     this.events = [];
     this.nextPosition = 1n;
   }
+  /**
+   * Reindex all events with new keys (in-memory: just re-extract all keys in one go)
+   * @deprecated Use reindexBatch() instead
+   */
+  reindex(extractKeys) {
+    for (const internal of this.events) {
+      const event = {
+        id: internal.id,
+        type: internal.type,
+        data: internal.data,
+        metadata: internal.metadata,
+        timestamp: internal.timestamp,
+        position: internal.position
+      };
+      internal.keys = extractKeys(event);
+    }
+  }
+  /**
+   * Batch-based reindex for in-memory storage.
+   * Since everything is in memory, no batching needed — just re-extracts all keys.
+   */
+  reindexBatch(extractKeys, options) {
+    const onProgress = options?.onProgress;
+    const startTime = Date.now();
+    let totalKeys = 0;
+    for (let i = 0; i < this.events.length; i++) {
+      const internal = this.events[i];
+      const event = {
+        id: internal.id,
+        type: internal.type,
+        data: internal.data,
+        metadata: internal.metadata,
+        timestamp: internal.timestamp,
+        position: internal.position
+      };
+      const keys = extractKeys(event);
+      internal.keys = keys;
+      totalKeys += keys.length;
+      if (onProgress) {
+        onProgress(i + 1, this.events.length);
+      }
+    }
+    return { events: this.events.length, keys: totalKeys, durationMs: Date.now() - startTime };
+  }
 };
 export {
   ConfigValidationError,
@@ -3070,8 +3492,14 @@ export {
   QueryResult,
   SqlJsStorage,
   createEventStore,
+  hasKeys,
   isConflict,
   isConstrainedCondition,
+  isKeyOnlyCondition,
+  isMultiKeyCondition,
+  isMultiTypeCondition,
+  isMultiTypeConstrainedCondition,
+  normalizeCondition,
   validateConfig
 };
 //# sourceMappingURL=boundless.browser.js.map
