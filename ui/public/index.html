@@ -506,12 +506,13 @@
     <div class="tabs-content-wrapper">
       <div class="tab-content active" id="tab-query">
         
-        <pre><code><span class="comment">// Query by key — no need to list event types!</span>
+        <pre><code><span class="comment">// "Has Alice enrolled in CS101?" — query by keys, not event types</span>
 <span class="keyword">const</span> { events, appendCondition } = <span class="keyword">await</span> store.<span class="function">query</span>&lt;CourseEvent&gt;()
   .<span class="function">matchKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>)
+  .<span class="function">withKey</span>(<span class="string">'student'</span>, <span class="string">'alice'</span>)
   .<span class="function">read</span>();
 
-<span class="comment">// Build state from all course events</span>
+<span class="comment">// Build state from matching events</span>
 <span class="keyword">const</span> state: CourseState = events.<span class="function">reduce</span>(evolve, initialState);</code></pre>
       </div>
       
