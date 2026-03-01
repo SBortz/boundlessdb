@@ -491,7 +491,14 @@ async function runConcurrentWriterBenchmarks() {
       let conflicts = 0;
       let successes = 0;
 
-      const start = performance.now();
+      // Live ticker during round
+      const roundStart = performance.now();
+      const ticker = setInterval(() => {
+        const elapsed = ((performance.now() - roundStart) / 1000).toFixed(0);
+        const tickLine = `  ${label.padEnd(25)} ${(iter + 1).toString().padStart(3)}/${CONFLICT_ITERATIONS} | ${elapsed}s | ${conflicts} conflicts | ${successes}/${CONCURRENT_WRITERS} done`;
+        process.stdout.write(`\r${tickLine.padEnd(120)}`);
+      }, 500);
+
       await Promise.all(writerStores.map(async (writerStore, w) => {
         const courseKey = getKey(w);
         let done = false;
@@ -518,11 +525,12 @@ async function runConcurrentWriterBenchmarks() {
         if (!done) maxRetryDepth = Math.max(maxRetryDepth, 5);
         else maxRetryDepth = Math.max(maxRetryDepth, successes > 0 ? 0 : 0);
       }));
-      times.push(performance.now() - start);
+      clearInterval(ticker);
+      times.push(performance.now() - roundStart);
       totalConflicts += conflicts;
       totalSuccessful += successes;
 
-      // Live progress
+      // Live progress (round summary)
       const avgSoFar = times.reduce((a, b) => a + b, 0) / times.length;
       const avgSuccSoFar = Math.round(totalSuccessful / (iter + 1));
       const evtsSoFar = formatNum(Math.round(avgSuccSoFar * EVENTS_PER_WRITER / (avgSoFar / 1000)));
