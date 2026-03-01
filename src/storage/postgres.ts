@@ -11,6 +11,8 @@ export interface PostgresRetryOptions {
   maxRetries?: number;
   /** Base delay in ms for exponential backoff (default: 50) */
   retryBaseMs?: number;
+  /** Max delay in ms — caps exponential growth (default: 2000) */
+  retryMaxMs?: number;
   /** Add random jitter to retry delay (default: true) */
   retryJitter?: boolean;
 }
@@ -85,6 +87,7 @@ export class PostgresStorage implements EventStorage {
   private initialized = false;
   private maxRetries: number;
   private retryBaseMs: number;
+  private retryMaxMs: number;
   private retryJitter: boolean;
   constructor(connectionStringOrConfig: string | PoolConfig, options?: PostgresRetryOptions) {
     if (typeof connectionStringOrConfig === 'string') {
@@ -94,11 +97,13 @@ export class PostgresStorage implements EventStorage {
     }
     this.maxRetries = options?.maxRetries ?? 10;
     this.retryBaseMs = options?.retryBaseMs ?? 50;
+    this.retryMaxMs = options?.retryMaxMs ?? 2000;
     this.retryJitter = options?.retryJitter ?? true;
   }
 
   private getRetryDelay(attempt: number): number {
-    const delay = this.retryBaseMs * Math.pow(2, attempt);
+    const uncapped = this.retryBaseMs * Math.pow(2, attempt);
+    const delay = Math.min(uncapped, this.retryMaxMs);
     if (!this.retryJitter) return delay;
     return Math.random() * delay; // Full jitter
   }
