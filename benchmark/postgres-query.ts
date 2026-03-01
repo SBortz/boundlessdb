@@ -496,14 +496,16 @@ async function runConcurrentWriterBenchmarks() {
 
       // Live ticker during round
       const roundStart = performance.now();
-      const ticker = setInterval(() => {
+      const writeTick = () => {
         const elapsed = performance.now() - roundStart;
         const elapsedS = (elapsed / 1000).toFixed(0);
         const evtsNow = successes * EVENTS_PER_WRITER;
         const evtRate = elapsed > 0 ? formatNum(Math.round(evtsNow / (elapsed / 1000))) : '0';
         const tickLine = `  ${label.padEnd(25)} ${(iter + 1).toString().padStart(3)}/${CONFLICT_ITERATIONS} | ${elapsedS}s | ${successes}/${CONCURRENT_WRITERS} done | ${conflicts} dcb | ${serializationRetries} pg40001 | ${evtRate} evt/s`;
         process.stdout.write(`\r${tickLine.padEnd(140)}`);
-      }, 500);
+      };
+      writeTick(); // Show immediately
+      const ticker = setInterval(writeTick, 500);
 
       await Promise.all(writerStores.map(async (writerStore, w) => {
         const courseKey = getKey(w);
