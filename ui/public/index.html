@@ -517,8 +517,7 @@
       
       <div class="tab-content" id="tab-append">
         
-        <pre><code><span class="comment">// Read by key — no need to list event types!</span>
-<span class="keyword">const</span> { events, appendCondition } = <span class="keyword">await</span> store.<span class="function">query</span>&lt;CourseEvent&gt;()
+        <pre><code><span class="keyword">const</span> { events, appendCondition } = <span class="keyword">await</span> store.<span class="function">query</span>&lt;CourseEvent&gt;()
   .<span class="function">matchKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>)
   .<span class="function">read</span>();
 
