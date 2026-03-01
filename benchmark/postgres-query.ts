@@ -345,7 +345,7 @@ const queries: QueryDef[] = [
       let counter = 0;
       return async () => {
         const read = await store.query()
-          .matchTypeAndKey('StudentEnrolled', 'course', 'course-0')
+          .matchTypeAndKey('StudentEnrolled', 'course', 'course-1')
           .read();
         await store.append([
           { type: 'LessonCompleted', data: { courseId: 'course-cold', studentId: 'student-bench', lessonId: `lesson-${counter++}` } },
