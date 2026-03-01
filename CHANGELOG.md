@@ -2,6 +2,48 @@
 
 All notable changes to BoundlessDB will be documented in this file.
 
+## [0.10.0] - 2026-03-01
+
+### Added
+
+#### `mergeConditions()` and `appendCondition.mergeWith()`
+
+Combine multiple `AppendCondition`s for multi-boundary operations:
+
+```typescript
+const cartResult = await store.query().matchKey('cart', cartId).read();
+const inventoryResult = await store.query().matchKey('product', productId).read();
+
+// Fluent
+const merged = cartResult.appendCondition
+  .mergeWith(inventoryResult.appendCondition);
+
+// Or standalone
+const merged = mergeConditions(
+  cartResult.appendCondition,
+  inventoryResult.appendCondition,
+);
+
+await store.append(allEvents, merged);
+```
+
+#### Duplicate key names per event type
+
+The same key name can now appear multiple times with different paths. This enables the DCB spec pattern where one event carries multiple values for the same tag:
+
+```typescript
+UsernameChanged: {
+  keys: [
+    { name: 'username', path: 'data.oldUsername' },
+    { name: 'username', path: 'data.newUsername' },
+  ]
+}
+```
+
+#### DCB spec examples as tests
+
+All 6 examples from [dcb.events/examples](https://dcb.events/examples/) implemented as integration tests: Course Subscriptions, Unique Username, Invoice Number, Opt-In Token, Dynamic Product Price, Prevent Record Duplication.
+
 ## [0.9.0] - 2026-03-01
 
 ### Breaking Changes
