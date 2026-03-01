@@ -238,7 +238,7 @@ export class QueryResult<E extends Event = Event> {
 
   /** Get the append condition for use with store.append() */
   get appendCondition(): AppendCondition {
-    return { failIfEventsMatch: this.conditions, after: this.position };
+    return createAppendCondition(this.conditions, this.position);
   }
 }
 
@@ -342,6 +342,73 @@ export interface AppendCondition {
    * If omitted, ALL events are checked against failIfEventsMatch.
    */
   after?: bigint;
+
+  /**
+   * Merge this condition with one or more other conditions.
+   * Concatenates failIfEventsMatch, takes max position.
+   * 
+   * @example
+   * ```typescript
+   * const merged = cartResult.appendCondition
+   *   .mergeWith(inventoryResult.appendCondition);
+   * ```
+   */
+  mergeWith(...others: AppendCondition[]): AppendCondition;
+}
+
+/**
+ * Create an AppendCondition with mergeWith() method.
+ */
+export function createAppendCondition(failIfEventsMatch: QueryCondition[], after?: bigint): AppendCondition {
+  return {
+    failIfEventsMatch,
+    after,
+    mergeWith(...others: AppendCondition[]): AppendCondition {
+      return mergeConditions(this, ...others);
+    },
+  };
+}
+
+/**
+ * Merge multiple AppendConditions into one.
+ * 
+ * Use when reading from multiple boundaries (e.g. cart + inventory)
+ * and appending with a single condition that protects all of them.
+ * 
+ * - `failIfEventsMatch`: concatenated from all conditions
+ * - `after`: maximum position across all conditions
+ * 
+ * @example
+ * ```typescript
+ * const cartResult = await store.query().matchKey('cart', cartId).read();
+ * const inventoryResult = await store.query().matchType('InventoryChanged').read();
+ * 
+ * const merged = mergeConditions(
+ *   cartResult.appendCondition,
+ *   inventoryResult.appendCondition,
+ * );
+ * 
+ * await store.append(allEvents, merged);
+ * ```
+ */
+export function mergeConditions(...conditions: AppendCondition[]): AppendCondition {
+  if (conditions.length === 0) {
+    return createAppendCondition([]);
+  }
+
+  let maxPosition: bigint | undefined;
+  for (const c of conditions) {
+    if (c.after !== undefined) {
+      if (maxPosition === undefined || c.after > maxPosition) {
+        maxPosition = c.after;
+      }
+    }
+  }
+
+  return createAppendCondition(
+    conditions.flatMap(c => c.failIfEventsMatch),
+    maxPosition,
+  );
 }
 
 // ============================================================
