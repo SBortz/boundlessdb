@@ -238,7 +238,7 @@ export class QueryResult<E extends Event = Event> {
 
   /** Get the append condition for use with store.append() */
   get appendCondition(): AppendCondition {
-    return { failIfEventsMatch: this.conditions, after: this.position };
+    return createAppendCondition(this.conditions, this.position);
   }
 }
 
@@ -342,6 +342,31 @@ export interface AppendCondition {
    * If omitted, ALL events are checked against failIfEventsMatch.
    */
   after?: bigint;
+
+  /**
+   * Merge this condition with one or more other conditions.
+   * Concatenates failIfEventsMatch, takes max position.
+   * 
+   * @example
+   * ```typescript
+   * const merged = cartResult.appendCondition
+   *   .mergeWith(inventoryResult.appendCondition);
+   * ```
+   */
+  mergeWith(...others: AppendCondition[]): AppendCondition;
+}
+
+/**
+ * Create an AppendCondition with mergeWith() method.
+ */
+export function createAppendCondition(failIfEventsMatch: QueryCondition[], after?: bigint): AppendCondition {
+  return {
+    failIfEventsMatch,
+    after,
+    mergeWith(...others: AppendCondition[]): AppendCondition {
+      return mergeConditions(this, ...others);
+    },
+  };
 }
 
 /**
@@ -368,7 +393,7 @@ export interface AppendCondition {
  */
 export function mergeConditions(...conditions: AppendCondition[]): AppendCondition {
   if (conditions.length === 0) {
-    return { failIfEventsMatch: [] };
+    return createAppendCondition([]);
   }
 
   let maxPosition: bigint | undefined;
@@ -380,10 +405,10 @@ export function mergeConditions(...conditions: AppendCondition[]): AppendConditi
     }
   }
 
-  return {
-    failIfEventsMatch: conditions.flatMap(c => c.failIfEventsMatch),
-    after: maxPosition,
-  };
+  return createAppendCondition(
+    conditions.flatMap(c => c.failIfEventsMatch),
+    maxPosition,
+  );
 }
 
 // ============================================================

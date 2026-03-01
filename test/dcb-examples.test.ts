@@ -9,6 +9,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { EventStore, InMemoryStorage, isConflict, mergeConditions } from '../src/index.js';
+import { createAppendCondition } from '../src/types.js';
 import type { AppendCondition, ConsistencyConfig, Event, StoredEvent } from '../src/types.js';
 
 // ════════════════════════════════════════════════════════════════════
@@ -975,6 +976,26 @@ describe('mergeConditions', () => {
     const merged = mergeConditions();
     expect(merged.failIfEventsMatch).toHaveLength(0);
     expect(merged.after).toBeUndefined();
+  });
+
+  it('.mergeWith() fluent API', () => {
+    const a = createAppendCondition([{ type: 'A' }], 10n);
+    const b = createAppendCondition([{ type: 'B' }], 20n);
+
+    const merged = a.mergeWith(b);
+    expect(merged.failIfEventsMatch).toHaveLength(2);
+    expect(merged.after).toBe(20n);
+    expect(typeof merged.mergeWith).toBe('function');
+  });
+
+  it('.mergeWith() chains', () => {
+    const a = createAppendCondition([{ type: 'A' }], 5n);
+    const b = createAppendCondition([{ type: 'B' }], 10n);
+    const c = createAppendCondition([{ type: 'C' }], 15n);
+
+    const merged = a.mergeWith(b).mergeWith(c);
+    expect(merged.failIfEventsMatch).toHaveLength(3);
+    expect(merged.after).toBe(15n);
   });
 
   it('variadic with three conditions', () => {

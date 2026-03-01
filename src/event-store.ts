@@ -11,6 +11,7 @@ import {
   isMultiKeyCondition,
   normalizeCondition,
   hasKeys,
+  createAppendCondition,
   type AppendCondition,
   type AppendResult,
   type ConflictResult,
@@ -256,7 +257,7 @@ export class EventStore {
       return {
         conflict: false,
         position,
-        appendCondition: { failIfEventsMatch: condition?.failIfEventsMatch ?? [], after: position },
+        appendCondition: createAppendCondition(condition?.failIfEventsMatch ?? [], position),
       };
     }
 
@@ -291,10 +292,7 @@ export class EventStore {
       return {
         conflict: true,
         conflictingEvents: result.conflicting as StoredEvent<E>[],
-        appendCondition: { 
-          failIfEventsMatch: condition?.failIfEventsMatch ?? [], 
-          after: latestPosition 
-        },
+        appendCondition: createAppendCondition(condition?.failIfEventsMatch ?? [], latestPosition),
       };
     }
 
@@ -304,7 +302,7 @@ export class EventStore {
     return {
       conflict: false,
       position: result.position!,
-      appendCondition: { failIfEventsMatch: newConditions, after: result.position! },
+      appendCondition: createAppendCondition(newConditions, result.position!),
     };
   }
 
