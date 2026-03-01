@@ -8,8 +8,8 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { EventStore, InMemoryStorage, isConflict } from '../src/index.js';
-import type { ConsistencyConfig, Event, StoredEvent } from '../src/types.js';
+import { EventStore, InMemoryStorage, isConflict, mergeConditions } from '../src/index.js';
+import type { AppendCondition, ConsistencyConfig, Event, StoredEvent } from '../src/types.js';
 
 // ════════════════════════════════════════════════════════════════════
 // 1. Course Subscriptions
@@ -921,5 +921,135 @@ describe('DCB Example 6: Prevent Record Duplication (Idempotency)', () => {
       readB.appendCondition,
     );
     expect(isConflict(resultB)).toBe(false);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════
+// mergeConditions() utility
+// ════════════════════════════════════════════════════════════════════
+
+describe('mergeConditions', () => {
+
+  it('merges two conditions', () => {
+    const a: AppendCondition = {
+      failIfEventsMatch: [{ type: 'A' }],
+      after: 10n,
+    };
+    const b: AppendCondition = {
+      failIfEventsMatch: [{ type: 'B', key: 'x', value: 'y' }],
+      after: 20n,
+    };
+
+    const merged = mergeConditions(a, b);
+    expect(merged.failIfEventsMatch).toHaveLength(2);
+    expect(merged.failIfEventsMatch[0]).toEqual({ type: 'A' });
+    expect(merged.failIfEventsMatch[1]).toEqual({ type: 'B', key: 'x', value: 'y' });
+    expect(merged.after).toBe(20n);
+  });
+
+  it('takes max position', () => {
+    const a: AppendCondition = { failIfEventsMatch: [], after: 100n };
+    const b: AppendCondition = { failIfEventsMatch: [], after: 50n };
+    const c: AppendCondition = { failIfEventsMatch: [], after: 200n };
+
+    expect(mergeConditions(a, b, c).after).toBe(200n);
+  });
+
+  it('handles undefined after', () => {
+    const a: AppendCondition = { failIfEventsMatch: [{ type: 'A' }] };
+    const b: AppendCondition = { failIfEventsMatch: [{ type: 'B' }], after: 10n };
+
+    const merged = mergeConditions(a, b);
+    expect(merged.after).toBe(10n);
+  });
+
+  it('returns undefined after when all are undefined', () => {
+    const a: AppendCondition = { failIfEventsMatch: [{ type: 'A' }] };
+    const b: AppendCondition = { failIfEventsMatch: [] };
+
+    const merged = mergeConditions(a, b);
+    expect(merged.after).toBeUndefined();
+  });
+
+  it('returns empty for no arguments', () => {
+    const merged = mergeConditions();
+    expect(merged.failIfEventsMatch).toHaveLength(0);
+    expect(merged.after).toBeUndefined();
+  });
+
+  it('variadic with three conditions', () => {
+    const a: AppendCondition = { failIfEventsMatch: [{ type: 'A' }], after: 5n };
+    const b: AppendCondition = { failIfEventsMatch: [{ type: 'B' }], after: 15n };
+    const c: AppendCondition = { failIfEventsMatch: [{ type: 'C' }], after: 10n };
+
+    const merged = mergeConditions(a, b, c);
+    expect(merged.failIfEventsMatch).toHaveLength(3);
+    expect(merged.after).toBe(15n);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════
+// Integration: mergeConditions with real EventStore
+// ════════════════════════════════════════════════════════════════════
+
+describe('mergeConditions — integration with EventStore', () => {
+  const config: ConsistencyConfig = {
+    eventTypes: {
+      CartCreated: { keys: [{ name: 'cart', path: 'data.cartId' }] },
+      ItemAdded: { keys: [{ name: 'cart', path: 'data.cartId' }, { name: 'product', path: 'data.productId' }] },
+      CartSubmitted: { keys: [{ name: 'cart', path: 'data.cartId' }] },
+      InventoryChanged: { keys: [{ name: 'product', path: 'data.productId' }] },
+    },
+  };
+
+  it('protects both cart and inventory boundaries in one append', async () => {
+    const store = new EventStore({ storage: new InMemoryStorage(), consistency: config });
+
+    // Seed: cart with one item + inventory
+    await store.append([
+      { type: 'CartCreated', data: { cartId: 'c1' } },
+      { type: 'ItemAdded', data: { cartId: 'c1', productId: 'p1' } },
+      { type: 'InventoryChanged', data: { productId: 'p1', inventory: 5 } },
+    ], null);
+
+    // Read both boundaries
+    const cartResult = await store.query().matchKey('cart', 'c1').read();
+    const inventoryResult = await store.query().matchType('InventoryChanged').read();
+    const merged = mergeConditions(cartResult.appendCondition, inventoryResult.appendCondition);
+
+    // Someone else changes inventory while we decide
+    await store.append([
+      { type: 'InventoryChanged', data: { productId: 'p1', inventory: 0 } },
+    ], null);
+
+    // Our append should detect the inventory conflict
+    const result = await store.append([
+      { type: 'CartSubmitted', data: { cartId: 'c1' } },
+      { type: 'InventoryChanged', data: { productId: 'p1', inventory: 4 } },
+    ], merged);
+
+    expect(isConflict(result)).toBe(true);
+  });
+
+  it('succeeds when no conflict on either boundary', async () => {
+    const store = new EventStore({ storage: new InMemoryStorage(), consistency: config });
+
+    await store.append([
+      { type: 'CartCreated', data: { cartId: 'c1' } },
+      { type: 'ItemAdded', data: { cartId: 'c1', productId: 'p1' } },
+      { type: 'InventoryChanged', data: { productId: 'p1', inventory: 5 } },
+    ], null);
+
+    const cartResult = await store.query().matchKey('cart', 'c1').read();
+    const inventoryResult = await store.query().matchType('InventoryChanged').read();
+    const merged = mergeConditions(cartResult.appendCondition, inventoryResult.appendCondition);
+
+    // No one else does anything — append should succeed
+    const result = await store.append([
+      { type: 'CartSubmitted', data: { cartId: 'c1' } },
+      { type: 'InventoryChanged', data: { productId: 'p1', inventory: 4 } },
+    ], merged);
+
+    expect(isConflict(result)).toBe(false);
   });
 });

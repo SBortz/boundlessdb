@@ -344,6 +344,48 @@ export interface AppendCondition {
   after?: bigint;
 }
 
+/**
+ * Merge multiple AppendConditions into one.
+ * 
+ * Use when reading from multiple boundaries (e.g. cart + inventory)
+ * and appending with a single condition that protects all of them.
+ * 
+ * - `failIfEventsMatch`: concatenated from all conditions
+ * - `after`: maximum position across all conditions
+ * 
+ * @example
+ * ```typescript
+ * const cartResult = await store.query().matchKey('cart', cartId).read();
+ * const inventoryResult = await store.query().matchType('InventoryChanged').read();
+ * 
+ * const merged = mergeConditions(
+ *   cartResult.appendCondition,
+ *   inventoryResult.appendCondition,
+ * );
+ * 
+ * await store.append(allEvents, merged);
+ * ```
+ */
+export function mergeConditions(...conditions: AppendCondition[]): AppendCondition {
+  if (conditions.length === 0) {
+    return { failIfEventsMatch: [] };
+  }
+
+  let maxPosition: bigint | undefined;
+  for (const c of conditions) {
+    if (c.after !== undefined) {
+      if (maxPosition === undefined || c.after > maxPosition) {
+        maxPosition = c.after;
+      }
+    }
+  }
+
+  return {
+    failIfEventsMatch: conditions.flatMap(c => c.failIfEventsMatch),
+    after: maxPosition,
+  };
+}
+
 // ============================================================
 // Event Store Options
 // ============================================================

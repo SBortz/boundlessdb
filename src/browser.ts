@@ -31,7 +31,7 @@ export type {
   EventStoreOptions,
 } from './types.js';
 
-export { QueryResult, isConflict, isConstrainedCondition, isMultiKeyCondition, isMultiTypeCondition, isMultiTypeConstrainedCondition, isKeyOnlyCondition, normalizeCondition, hasKeys } from './types.js';
+export { QueryResult, isConflict, mergeConditions, isConstrainedCondition, isMultiKeyCondition, isMultiTypeCondition, isMultiTypeConstrainedCondition, isKeyOnlyCondition, normalizeCondition, hasKeys } from './types.js';
 
 // Event Store (browser version)
 export { EventStore, createEventStore, type EventStoreConfig } from './event-store.js';
