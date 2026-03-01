@@ -25,15 +25,15 @@ export interface QueryExecutor<E extends Event> {
  * // Multi-key AND query:
  * const result = await store.query<CourseEvent>()
  *   .matchType('StudentSubscribed')
- *   .withKey('course', 'cs101')
- *   .withKey('student', 'alice')
+ *   .andKey('course', 'cs101')
+ *   .andKey('student', 'alice')
  *   .read();
  * 
  * // Mixed (AND + OR):
  * const result = await store.query<CourseEvent>()
  *   .matchType('StudentSubscribed')
- *   .withKey('course', 'cs101')
- *   .withKey('student', 'alice')              // AND on condition 0
+ *   .andKey('course', 'cs101')
+ *   .andKey('student', 'alice')              // AND on condition 0
  *   .matchTypeAndKey('CourseCancelled', 'course', 'cs101')  // OR (condition 1)
  *   .read();
  * ```
@@ -47,13 +47,13 @@ export class QueryBuilder<E extends Event> {
 
   /**
    * Add an unconstrained condition (match events of one or more types).
-   * Use `.withKey()` after to add key constraints (AND).
+   * Use `.andKey()` after to add key constraints (AND).
    * 
    * @example
    * ```typescript
    * .matchType('CourseCreated')  // single type
    * .matchType('CourseCreated', 'CourseCancelled')  // multiple types (OR within)
-   * .matchType('StudentSubscribed').withKey('course', 'cs101')  // type + key
+   * .matchType('StudentSubscribed').andKey('course', 'cs101')  // type + key
    * ```
    */
   matchType(...types: string[]): this {
@@ -70,13 +70,13 @@ export class QueryBuilder<E extends Event> {
 
   /**
    * Add a constrained condition (match events of type where key equals value).
-   * Shorthand for `.matchType(type).withKey(key, value)`.
-   * Use `.withKey()` after to add more key constraints (AND).
+   * Shorthand for `.matchType(type).andKey(key, value)`.
+   * Use `.andKey()` after to add more key constraints (AND).
    * 
    * @example
    * ```typescript
    * .matchTypeAndKey('StudentSubscribed', 'course', 'cs101')
-   * .matchTypeAndKey('StudentSubscribed', 'course', 'cs101').withKey('student', 'alice')
+   * .matchTypeAndKey('StudentSubscribed', 'course', 'cs101').andKey('student', 'alice')
    * ```
    */
   matchTypeAndKey(type: string, key: string, value: string): this {
@@ -87,12 +87,12 @@ export class QueryBuilder<E extends Event> {
   /**
    * Key-only query: match events by key, regardless of event type.
    * Starts a new condition (OR with previous conditions).
-   * Use `.withKey()` after to add more key constraints (AND).
+   * Use `.andKey()` after to add more key constraints (AND).
    * 
    * @example
    * ```typescript
    * .matchKey('cart', 'abc-123')  // all events with cart=abc-123
-   * .matchKey('course', 'cs101').withKey('student', 'alice')  // AND
+   * .matchKey('course', 'cs101').andKey('student', 'alice')  // AND
    * ```
    */
   matchKey(key: string, value: string): this {
@@ -109,13 +109,13 @@ export class QueryBuilder<E extends Event> {
    * @example
    * ```typescript
    * .matchType('StudentSubscribed')
-   *   .withKey('course', 'cs101')
-   *   .withKey('student', 'alice')  // AND: both keys must match
+   *   .andKey('course', 'cs101')
+   *   .andKey('student', 'alice')  // AND: both keys must match
    * ```
    */
-  withKey(key: string, value: string): this {
+  andKey(key: string, value: string): this {
     if (this.conditions.length === 0) {
-      throw new Error('.withKey() requires a preceding .matchType(), .matchTypeAndKey(), or .matchKey()');
+      throw new Error('.andKey() requires a preceding .matchType(), .matchTypeAndKey(), or .matchKey()');
     }
 
     const lastIdx = this.conditions.length - 1;

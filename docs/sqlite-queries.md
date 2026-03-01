@@ -310,8 +310,8 @@ Unconstrained conditions use `idx_event_type` directly (no key join needed). Con
 ```typescript
 const result = await store.query()
   .matchType('StudentEnrolled')
-  .withKey('course', 'course-50')
-  .withKey('student', 'student-50')
+  .andKey('course', 'course-50')
+  .andKey('student', 'student-50')
   .read();
 ```
 
@@ -407,8 +407,8 @@ The `position > ?` filter is applied per sub-select (not just on the outer CTE) 
 ```typescript
 const result = await store.query()
   .matchType('StudentEnrolled')
-  .withKey('course', 'course-50')
-  .withKey('student', 'student-50')
+  .andKey('course', 'course-50')
+  .andKey('student', 'student-50')
   .matchTypeAndKey('CourseCancelled', 'course', 'course-50')
   .read();
 ```
@@ -522,7 +522,7 @@ Same MATERIALIZED strategy as constrained queries with position filter. No type 
 ```typescript
 const result = await store.query()
   .matchKey('course', 'course-50')
-  .withKey('student', 'student-50')
+  .andKey('student', 'student-50')
   .read();
 ```
 
@@ -555,7 +555,7 @@ Same INTERSECT pattern as multi-key constrained (section 7), but without the `WH
 ```typescript
 const result = await store.query()
   .matchType('CourseCreated', 'CourseCancelled')
-  .withKey('course', 'course-50')
+  .andKey('course', 'course-50')
   .read();
 ```
 
@@ -575,7 +575,7 @@ ORDER BY position;
 **Generated SQL** (multi-type + key):
 
 ```sql
--- matchType('CourseCreated', 'CourseCancelled').withKey('course', 'course-50'):
+-- matchType('CourseCreated', 'CourseCancelled').andKey('course', 'course-50'):
 WITH mtc_0 AS (
   SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
   FROM event_keys k INDEXED BY idx_key_position
@@ -605,23 +605,23 @@ Condition has...
 │   ├── No position filter → Flat CTE with INDEXED BY (no type filter)
 │   └── With position filter → MATERIALIZED CTE (no type filter)
 │
-├── 1 key, 1 type (matchTypeAndKey / matchType().withKey())
+├── 1 key, 1 type (matchTypeAndKey / matchType().andKey())
 │   ├── No position filter → Flat CTE with INDEXED BY
 │   └── With position filter → MATERIALIZED CTE
 │
-├── 1 key, N types (matchType('A', 'B').withKey())
+├── 1 key, N types (matchType('A', 'B').andKey())
 │   ├── No position filter → Flat CTE with INDEXED BY + IN (...)
 │   └── With position filter → MATERIALIZED CTE + IN (...)
 │
-├── N keys, 0 types (matchKey().withKey())
+├── N keys, 0 types (matchKey().andKey())
 │   ├── No position filter → Flat CTE with INTERSECT (no type filter)
 │   └── With position filter → MATERIALIZED CTE with INTERSECT
 │
-├── N keys, 1 type (matchType().withKey().withKey())
+├── N keys, 1 type (matchType().andKey().andKey())
 │   ├── No position filter → Flat CTE with INTERSECT
 │   └── With position filter → MATERIALIZED CTE with INTERSECT
 │
-└── N keys, N types (matchType('A', 'B').withKey().withKey())
+└── N keys, N types (matchType('A', 'B').andKey().andKey())
     ├── No position filter → Flat CTE with INTERSECT + IN (...)
     └── With position filter → MATERIALIZED CTE with INTERSECT + IN (...)
 

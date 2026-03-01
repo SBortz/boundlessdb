@@ -157,19 +157,19 @@ const { events, appendCondition } = await store.query<CourseEvent>()
 // Multi-key AND: Alice's enrollment in cs101
 const enrollment = await store.query<CourseEvent>()
   .matchKey('course', 'cs101')
-  .withKey('student', 'alice')
+  .andKey('student', 'alice')
   .read();
 
 // Multi-type: course lifecycle events for cs101
 const lifecycle = await store.query<CourseEvent>()
   .matchType('CourseCreated', 'CourseCancelled')
-  .withKey('course', 'cs101')
+  .andKey('course', 'cs101')
   .read();
 
 // Type + key
 const enrollments = await store.query<CourseEvent>()
   .matchType('StudentSubscribed')
-  .withKey('course', 'cs101')
+  .andKey('course', 'cs101')
   .fromPosition(100n)
   .limit(50)
   .read();
@@ -181,15 +181,15 @@ const enrollments = await store.query<CourseEvent>()
 |--------|-------------|
 | `matchKey(key, value)` | Match events by key, regardless of type. Starts new condition (OR). |
 | `matchType(...types)` | Match events of one or more types. Starts new condition (OR). |
-| `matchTypeAndKey(type, key, value)` | Shorthand for `matchType(type).withKey(key, value)` |
-| `withKey(key, value)` | Add AND key constraint to last condition |
+| `matchTypeAndKey(type, key, value)` | Shorthand for `matchType(type).andKey(key, value)` |
+| `andKey(key, value)` | Add AND key constraint to last condition |
 | `fromPosition(bigint)` | Start reading from position |
 | `limit(number)` | Limit number of results |
 | `read()` | Execute query, returns `QueryResult` |
 
 **Rules:**
 - `matchType()` / `matchKey()` start a **new** condition (OR between conditions)
-- `withKey()` **extends** the last condition (AND within condition)
+- `andKey()` **extends** the last condition (AND within condition)
 
 ## AppendCondition
 
@@ -272,13 +272,13 @@ store.query().matchKey('course', 'cs101').read()
 // Multi-key AND: "Alice's enrollment in cs101"
 store.query()
   .matchKey('course', 'cs101')
-  .withKey('student', 'alice')
+  .andKey('student', 'alice')
   .read()
 
 // Multi-type + key: "Course lifecycle events for cs101"
 store.query()
   .matchType('CourseCreated', 'CourseCancelled')
-  .withKey('course', 'cs101')
+  .andKey('course', 'cs101')
   .read()
 
 // OR: "All cancellations OR everything about Alice"
@@ -290,14 +290,14 @@ store.query()
 
 ### AND vs OR
 
-- **`.withKey()`** = **AND** — extends the last condition (same event must match all keys)
+- **`.andKey()`** = **AND** — extends the last condition (same event must match all keys)
 - **`.matchType()` / `.matchKey()`** = **OR** — starts a new condition (events matching either)
 
 ```typescript
 // AND: Events where course='cs101' AND student='alice' (same event)
 store.query()
   .matchKey('course', 'cs101')
-  .withKey('student', 'alice')
+  .andKey('student', 'alice')
   .read();
 
 // OR: Events where course='cs101' OR student='alice' (different events)
@@ -367,7 +367,7 @@ const consistency = {
 // Query all orders from February 2026:
 const { events } = await store.query()
   .matchType('OrderPlaced')
-  .withKey('month', '2026-02')
+  .andKey('month', '2026-02')
   .read();
 ```
 
@@ -622,7 +622,7 @@ const result = await store.query<CourseEvent>()
 
 const result = await store.query<CourseEvent>()
   .matchType('CourseCreated', 'CourseCancelled')           // multi-type
-  .withKey('course', 'cs101')                              // + key constraint
+  .andKey('course', 'cs101')                              // + key constraint
   .fromPosition(100n)                                      // start from position
   .limit(50)                                               // limit results
   .read();                                                 // execute, returns QueryResult
@@ -632,8 +632,8 @@ const result = await store.query<CourseEvent>()
 |--------|-------------|
 | `matchKey(key, value)` | Match events by key, any type. Starts new condition (OR). |
 | `matchType(...types)` | Match events of type(s). Starts new condition (OR). |
-| `matchTypeAndKey(type, key, value)` | Shorthand for `matchType(type).withKey(key, value)` |
-| `withKey(key, value)` | Add AND key constraint to last condition |
+| `matchTypeAndKey(type, key, value)` | Shorthand for `matchType(type).andKey(key, value)` |
+| `andKey(key, value)` | Add AND key constraint to last condition |
 | `fromPosition(bigint)` | Start reading from position |
 | `limit(number)` | Limit number of results |
 | `read()` | Execute query, returns `QueryResult` |

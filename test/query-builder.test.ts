@@ -129,7 +129,7 @@ describe('QueryBuilder (Fluent API)', () => {
   });
 });
 
-describe('QueryBuilder — Multi-Key AND (.withKey())', () => {
+describe('QueryBuilder — Multi-Key AND (.andKey())', () => {
   const config = {
     eventTypes: {
       StudentEnrolled: {
@@ -163,27 +163,27 @@ describe('QueryBuilder — Multi-Key AND (.withKey())', () => {
     ], null);
   });
 
-  it('.withKey() adds key to last condition', async () => {
+  it('.andKey() adds key to last condition', async () => {
     const result = await store.query<MultiKeyTestEvent>()
       .matchType('StudentEnrolled')
-      .withKey('course', 'cs101')
+      .andKey('course', 'cs101')
       .read();
 
     // Should find all StudentEnrolled for cs101 (alice 2026-1, bob, alice 2026-2)
     expect(result.count).toBe(3);
   });
 
-  it('.withKey() without .matchType() throws error', () => {
+  it('.andKey() without .matchType() throws error', () => {
     expect(() => {
-      store.query<MultiKeyTestEvent>().withKey('course', 'cs101');
-    }).toThrow('.withKey() requires a preceding .matchType(), .matchTypeAndKey(), or .matchKey()');
+      store.query<MultiKeyTestEvent>().andKey('course', 'cs101');
+    }).toThrow('.andKey() requires a preceding .matchType(), .matchTypeAndKey(), or .matchKey()');
   });
 
   it('multi-key AND returns only events with ALL keys', async () => {
     const result = await store.query<MultiKeyTestEvent>()
       .matchType('StudentEnrolled')
-      .withKey('course', 'cs101')
-      .withKey('student', 'alice')
+      .andKey('course', 'cs101')
+      .andKey('student', 'alice')
       .read();
 
     // Should find only alice in cs101 (2 events: 2026-1 and 2026-2)
@@ -197,9 +197,9 @@ describe('QueryBuilder — Multi-Key AND (.withKey())', () => {
   it('three or more keys AND', async () => {
     const result = await store.query<MultiKeyTestEvent>()
       .matchType('StudentEnrolled')
-      .withKey('course', 'cs101')
-      .withKey('student', 'alice')
-      .withKey('semester', '2026-1')
+      .andKey('course', 'cs101')
+      .andKey('student', 'alice')
+      .andKey('semester', '2026-1')
       .read();
 
     // Only 1 event matches all three keys
@@ -214,8 +214,8 @@ describe('QueryBuilder — Multi-Key AND (.withKey())', () => {
   it('mixed conditions: multi-key AND + single-key OR', async () => {
     const result = await store.query<MultiKeyTestEvent>()
       .matchType('StudentEnrolled')
-      .withKey('course', 'cs101')
-      .withKey('student', 'alice')
+      .andKey('course', 'cs101')
+      .andKey('student', 'alice')
       .matchTypeAndKey('CourseCancelled', 'course', 'cs101')
       .read();
 
@@ -226,10 +226,10 @@ describe('QueryBuilder — Multi-Key AND (.withKey())', () => {
     expect(types.filter(t => t === 'CourseCancelled')).toHaveLength(1);
   });
 
-  it('matchTypeAndKey + withKey (shorthand multi-key)', async () => {
+  it('matchTypeAndKey + andKey (shorthand multi-key)', async () => {
     const result = await store.query<MultiKeyTestEvent>()
       .matchTypeAndKey('StudentEnrolled', 'course', 'cs101')
-      .withKey('student', 'bob')
+      .andKey('student', 'bob')
       .read();
 
     // Only bob in cs101
@@ -259,8 +259,8 @@ describe('QueryBuilder — Multi-Key AND (.withKey())', () => {
   it('multi-key appendCondition propagates correctly', async () => {
     const result = await store.query<MultiKeyTestEvent>()
       .matchType('StudentEnrolled')
-      .withKey('course', 'cs101')
-      .withKey('student', 'alice')
+      .andKey('course', 'cs101')
+      .andKey('student', 'alice')
       .read();
 
     expect(result.appendCondition).toBeDefined();
@@ -276,8 +276,8 @@ describe('QueryBuilder — Multi-Key AND (.withKey())', () => {
     // Get all alice in cs101
     const all = await store.query<MultiKeyTestEvent>()
       .matchType('StudentEnrolled')
-      .withKey('course', 'cs101')
-      .withKey('student', 'alice')
+      .andKey('course', 'cs101')
+      .andKey('student', 'alice')
       .read();
 
     expect(all.count).toBe(2);
@@ -285,8 +285,8 @@ describe('QueryBuilder — Multi-Key AND (.withKey())', () => {
     // Read from after the first event's position
     const fromPos = await store.query<MultiKeyTestEvent>()
       .matchType('StudentEnrolled')
-      .withKey('course', 'cs101')
-      .withKey('student', 'alice')
+      .andKey('course', 'cs101')
+      .andKey('student', 'alice')
       .fromPosition(all.events[0].position)
       .read();
 
@@ -452,10 +452,10 @@ describe('QueryBuilder — .matchType() multi-type', () => {
     expect(result.events.every(e => e.type === 'CourseCreated' || e.type === 'CourseCancelled')).toBe(true);
   });
 
-  it('matchType with multiple types + withKey filters by key', async () => {
+  it('matchType with multiple types + andKey filters by key', async () => {
     const result = await store.query<MultiTypeEvent>()
       .matchType('CourseCreated', 'CourseCancelled')
-      .withKey('course', 'cs101')
+      .andKey('course', 'cs101')
       .read();
 
     expect(result.count).toBe(2); // CourseCreated cs101 + CourseCancelled cs101
@@ -464,11 +464,11 @@ describe('QueryBuilder — .matchType() multi-type', () => {
     expect(types).toContain('CourseCancelled');
   });
 
-  it('matchType with multiple types + multiple withKey (AND)', async () => {
+  it('matchType with multiple types + multiple andKey (AND)', async () => {
     const result = await store.query<MultiTypeEvent>()
       .matchType('CourseCreated', 'StudentEnrolled')
-      .withKey('course', 'cs101')
-      .withKey('student', 'alice')
+      .andKey('course', 'cs101')
+      .andKey('student', 'alice')
       .read();
 
     // Only StudentEnrolled has both keys
@@ -503,7 +503,7 @@ describe('QueryBuilder — .matchType() multi-type', () => {
   it('appendCondition with multi-type preserves types', async () => {
     const result = await store.query<MultiTypeEvent>()
       .matchType('CourseCreated', 'CourseCancelled')
-      .withKey('course', 'cs101')
+      .andKey('course', 'cs101')
       .read();
 
     expect(result.appendCondition).toBeDefined();
@@ -567,9 +567,9 @@ describe('QueryBuilder — .matchKey() Method', () => {
   });
 
   // --- Type + single key ---
-  it('matchType().withKey() with single key (existing)', async () => {
+  it('matchType().andKey() with single key (existing)', async () => {
     const result = await store.query<MatchTestEvent>()
-      .matchType('StudentEnrolled').withKey('course', 'cs101')
+      .matchType('StudentEnrolled').andKey('course', 'cs101')
       .read();
 
     expect(result.count).toBe(2);
@@ -577,9 +577,9 @@ describe('QueryBuilder — .matchKey() Method', () => {
   });
 
   // --- Type + multiple keys (AND) ---
-  it('matchType().withKey() with multiple keys AND (existing)', async () => {
+  it('matchType().andKey() with multiple keys AND (existing)', async () => {
     const result = await store.query<MatchTestEvent>()
-      .matchType('StudentEnrolled').withKey('course', 'cs101').withKey('student', 'alice')
+      .matchType('StudentEnrolled').andKey('course', 'cs101').andKey('student', 'alice')
       .read();
 
     expect(result.count).toBe(1);
@@ -601,9 +601,9 @@ describe('QueryBuilder — .matchKey() Method', () => {
   });
 
   // --- Key-only (multiple keys = AND) ---
-  it('matchKey() with AND via withKey()', async () => {
+  it('matchKey() with AND via andKey()', async () => {
     const result = await store.query<MatchTestEvent>()
-      .matchKey('course', 'cs101').withKey('student', 'alice')
+      .matchKey('course', 'cs101').andKey('student', 'alice')
       .read();
 
     // Only StudentEnrolled has both keys: just alice in cs101
@@ -675,9 +675,9 @@ describe('QueryBuilder — .matchKey() Method', () => {
   });
 
   // --- appendCondition with type + keys match ---
-  it('matchType() + withKey() appendCondition propagates correctly', async () => {
+  it('matchType() + andKey() appendCondition propagates correctly', async () => {
     const result = await store.query<MatchTestEvent>()
-      .matchType('StudentEnrolled').withKey('course', 'cs101').withKey('student', 'alice')
+      .matchType('StudentEnrolled').andKey('course', 'cs101').andKey('student', 'alice')
       .read();
 
     expect(result.appendCondition).toBeDefined();

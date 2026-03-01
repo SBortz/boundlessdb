@@ -509,7 +509,7 @@
         <pre><code><span class="comment">// "Has Alice enrolled in CS101?" — query by keys, not event types</span>
 <span class="keyword">const</span> { events, appendCondition } = <span class="keyword">await</span> store.<span class="function">query</span>&lt;CourseEvent&gt;()
   .<span class="function">matchKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>)
-  .<span class="function">withKey</span>(<span class="string">'student'</span>, <span class="string">'alice'</span>)
+  .<span class="function">andKey</span>(<span class="string">'student'</span>, <span class="string">'alice'</span>)
   .<span class="function">read</span>();
 
 <span class="comment">// Build state from matching events</span>
@@ -593,7 +593,7 @@
     <div class="feature">
       <div class="feature-icon">🔗</div>
       <h3>Multi-Key AND Queries</h3>
-      <p>Chain <code>.withKey()</code> for AND semantics — match events where ALL keys match in one query.</p>
+      <p>Chain <code>.andKey()</code> for AND semantics — match events where ALL keys match in one query.</p>
     </div>
     <div class="feature">
       <div class="feature-icon">📦</div>
@@ -747,13 +747,13 @@ store.<span class="function">query</span>().<span class="function">matchKey</spa
 <span class="comment">// Multi-key AND: "Alice's enrollment in cs101"</span>
 store.<span class="function">query</span>()
   .<span class="function">matchKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>)
-  .<span class="function">withKey</span>(<span class="string">'student'</span>, <span class="string">'alice'</span>)
+  .<span class="function">andKey</span>(<span class="string">'student'</span>, <span class="string">'alice'</span>)
   .<span class="function">read</span>()
 
 <span class="comment">// Multi-type + key: "Course lifecycle events for cs101"</span>
 store.<span class="function">query</span>()
   .<span class="function">matchType</span>(<span class="string">'CourseCreated'</span>, <span class="string">'CourseCancelled'</span>)
-  .<span class="function">withKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>)
+  .<span class="function">andKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>)
   .<span class="function">read</span>()
 
 <span class="comment">// OR: "All cancellations OR everything about Alice"</span>
