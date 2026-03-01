@@ -287,7 +287,8 @@ export class EventStore {
         if (hasKeys(normalized)) {
           // Build a dedup key from all keys
           const keysStr = normalized.keys.map(k => `${k.name}:${k.value}`).sort().join('|');
-          const dedupKey = `${normalized.type}:${keysStr}`;
+          const typeStr = 'type' in normalized ? (normalized as any).type : ('types' in normalized ? (normalized as any).types.join('|') : '*');
+          const dedupKey = `${typeStr}:${keysStr}`;
           conditions.set(dedupKey, normalized);
         }
       }

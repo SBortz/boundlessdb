@@ -141,7 +141,7 @@ export class QueryBuilder<E extends Event> {
     } else {
       // Unconstrained (type only) — convert to multi-key
       this.conditions[lastIdx] = {
-        type: last.type,
+        type: (last as { type: string }).type,
         keys: [{ name: key, value }],
       } as MultiKeyConstrainedCondition;
     }

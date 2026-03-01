@@ -249,18 +249,16 @@ export class SqlJsStorage implements EventStorage {
     // CTE for multi-type unconstrained conditions
     if (multiType.length > 0) {
       multiType.forEach((c, i) => {
-        const typePlaceholders = c.types.map(() => '?').join(', ');
+        const typeList = c.types.map(t => escapeSql(t)).join(', ');
         let cteSql = `
         SELECT position, event_id, event_type, data, metadata, timestamp
         FROM events
-        WHERE event_type IN (${typePlaceholders})`;
+        WHERE event_type IN (${typeList})`;
         if (positionFilter !== null) {
-          cteSql += ' AND position > ?';
+          cteSql += ` AND position > ${positionFilter}`;
         }
         ctes.push(`multitype_${i} AS (${cteSql})`);
         cteNames.push(`multitype_${i}`);
-        params.push(...c.types);
-        if (positionFilter !== null) params.push(positionFilter);
       });
     }
 
@@ -268,41 +266,33 @@ export class SqlJsStorage implements EventStorage {
     if (multiTypeConstrained.length > 0) {
       multiTypeConstrained.forEach((c, i) => {
         const isMultiKey = c.keys.length > 1;
-        const typePlaceholders = c.types.map(() => '?').join(', ');
+        const typeList = c.types.map(t => escapeSql(t)).join(', ');
 
         if (isMultiKey) {
           const cteName = `mtc_${i}`;
-          const intersectParts = c.keys.map(() => `
-            SELECT position FROM event_keys
-            WHERE key_name = ? AND key_value = ?`);
+          const intersectParts = c.keys.map(key =>
+            `SELECT position FROM event_keys WHERE key_name = ${escapeSql(key.name)} AND key_value = ${escapeSql(key.value)}`
+          );
           const cteSql = `
             SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
             FROM (${intersectParts.join('\n          INTERSECT')}) keys
             INNER JOIN events e ON e.position = keys.position
-            WHERE e.event_type IN (${typePlaceholders})`;
+            WHERE e.event_type IN (${typeList})`;
           ctes.push(`${cteName} AS (${cteSql})`);
           cteNames.push(cteName);
-          for (const key of c.keys) {
-            params.push(key.name, key.value);
-          }
-          params.push(...c.types);
-          if (positionFilter !== null) {
-            // Note: sql.js CTE-based approach doesn't use position filter inside CTE
-          }
         } else {
           const cteName = `mtc_${i}`;
           let cteSql = `
             SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
             FROM event_keys k
             INNER JOIN events e ON e.position = k.position
-            WHERE k.key_name = ? AND k.key_value = ? AND e.event_type IN (${typePlaceholders})`;
+            WHERE k.key_name = ${escapeSql(c.keys[0].name)} AND k.key_value = ${escapeSql(c.keys[0].value)}
+            AND e.event_type IN (${typeList})`;
           if (positionFilter !== null) {
-            cteSql += ' AND e.position > ?';
+            cteSql += ` AND e.position > ${positionFilter}`;
           }
           ctes.push(`${cteName} AS (${cteSql})`);
           cteNames.push(cteName);
-          params.push(c.keys[0].name, c.keys[0].value, ...c.types);
-          if (positionFilter !== null) params.push(positionFilter);
         }
       });
     }
