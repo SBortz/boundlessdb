@@ -494,8 +494,11 @@ async function runConcurrentWriterBenchmarks() {
       // Live ticker during round
       const roundStart = performance.now();
       const ticker = setInterval(() => {
-        const elapsed = ((performance.now() - roundStart) / 1000).toFixed(0);
-        const tickLine = `  ${label.padEnd(25)} ${(iter + 1).toString().padStart(3)}/${CONFLICT_ITERATIONS} | ${elapsed}s | ${conflicts} conflicts | ${successes}/${CONCURRENT_WRITERS} done`;
+        const elapsed = performance.now() - roundStart;
+        const elapsedS = (elapsed / 1000).toFixed(0);
+        const evtsNow = successes * EVENTS_PER_WRITER;
+        const evtRate = elapsed > 0 ? formatNum(Math.round(evtsNow / (elapsed / 1000))) : '0';
+        const tickLine = `  ${label.padEnd(25)} ${(iter + 1).toString().padStart(3)}/${CONFLICT_ITERATIONS} | ${elapsedS}s | ${conflicts} conflicts | ${successes}/${CONCURRENT_WRITERS} done | ${evtRate} evt/s`;
         process.stdout.write(`\r${tickLine.padEnd(120)}`);
       }, 500);
 
