@@ -901,7 +901,7 @@
         });
 
         // Wait for initialization
-        await store.read({ conditions: [] });
+        await store.all().read();
 
         updateStatus('✓ Ready', 'connected');
         console.log('✅ BoundlessDB ready!');
@@ -936,7 +936,7 @@
       
       try {
         // Query with no conditions returns all events
-        const result = await store.read({ conditions: [] });
+        const result = await store.all().read();
         const events = result.events;
         const list = document.getElementById('events-list');
         const reversed = [...events].reverse(); // newest first
@@ -991,7 +991,7 @@
       
       try {
         // Query all events and extract keys from them
-        const result = await store.read({ conditions: [] });
+        const result = await store.all().read();
         const allKeys = [];
         
         for (const event of result.events) {
@@ -1050,15 +1050,12 @@
       for (const student of students) {
         for (const course of courses) {
           // Read current state
-          showScenarioResult(`${student.emoji} ${student.name}: Reading ${course.id}...\n\n→ store.read({ course: '${course.id}' })`, 'info');
+          showScenarioResult(`${student.emoji} ${student.name}: Reading ${course.id}...\n\n→ store.query().matchKey('course', '${course.id}').read()`, 'info');
           await sleep(1000);
           
-          const readResult = await store.read({
-            conditions: [
-              {type:'CourseCreated', key:'course', value: course.id},
-              {type:'StudentSubscribed', key:'course', value: course.id}
-            ]
-          });
+          const readResult = await store.query()
+            .matchKey('course', course.id)
+            .read();
           
           const enrolled = readResult.events.filter(e => e.type === 'StudentSubscribed').length;
           const pos = Number(readResult.position);
@@ -1116,15 +1113,12 @@
       await sleep(2000);
       
       // ALICE reads
-      showScenarioResult('👩 ALICE: Reading MATH201...\n\n→ store.read({ course: "math201" })', 'info');
+      showScenarioResult('👩 ALICE: Reading MATH201...\n\n→ store.query().matchKey(\'course\', \'math201\').read()', 'info');
       await sleep(1500);
       
-      const aliceRead = await store.read({
-        conditions: [
-          {type:'CourseCreated', key:'course', value:'math201'},
-          {type:'StudentSubscribed', key:'course', value:'math201'}
-        ]
-      });
+      const aliceRead = await store.query()
+        .matchKey('course', 'math201')
+        .read();
       const aliceCondition = aliceRead.appendCondition;
       const alicePos = Number(aliceRead.position);
       const aliceEnrolled = aliceRead.events.filter(e => e.type === 'StudentSubscribed').length;
