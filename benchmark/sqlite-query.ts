@@ -42,7 +42,7 @@ function getArg(name: string): string | undefined {
   return args[idx + 1];
 }
 
-const customDbPath = getArg('--db');
+const customDbPath = getArg('--db') || getArg('-db');
 const configPath = getArg('--config');
 const eventsArg = getArg('--events');
 

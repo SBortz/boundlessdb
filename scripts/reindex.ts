@@ -68,7 +68,7 @@ function getArg(name: string): string | undefined {
 }
 
 const configPath = getArg('--config');
-const dbPath = getArg('--db');
+const dbPath = getArg('--db') || getArg('-db');
 const connectionString = getArg('--connection');
 const batchSize = Number(getArg('--batch-size') || '10000');
 
