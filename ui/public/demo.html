@@ -960,7 +960,9 @@
       if (!eventTypeConfig) return keys;
       
       for (const keyConfig of eventTypeConfig.keys) {
-        const value = getNestedValue(event.data, keyConfig.path);
+        // Strip 'data.' prefix since we already have event.data
+        const path = keyConfig.path.startsWith('data.') ? keyConfig.path.slice(5) : keyConfig.path;
+        const value = getNestedValue(event.data, path);
         if (value !== undefined) {
           keys.push({
             position: event.position,
