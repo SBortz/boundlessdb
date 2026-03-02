@@ -35,7 +35,7 @@ function getArg(name: string): string | undefined {
 const eventsArg = getArg('--events');
 const useSqlite = args.includes('--sqlite');
 const usePostgres = args.includes('--postgres');
-const dbPath = getArg('--db') || './boundless-bench.sqlite';
+const dbPath = getArg('--db') || getArg('-db') || './boundless-bench.sqlite';
 const connectionUrl = getArg('--connection') || 'postgresql://postgres:bench@localhost:5433/bench';
 
 if (!eventsArg || (!useSqlite && !usePostgres)) {
