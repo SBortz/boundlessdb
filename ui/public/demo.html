@@ -822,30 +822,18 @@
         <h3>🔍 Live Query</h3>
         
         <div class="query-presets">
-          <button class="query active" onclick="setLiveQuery([{type:'CourseCreated',key:'course',value:'cs101'},{type:'StudentSubscribed',key:'course',value:'cs101'},{type:'StudentUnsubscribed',key:'course',value:'cs101'}], this)">CS101</button>
-          <button class="query" onclick="setLiveQuery([{type:'CourseCreated',key:'course',value:'math201'},{type:'StudentSubscribed',key:'course',value:'math201'},{type:'StudentUnsubscribed',key:'course',value:'math201'}], this)">MATH201</button>
-          <button class="query" onclick="setLiveQuery([{type:'StudentSubscribed',key:'student',value:'alice'},{type:'StudentUnsubscribed',key:'student',value:'alice'}], this)">Alice</button>
-          <button class="query" onclick="setLiveQuery([{type:'StudentSubscribed',key:'student',value:'bob'},{type:'StudentUnsubscribed',key:'student',value:'bob'}], this)">Bob</button>
+          <button class="query active" onclick="setLiveQuery([{key:'course',value:'cs101'}], this)">🔑 CS101</button>
+          <button class="query" onclick="setLiveQuery([{key:'course',value:'math201'}], this)">🔑 MATH201</button>
+          <button class="query" onclick="setLiveQuery([{key:'student',value:'alice'}], this)">🔑 Alice</button>
+          <button class="query" onclick="setLiveQuery([{key:'student',value:'bob'}], this)">🔑 Bob</button>
         </div>
         
         <div id="live-conditions">
           <div class="condition-row">
-            <input type="text" placeholder="Type" class="cond-type" value="CourseCreated">
+            <input type="text" placeholder="Type (optional)" class="cond-type" value="">
             <input type="text" placeholder="Key" class="cond-key" value="course">
             <input type="text" placeholder="Value" class="cond-value" value="cs101">
             <button onclick="addLiveConditionRow()">+</button>
-          </div>
-          <div class="condition-row">
-            <input type="text" placeholder="Type" class="cond-type" value="StudentSubscribed">
-            <input type="text" placeholder="Key" class="cond-key" value="course">
-            <input type="text" placeholder="Value" class="cond-value" value="cs101">
-            <button onclick="this.parentElement.remove(); refreshLiveQuery()">-</button>
-          </div>
-          <div class="condition-row">
-            <input type="text" placeholder="Type" class="cond-type" value="StudentUnsubscribed">
-            <input type="text" placeholder="Key" class="cond-key" value="course">
-            <input type="text" placeholder="Value" class="cond-value" value="cs101">
-            <button onclick="this.parentElement.remove(); refreshLiveQuery()">-</button>
           </div>
         </div>
         <button onclick="refreshLiveQuery()" style="width:100%">🔄 Refresh Query</button>
@@ -1314,9 +1302,9 @@
       const container = document.getElementById('live-conditions');
       container.innerHTML = conditions.map((c, i) => `
         <div class="condition-row">
-          <input type="text" placeholder="Type" class="cond-type" value="${c.type}">
-          <input type="text" placeholder="Key" class="cond-key" value="${c.key}">
-          <input type="text" placeholder="Value" class="cond-value" value="${c.value}">
+          <input type="text" placeholder="Type (optional)" class="cond-type" value="${c.type || ''}">
+          <input type="text" placeholder="Key" class="cond-key" value="${c.key || ''}">
+          <input type="text" placeholder="Value" class="cond-value" value="${c.value || ''}">
           <button onclick="${i === 0 ? 'addLiveConditionRow()' : 'this.parentElement.remove(); refreshLiveQuery()'}">${i === 0 ? '+' : '-'}</button>
         </div>
       `).join('');
@@ -1334,7 +1322,7 @@
       const row = document.createElement('div');
       row.className = 'condition-row';
       row.innerHTML = `
-        <input type="text" placeholder="Type" class="cond-type">
+        <input type="text" placeholder="Type (optional)" class="cond-type">
         <input type="text" placeholder="Key" class="cond-key">
         <input type="text" placeholder="Value" class="cond-value">
         <button onclick="this.parentElement.remove(); refreshLiveQuery()">-</button>
@@ -1352,7 +1340,13 @@
         const type = row.querySelector('.cond-type').value.trim();
         const key = row.querySelector('.cond-key').value.trim();
         const value = row.querySelector('.cond-value').value.trim();
-        if (type && key && value) conditions.push({ type, key, value });
+        if (type && key && value) {
+          conditions.push({ type, key, value });
+        } else if (!type && key && value) {
+          conditions.push({ keys: [{ name: key, value }] });
+        } else if (type && !key && !value) {
+          conditions.push({ type });
+        }
       }
       
       if (!conditions.length) {
