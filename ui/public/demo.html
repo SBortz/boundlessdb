@@ -878,8 +878,10 @@
         <h3>🔍 Live Query</h3>
         
         <div class="query-presets">
-          <button class="query active" onclick="setLivePreset([{kind:'matchKey',key:'course',value:'cs101'}], this)">🔑 course=cs101</button>
-          <button class="query" onclick="setLivePreset([{kind:'matchKey',key:'student',value:'alice'}], this)">🔑 student=alice</button>
+          <button class="query active" onclick="setLivePreset([{kind:'matchKey',key:'course',value:'cs101'}], this)">🔑 cs101</button>
+          <button class="query" onclick="setLivePreset([{kind:'matchKey',key:'course',value:'math201'}], this)">🔑 math201</button>
+          <button class="query" onclick="setLivePreset([{kind:'matchKey',key:'student',value:'alice'}], this)">🔑 alice</button>
+          <button class="query" onclick="setLivePreset([{kind:'matchKey',key:'student',value:'bob'}], this)">🔑 bob</button>
           <button class="query" onclick="setLivePreset([{kind:'matchType',type:'CourseCreated'}], this)">📋 CourseCreated</button>
           <button class="query" onclick="setLivePreset([{kind:'matchType',type:'StudentSubscribed',keys:[{name:'course',value:'cs101'}]}], this)">📋+🔑 Enrolled cs101</button>
         </div>
