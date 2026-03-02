@@ -178,12 +178,14 @@ export class SqlJsStorage implements EventStorage {
   async query(
     conditions: QueryCondition[],
     fromPosition?: bigint,
-    limit?: number
+    limit?: number,
+    backwards?: boolean
   ): Promise<StoredEvent[]> {
     const db = await this.ensureInitialized();
 
     // sql.js doesn't support params properly - use escaped SQL
     const escapeSql = (s: string): string => "'" + s.replace(/'/g, "''") + "'";
+    const order = backwards ? 'DESC' : 'ASC';
 
     if (conditions.length === 0) {
       // No conditions = return all events
@@ -193,10 +195,12 @@ export class SqlJsStorage implements EventStorage {
       `;
 
       if (fromPosition !== undefined) {
-        sql += ` WHERE position > ${Number(fromPosition)}`;
+        sql += backwards
+          ? ` WHERE position < ${Number(fromPosition)}`
+          : ` WHERE position > ${Number(fromPosition)}`;
       }
 
-      sql += ' ORDER BY position';
+      sql += ` ORDER BY position ${order}`;
 
       if (limit !== undefined) {
         sql += ` LIMIT ${Number(limit)}`;
@@ -374,7 +378,7 @@ export class SqlJsStorage implements EventStorage {
 
     let sql = `WITH ${ctes.join(',\n')}
 SELECT * FROM (${unionParts.join(' UNION ALL ')}) AS combined
-ORDER BY position`;
+ORDER BY position ${order}`;
 
     if (limit !== undefined) {
       sql += ` LIMIT ${Number(limit)}`;

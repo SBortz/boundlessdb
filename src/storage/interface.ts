@@ -61,11 +61,13 @@ export interface EventStorage {
    * @param conditions Query conditions (type + key + value)
    * @param fromPosition Start position (exclusive)
    * @param limit Maximum number of events to return
+   * @param backwards Read in reverse order (newest first)
    */
   query(
     conditions: QueryCondition[],
     fromPosition?: bigint,
-    limit?: number
+    limit?: number,
+    backwards?: boolean
   ): Promise<StoredEvent[]>;
 
   /**

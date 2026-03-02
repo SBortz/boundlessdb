@@ -70,17 +70,22 @@ export class InMemoryStorage implements EventStorage {
   async query(
     conditions: QueryCondition[],
     fromPosition?: bigint,
-    limit?: number
+    limit?: number,
+    backwards?: boolean
   ): Promise<StoredEvent[]> {
-    const startPos = fromPosition ?? 0n;
+    const startPos = fromPosition ?? (backwards ? BigInt(Number.MAX_SAFE_INTEGER) : 0n);
 
     // Filter by position first
-    let matching = this.events.filter(event => event.position > startPos);
+    let matching = backwards
+      ? this.events.filter(event => event.position < startPos)
+      : this.events.filter(event => event.position > startPos);
 
     // If no conditions, return all events
     if (conditions.length === 0) {
-      // Sort by position
-      matching.sort((a, b) => (a.position < b.position ? -1 : 1));
+      matching.sort((a, b) => {
+        if (backwards) return a.position > b.position ? -1 : 1;
+        return a.position < b.position ? -1 : 1;
+      });
       const limited = limit !== undefined ? matching.slice(0, limit) : matching;
       return limited.map(({ keys: _keys, ...event }) => event);
     }
@@ -134,7 +139,10 @@ export class InMemoryStorage implements EventStorage {
     });
 
     // Sort by position
-    matching.sort((a, b) => (a.position < b.position ? -1 : 1));
+    matching.sort((a, b) => {
+      if (backwards) return a.position > b.position ? -1 : 1;
+      return a.position < b.position ? -1 : 1;
+    });
 
     // Apply limit
     const limited = limit !== undefined ? matching.slice(0, limit) : matching;

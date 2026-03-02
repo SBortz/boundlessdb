@@ -255,10 +255,12 @@ export class PostgresStorage implements EventStorage {
   private buildPostgresQuery(
     conditions: QueryCondition[],
     fromPosition?: bigint,
-    limit?: number
+    limit?: number,
+    backwards?: boolean
   ): { sql: string; params: (string | number)[] } {
     const params: (string | number)[] = [];
     let paramIndex = 1;
+    const order = backwards ? 'DESC' : 'ASC';
 
     if (conditions.length === 0) {
       let sql = `
@@ -266,11 +268,13 @@ export class PostgresStorage implements EventStorage {
         FROM events
       `;
       if (fromPosition !== undefined) {
-        sql += ` WHERE position > $${paramIndex}`;
+        sql += backwards
+          ? ` WHERE position < $${paramIndex}`
+          : ` WHERE position > $${paramIndex}`;
         params.push(fromPosition.toString());
         paramIndex++;
       }
-      sql += ' ORDER BY position';
+      sql += ` ORDER BY position ${order}`;
       if (limit !== undefined) {
         sql += ` LIMIT $${paramIndex}`;
         params.push(limit);
@@ -547,7 +551,7 @@ export class PostgresStorage implements EventStorage {
     const unionParts = cteNames.map(name => `SELECT * FROM ${name}`);
     let sql = `WITH ${ctes.join(',\n')}
 SELECT * FROM (${unionParts.join(' UNION ALL ')}) AS combined
-ORDER BY position`;
+ORDER BY position ${order}`;
 
     if (limit !== undefined) {
       sql += ` LIMIT $${paramIndex}`;
@@ -574,11 +578,12 @@ ORDER BY position`;
   async query(
     conditions: QueryCondition[],
     fromPosition?: bigint,
-    limit?: number
+    limit?: number,
+    backwards?: boolean
   ): Promise<StoredEvent[]> {
     this.ensureInitialized();
 
-    const { sql, params } = this.buildPostgresQuery(conditions, fromPosition, limit);
+    const { sql, params } = this.buildPostgresQuery(conditions, fromPosition, limit, backwards);
     const result = await this.pool.query<EventRow>(sql, params);
     return result.rows.map(row => this.rowToEvent(row));
   }
