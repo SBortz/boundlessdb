@@ -476,14 +476,19 @@
         display: flex !important;
       }
       
-      .debug-section {
+      .config-section {
         display: none !important;
       }
       
-      .debug-section.mobile-active {
-        display: block !important;
+      .config-section.mobile-active {
+        display: flex !important;
+        flex-direction: column;
         min-height: 80vh;
         height: auto;
+      }
+      
+      .debug-section {
+        display: none !important;
       }
       
       /* Touch-friendly buttons */
@@ -582,12 +587,84 @@
         display: flex !important;
       }
       
-      .debug-section {
+      .config-section {
         display: flex !important;
         flex-direction: column;
-        background: #0a0a0a;
+        background: #0d1929;
         border-right: none;
       }
+      
+      .debug-section {
+        display: none !important; /* Hidden by default */
+      }
+    }
+    
+    /* Config Panel Styles */
+    .config-section {
+      display: flex;
+      flex-direction: column;
+      background: #0d1929;
+      border-right: 1px solid #0f3460;
+    }
+    
+    .config-header {
+      padding: 0.75rem;
+      background: #16213e;
+      border-bottom: 1px solid #0f3460;
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: #0cf;
+    }
+    
+    .config-content {
+      flex: 1;
+      padding: 0.75rem;
+      overflow-y: auto;
+    }
+    
+    .config-editor {
+      width: 100%;
+      min-height: 400px;
+      padding: 0.5rem;
+      background: #0a1628;
+      border: 1px solid #0f3460;
+      border-radius: 4px;
+      color: #9ece6a;
+      font-family: 'Fira Code', 'Consolas', monospace;
+      font-size: 0.75rem;
+      resize: vertical;
+    }
+    
+    .config-actions {
+      margin-top: 0.5rem;
+      display: flex;
+      gap: 0.5rem;
+    }
+    
+    .config-actions button {
+      flex: 1;
+      padding: 0.5rem;
+      font-size: 0.85rem;
+    }
+    
+    .config-feedback {
+      margin-top: 0.5rem;
+      padding: 0.5rem;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      display: none;
+    }
+    
+    .config-feedback.success {
+      background: rgba(0, 255, 100, 0.15);
+      border: 1px solid #0f6;
+      color: #0f6;
+    }
+    
+    .config-feedback.error {
+      background: rgba(255, 100, 100, 0.15);
+      border: 1px solid #f66;
+      color: #f66;
     }
   </style>
 </head>
@@ -653,7 +730,7 @@
     <button class="mobile-tab" onclick="showMobileTab('live-query')">🔍 Query</button>
     <button class="mobile-tab" onclick="showMobileTab('events')">📊 Events</button>
     <button class="mobile-tab" onclick="showMobileTab('keys')">🔑 Keys</button>
-    <button class="mobile-tab" onclick="showMobileTab('debug')">🐛 Debug</button>
+    <button class="mobile-tab" onclick="showMobileTab('config')">⚙️ Config</button>
   </div>
   
   <div class="layout">
@@ -804,7 +881,7 @@
       </div>
     </div>
     
-    <!-- Debug Tab -->
+    <!-- Debug Tab (Hidden by default, accessible via console) -->
     <div class="sidebar debug-section" id="section-debug" style="display:none;">
       <div class="sidebar-section" style="flex:1">
         <div class="sidebar-header">
@@ -812,6 +889,24 @@
           <button onclick="copyDebugLog()">📋 Copy</button>
         </div>
         <div class="sidebar-content" id="debug-log" style="background:#0a0a0a;color:#0f0;font-family:monospace;font-size:11px;padding:0.5rem;"></div>
+      </div>
+    </div>
+    
+    <!-- Config Panel -->
+    <div class="sidebar config-section" id="section-config">
+      <div class="config-header">
+        ⚙️ Consistency Config
+      </div>
+      <div class="config-content">
+        <p style="font-size:0.75rem;color:#888;margin-bottom:0.5rem">
+          Edit the consistency configuration and reindex:
+        </p>
+        <textarea id="config-editor" class="config-editor"></textarea>
+        <div class="config-actions">
+          <button class="success" onclick="applyConfigAndReindex()">🔄 Apply & Reindex</button>
+          <button onclick="resetConfigEditor()">↺ Reset</button>
+        </div>
+        <div id="config-feedback" class="config-feedback"></div>
       </div>
     </div>
   </div>
@@ -859,6 +954,19 @@
       {type:'StudentUnsubscribed',key:'course',value:'cs101'}
     ];
 
+    // Debug Panel Control (accessible via console)
+    window.showDebug = function() {
+      const debugSection = document.getElementById('section-debug');
+      debugSection.style.display = 'flex';
+      console.log('✅ Debug panel shown');
+    };
+    
+    window.hideDebug = function() {
+      const debugSection = document.getElementById('section-debug');
+      debugSection.style.display = 'none';
+      console.log('✅ Debug panel hidden');
+    };
+    
     // Mobile Tab Handling
     window.showMobileTab = function(section) {
       // Update tabs
@@ -866,13 +974,13 @@
       event.target.classList.add('active');
       
       // Update sections - hide all, show selected
-      document.querySelectorAll('.controls, .live-query, .events-section, .keys-section, .debug-section').forEach(s => {
+      document.querySelectorAll('.controls, .live-query, .events-section, .keys-section, .config-section').forEach(s => {
         s.classList.remove('mobile-active');
-        if (s.classList.contains('debug-section') || s.classList.contains('keys-section')) s.style.display = 'none';
+        if (s.classList.contains('keys-section') || s.classList.contains('config-section')) s.style.display = 'none';
       });
       const target = document.getElementById('section-' + section);
       target.classList.add('mobile-active');
-      if (section === 'debug' || section === 'keys') target.style.display = 'block';
+      if (section === 'keys' || section === 'config') target.style.display = 'block';
     };
 
     // Advanced section toggle
@@ -1464,6 +1572,108 @@
       showFeedback('quick-result', `📝 "${type}" in Append-Form geladen. Klicke "Append" zum Ausführen.`, 'info');
     };
 
+    // ==================== CONFIG PANEL ====================
+    
+    // Initialize config editor
+    function initConfigEditor() {
+      const editor = document.getElementById('config-editor');
+      if (editor) {
+        editor.value = JSON.stringify(CONSISTENCY_CONFIG, null, 2);
+      }
+    }
+    
+    window.resetConfigEditor = function() {
+      const editor = document.getElementById('config-editor');
+      editor.value = JSON.stringify(CONSISTENCY_CONFIG, null, 2);
+      showConfigFeedback('✅ Reset to current config', 'success');
+    };
+    
+    window.applyConfigAndReindex = async function() {
+      if (!store) {
+        showConfigFeedback('❌ Store not initialized', 'error');
+        return;
+      }
+      
+      const editor = document.getElementById('config-editor');
+      const configText = editor.value.trim();
+      
+      // Parse JSON
+      let newConfig;
+      try {
+        newConfig = JSON.parse(configText);
+      } catch (err) {
+        showConfigFeedback(`❌ Invalid JSON: ${err.message}`, 'error');
+        return;
+      }
+      
+      showConfigFeedback('⏳ Reindexing with new config...', 'success');
+      
+      try {
+        // Store all events first
+        const allEventsResult = await store.all().read();
+        const allEvents = allEventsResult.events;
+        
+        console.log(`🔄 Reindexing ${allEvents.length} events with new config...`);
+        
+        // Update global config
+        Object.assign(CONSISTENCY_CONFIG, newConfig);
+        
+        // Clear storage
+        const storageInstance = store.getStorage();
+        await storageInstance.clear();
+        
+        // Recreate store with new config
+        store = createEventStore({
+          storage: storageInstance,
+          consistency: CONSISTENCY_CONFIG
+        });
+        
+        // Re-append all events (this will reindex with new config)
+        if (allEvents.length > 0) {
+          // Check if store has reindexBatch method
+          if (typeof store.reindexBatch === 'function') {
+            console.log('Using reindexBatch method...');
+            await store.reindexBatch(allEvents);
+          } else {
+            // Fallback: append events one by one
+            console.log('Fallback: Re-appending events...');
+            for (const event of allEvents) {
+              await store.append([{
+                type: event.type,
+                data: event.data,
+                timestamp: event.timestamp
+              }], null);
+            }
+          }
+        }
+        
+        // Refresh all views
+        await refreshAll();
+        await refreshLiveQuery();
+        
+        showConfigFeedback(`✅ Reindexed ${allEvents.length} events with new config`, 'success');
+        console.log('✅ Reindex complete!');
+        
+      } catch (err) {
+        console.error('Reindex error:', err);
+        showConfigFeedback(`❌ Reindex failed: ${err.message}`, 'error');
+      }
+    };
+    
+    function showConfigFeedback(text, type) {
+      const el = document.getElementById('config-feedback');
+      el.style.display = 'block';
+      el.textContent = text;
+      el.className = 'config-feedback ' + type;
+      
+      // Auto-hide success messages after 3s
+      if (type === 'success') {
+        setTimeout(() => {
+          el.style.display = 'none';
+        }, 3000);
+      }
+    }
+    
     // Initialize on load
     // Quick UUID test
     try {
@@ -1474,6 +1684,7 @@
     }
     
     initStore();
+    initConfigEditor();
   </script>
 </body>
 </html>
