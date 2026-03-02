@@ -2,6 +2,27 @@
 
 All notable changes to BoundlessDB will be documented in this file.
 
+## [0.11.0] - 2026-03-02
+
+### Added
+
+#### `backwards()` query
+
+Read events in reverse order (newest first). Useful with `.limit()` to get the last N events efficiently:
+
+```typescript
+const result = await store.all().backwards().limit(100).read();
+```
+
+All 4 storage engines supported: SQLite, PostgreSQL, SqlJs, InMemory.
+
+#### Demo UI improvements
+
+- **Config editor:** Edit consistency config and reindex live
+- **Live Query builder:** Mirrors the fluent API with `matchType` and `matchKey` blocks, plus AND-key chaining
+- **Key-only queries** in Live Query (leave Type empty)
+- Debug panel hidden by default (accessible via `showDebug()` in console)
+
 ## [0.10.0] - 2026-03-01
 
 ### Added
