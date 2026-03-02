@@ -210,14 +210,15 @@ export class EventStore {
     const events = await this.storage.query(
       query.conditions,
       query.fromPosition,
-      query.limit
+      query.limit,
+      query.backwards
     );
 
     // Get the position for the append condition
-    // If we have events, use the last event's position
-    // Otherwise, use the current latest position
+    // For backwards queries, the highest position is the first event
+    // For forward queries, it's the last event
     const position = events.length > 0
-      ? events[events.length - 1].position
+      ? (query.backwards ? events[0].position : events[events.length - 1].position)
       : await this.storage.getLatestPosition();
 
     return new QueryResult<E>(

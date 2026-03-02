@@ -192,6 +192,7 @@ export interface Query {
   conditions: QueryCondition[];
   fromPosition?: bigint;
   limit?: number;
+  backwards?: boolean;
 }
 
 // ============================================================

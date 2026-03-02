@@ -8,7 +8,8 @@ export interface QueryExecutor<E extends Event> {
   read(query: { 
     conditions: QueryCondition[]; 
     fromPosition?: bigint; 
-    limit?: number; 
+    limit?: number;
+    backwards?: boolean;
   }): Promise<QueryResult<E>>;
 }
 
@@ -42,6 +43,7 @@ export class QueryBuilder<E extends Event> {
   private conditions: QueryCondition[] = [];
   private _fromPosition?: bigint;
   private _limit?: number;
+  private _backwards = false;
 
   constructor(private readonly executor: QueryExecutor<E>) {}
 
@@ -176,6 +178,21 @@ export class QueryBuilder<E extends Event> {
   }
 
   /**
+   * Read events in reverse order (newest first).
+   * Useful with `.limit()` to get the last N events.
+   * 
+   * @example
+   * ```typescript
+   * // Last 100 events
+   * const result = await store.all().backwards().limit(100).read();
+   * ```
+   */
+  backwards(): this {
+    this._backwards = true;
+    return this;
+  }
+
+  /**
    * Execute the query and return results.
    */
   async read(): Promise<QueryResult<E>> {
@@ -183,6 +200,7 @@ export class QueryBuilder<E extends Event> {
       conditions: this.conditions,
       fromPosition: this._fromPosition,
       limit: this._limit,
+      backwards: this._backwards || undefined,
     });
   }
 }

@@ -2430,6 +2430,7 @@ var QueryBuilder = class {
     __publicField(this, "conditions", []);
     __publicField(this, "_fromPosition");
     __publicField(this, "_limit");
+    __publicField(this, "_backwards", false);
   }
   /**
    * Add an unconstrained condition (match events of one or more types).
@@ -2548,13 +2549,28 @@ var QueryBuilder = class {
     return this;
   }
   /**
+   * Read events in reverse order (newest first).
+   * Useful with `.limit()` to get the last N events.
+   * 
+   * @example
+   * ```typescript
+   * // Last 100 events
+   * const result = await store.all().backwards().limit(100).read();
+   * ```
+   */
+  backwards() {
+    this._backwards = true;
+    return this;
+  }
+  /**
    * Execute the query and return results.
    */
   async read() {
     return this.executor.read({
       conditions: this.conditions,
       fromPosition: this._fromPosition,
-      limit: this._limit
+      limit: this._limit,
+      backwards: this._backwards || void 0
     });
   }
 };
@@ -2702,9 +2718,10 @@ var EventStore = class {
     const events = await this.storage.query(
       query.conditions,
       query.fromPosition,
-      query.limit
+      query.limit,
+      query.backwards
     );
-    const position = events.length > 0 ? events[events.length - 1].position : await this.storage.getLatestPosition();
+    const position = events.length > 0 ? query.backwards ? events[0].position : events[events.length - 1].position : await this.storage.getLatestPosition();
     return new QueryResult(
       events,
       position,
@@ -2855,11 +2872,14 @@ var InMemoryStorage = class {
     }
     return { position: lastPosition };
   }
-  async query(conditions, fromPosition, limit) {
-    const startPos = fromPosition ?? 0n;
-    let matching = this.events.filter((event) => event.position > startPos);
+  async query(conditions, fromPosition, limit, backwards) {
+    const startPos = fromPosition ?? (backwards ? BigInt(Number.MAX_SAFE_INTEGER) : 0n);
+    let matching = backwards ? this.events.filter((event) => event.position < startPos) : this.events.filter((event) => event.position > startPos);
     if (conditions.length === 0) {
-      matching.sort((a, b) => a.position < b.position ? -1 : 1);
+      matching.sort((a, b) => {
+        if (backwards) return a.position > b.position ? -1 : 1;
+        return a.position < b.position ? -1 : 1;
+      });
       const limited2 = limit !== void 0 ? matching.slice(0, limit) : matching;
       return limited2.map(({ keys: _keys, ...event }) => event);
     }
@@ -2897,7 +2917,10 @@ var InMemoryStorage = class {
         );
       });
     });
-    matching.sort((a, b) => a.position < b.position ? -1 : 1);
+    matching.sort((a, b) => {
+      if (backwards) return a.position > b.position ? -1 : 1;
+      return a.position < b.position ? -1 : 1;
+    });
     const limited = limit !== void 0 ? matching.slice(0, limit) : matching;
     return limited.map(({ keys: _keys, ...event }) => event);
   }
@@ -3085,18 +3108,19 @@ var SqlJsStorage = class {
     }
     return { position: lastPosition };
   }
-  async query(conditions, fromPosition, limit) {
+  async query(conditions, fromPosition, limit, backwards) {
     const db = await this.ensureInitialized();
     const escapeSql = (s) => "'" + s.replace(/'/g, "''") + "'";
+    const order = backwards ? "DESC" : "ASC";
     if (conditions.length === 0) {
       let sql2 = `
         SELECT position, event_id, event_type, data, metadata, timestamp
         FROM events
       `;
       if (fromPosition !== void 0) {
-        sql2 += ` WHERE position > ${Number(fromPosition)}`;
+        sql2 += backwards ? ` WHERE position < ${Number(fromPosition)}` : ` WHERE position > ${Number(fromPosition)}`;
       }
-      sql2 += " ORDER BY position";
+      sql2 += ` ORDER BY position ${order}`;
       if (limit !== void 0) {
         sql2 += ` LIMIT ${Number(limit)}`;
       }
@@ -3247,7 +3271,7 @@ var SqlJsStorage = class {
     const unionParts = cteNames.map((name) => `SELECT * FROM ${name}`);
     let sql = `WITH ${ctes.join(",\n")}
 SELECT * FROM (${unionParts.join(" UNION ALL ")}) AS combined
-ORDER BY position`;
+ORDER BY position ${order}`;
     if (limit !== void 0) {
       sql += ` LIMIT ${Number(limit)}`;
     }

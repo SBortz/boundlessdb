@@ -662,6 +662,91 @@ describe('EventStore', () => {
       });
     });
 
+    describe('.backwards()', () => {
+      it('returns events in reverse order', async () => {
+        await store.append([
+          { type: 'CourseCreated', data: { courseId: 'cs101', name: 'CS' } },
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } },
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'bob' } },
+        ], null);
+
+        const result = await store.all().backwards().read();
+
+        expect(result.events).toHaveLength(3);
+        expect(result.events[0].position).toBe(3n);
+        expect(result.events[1].position).toBe(2n);
+        expect(result.events[2].position).toBe(1n);
+      });
+
+      it('backwards + limit returns last N events', async () => {
+        await store.append([
+          { type: 'CourseCreated', data: { courseId: 'cs101', name: 'CS' } },
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } },
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'bob' } },
+          { type: 'CourseCreated', data: { courseId: 'math201', name: 'Math' } },
+        ], null);
+
+        const result = await store.all().backwards().limit(2).read();
+
+        expect(result.events).toHaveLength(2);
+        expect(result.events[0].position).toBe(4n);
+        expect(result.events[1].position).toBe(3n);
+      });
+
+      it('backwards with conditions', async () => {
+        await store.append([
+          { type: 'CourseCreated', data: { courseId: 'cs101', name: 'CS' } },
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } },
+          { type: 'CourseCreated', data: { courseId: 'math201', name: 'Math' } },
+          { type: 'StudentSubscribed', data: { courseId: 'math201', studentId: 'bob' } },
+        ], null);
+
+        const result = await store.query()
+          .matchType('CourseCreated')
+          .backwards()
+          .read();
+
+        expect(result.events).toHaveLength(2);
+        expect(result.events[0].data).toEqual({ courseId: 'math201', name: 'Math' });
+        expect(result.events[1].data).toEqual({ courseId: 'cs101', name: 'CS' });
+      });
+
+      it('backwards + fromPosition reads before that position', async () => {
+        await store.append([
+          { type: 'CourseCreated', data: { courseId: 'cs101', name: 'CS' } },
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } },
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'bob' } },
+          { type: 'CourseCreated', data: { courseId: 'math201', name: 'Math' } },
+        ], null);
+
+        const result = await store.all().backwards().fromPosition(4n).limit(2).read();
+
+        expect(result.events).toHaveLength(2);
+        expect(result.events[0].position).toBe(3n);
+        expect(result.events[1].position).toBe(2n);
+      });
+
+      it('backwards appendCondition uses highest position', async () => {
+        await store.append([
+          { type: 'CourseCreated', data: { courseId: 'cs101', name: 'CS' } },
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } },
+          { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'bob' } },
+        ], null);
+
+        const result = await store.all().backwards().limit(2).read();
+
+        // appendCondition.after should be the highest position (first in backwards)
+        expect(result.appendCondition.after).toBe(3n);
+      });
+
+      it('backwards on empty store', async () => {
+        const result = await store.all().backwards().read();
+
+        expect(result.events).toEqual([]);
+        expect(result.count).toBe(0);
+      });
+    });
+
     describe('.matchKey() method', () => {
       it('key-only match returns events across types', async () => {
         await store.append([

@@ -138,8 +138,11 @@ export class SqliteStorage implements EventStorage {
   private querySync(
     conditions: QueryCondition[],
     fromPosition?: bigint,
-    limit?: number
+    limit?: number,
+    backwards?: boolean
   ): StoredEvent[] {
+    const order = backwards ? 'DESC' : 'ASC';
+
     if (conditions.length === 0) {
       // No conditions = return all events
       let sql = `
@@ -149,11 +152,11 @@ export class SqliteStorage implements EventStorage {
       const params: (string | number)[] = [];
 
       if (fromPosition !== undefined) {
-        sql += ' WHERE position > ?';
+        sql += backwards ? ' WHERE position < ?' : ' WHERE position > ?';
         params.push(Number(fromPosition));
       }
 
-      sql += ' ORDER BY position';
+      sql += ` ORDER BY position ${order}`;
 
       if (limit !== undefined) {
         sql += ' LIMIT ?';
@@ -442,7 +445,7 @@ export class SqliteStorage implements EventStorage {
     
     let sql = `WITH ${ctes.join(',\n')}
 SELECT * FROM (${unionParts.join(' UNION ALL ')}) AS combined
-ORDER BY position`;
+ORDER BY position ${order}`;
 
     if (limit !== undefined) {
       sql += ' LIMIT ?';
@@ -458,9 +461,10 @@ ORDER BY position`;
   async query(
     conditions: QueryCondition[],
     fromPosition?: bigint,
-    limit?: number
+    limit?: number,
+    backwards?: boolean
   ): Promise<StoredEvent[]> {
-    return this.querySync(conditions, fromPosition, limit);
+    return this.querySync(conditions, fromPosition, limit, backwards);
   }
 
   async getLatestPosition(): Promise<bigint> {
