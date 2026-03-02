@@ -203,6 +203,62 @@
       color: #0cf;
     }
     
+    .condition-block {
+      background: #0d1929;
+      border: 1px solid #0f3460;
+      border-radius: 6px;
+      padding: 0.5rem;
+      margin-bottom: 0.4rem;
+    }
+    .condition-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.3rem;
+    }
+    .condition-header select {
+      background: #16213e;
+      color: #7aa2f7;
+      border: 1px solid #0f3460;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      padding: 0.35rem;
+      font-weight: bold;
+    }
+    .condition-header .cb-actions {
+      display: flex;
+      gap: 0.2rem;
+    }
+    .condition-header button { margin: 0; padding: 0.35rem 0.5rem; font-size: 0.75rem; }
+    .condition-inputs {
+      display: grid;
+      gap: 0.25rem;
+      margin-top: 0.3rem;
+    }
+    .condition-inputs.single { grid-template-columns: 1fr; }
+    .condition-inputs.double { grid-template-columns: 1fr 1fr; }
+    .condition-inputs input {
+      width: 100%;
+      font-size: 0.85rem;
+      padding: 0.4rem 0.5rem;
+      margin: 0;
+      box-sizing: border-box;
+    }
+    .and-key-row {
+      display: grid;
+      grid-template-columns: auto 1fr 1fr auto;
+      gap: 0.25rem;
+      margin-top: 0.2rem;
+      align-items: center;
+    }
+    .and-key-row .and-label {
+      color: #9ece6a;
+      font-size: 0.65rem;
+      font-weight: bold;
+      padding: 0 0.2rem;
+    }
+    .and-key-row input { font-size: 0.85rem; padding: 0.4rem 0.5rem; margin: 0; }
+    .and-key-row button { margin: 0; padding: 0.3rem 0.45rem; font-size: 0.7rem; }
     .condition-row {
       display: grid;
       grid-template-columns: 1fr 1fr 1fr auto;
@@ -755,7 +811,7 @@
       
       <!-- Quick Actions -->
       <div class="panel">
-        <h2>🚀 Quick Actions</h2>
+        <h2>🚀 Quick Append</h2>
         
         <label style="color:#9ece6a">📚 Create Course</label>
         <div class="quick-buttons">
@@ -822,31 +878,18 @@
         <h3>🔍 Live Query</h3>
         
         <div class="query-presets">
-          <button class="query active" onclick="setLiveQuery([{type:'CourseCreated',key:'course',value:'cs101'},{type:'StudentSubscribed',key:'course',value:'cs101'},{type:'StudentUnsubscribed',key:'course',value:'cs101'}], this)">CS101</button>
-          <button class="query" onclick="setLiveQuery([{type:'CourseCreated',key:'course',value:'math201'},{type:'StudentSubscribed',key:'course',value:'math201'},{type:'StudentUnsubscribed',key:'course',value:'math201'}], this)">MATH201</button>
-          <button class="query" onclick="setLiveQuery([{type:'StudentSubscribed',key:'student',value:'alice'},{type:'StudentUnsubscribed',key:'student',value:'alice'}], this)">Alice</button>
-          <button class="query" onclick="setLiveQuery([{type:'StudentSubscribed',key:'student',value:'bob'},{type:'StudentUnsubscribed',key:'student',value:'bob'}], this)">Bob</button>
+          <button class="query active" onclick="setLivePreset([{kind:'matchKey',key:'course',value:'cs101'}], this)">🔑 cs101</button>
+          <button class="query" onclick="setLivePreset([{kind:'matchKey',key:'course',value:'math201'}], this)">🔑 math201</button>
+          <button class="query" onclick="setLivePreset([{kind:'matchKey',key:'student',value:'alice'}], this)">🔑 alice</button>
+          <button class="query" onclick="setLivePreset([{kind:'matchKey',key:'student',value:'bob'}], this)">🔑 bob</button>
+          <button class="query" onclick="setLivePreset([{kind:'matchType',type:'CourseCreated'}], this)">📋 CourseCreated</button>
+          <button class="query" onclick="setLivePreset([{kind:'matchType',type:'StudentSubscribed',keys:[{name:'course',value:'cs101'}]}], this)">📋+🔑 Enrolled cs101</button>
         </div>
         
-        <div id="live-conditions">
-          <div class="condition-row">
-            <input type="text" placeholder="Type" class="cond-type" value="CourseCreated">
-            <input type="text" placeholder="Key" class="cond-key" value="course">
-            <input type="text" placeholder="Value" class="cond-value" value="cs101">
-            <button onclick="addLiveConditionRow()">+</button>
-          </div>
-          <div class="condition-row">
-            <input type="text" placeholder="Type" class="cond-type" value="StudentSubscribed">
-            <input type="text" placeholder="Key" class="cond-key" value="course">
-            <input type="text" placeholder="Value" class="cond-value" value="cs101">
-            <button onclick="this.parentElement.remove(); refreshLiveQuery()">-</button>
-          </div>
-          <div class="condition-row">
-            <input type="text" placeholder="Type" class="cond-type" value="StudentUnsubscribed">
-            <input type="text" placeholder="Key" class="cond-key" value="course">
-            <input type="text" placeholder="Value" class="cond-value" value="cs101">
-            <button onclick="this.parentElement.remove(); refreshLiveQuery()">-</button>
-          </div>
+        <div id="live-conditions"></div>
+        <div style="display:flex;gap:0.3rem;margin-top:0.3rem">
+          <button onclick="addConditionBlock('matchKey')" style="flex:1;font-size:0.7rem">+ matchKey</button>
+          <button onclick="addConditionBlock('matchType')" style="flex:1;font-size:0.7rem">+ matchType</button>
         </div>
         <button onclick="refreshLiveQuery()" style="width:100%">🔄 Refresh Query</button>
       </div>
@@ -1014,6 +1057,12 @@
 
         updateStatus('✓ Ready', 'connected');
         console.log('✅ BoundlessDB ready!');
+
+        // Set initial live query condition
+        const liveContainer = document.getElementById('live-conditions');
+        if (liveContainer && !liveContainer.children.length) {
+          liveContainer.innerHTML = buildConditionBlockHtml('matchKey', { key: 'course', value: 'cs101' });
+        }
 
         // Initial refresh
         await refreshAll();
@@ -1309,56 +1358,107 @@
 
     // ==================== LIVE QUERY ====================
     
-    window.setLiveQuery = function(conditions, btn) {
-      // Update conditions in UI
+    // Build a condition block HTML
+    function buildConditionBlockHtml(kind, opts = {}) {
+      const id = 'cb_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+      let html = `<div class="condition-block" data-id="${id}" data-kind="${kind}">`;
+      html += `<div class="condition-header">`;
+      if (kind === 'matchType') {
+        html += `<select disabled><option>matchType</option></select>`;
+      } else {
+        html += `<select disabled><option>matchKey</option></select>`;
+      }
+      html += `<div class="cb-actions">`;
+      html += `<button onclick="addAndKey('${id}')" title="AND key">+🔑</button>`;
+      html += `<button onclick="this.closest('.condition-block').remove(); refreshLiveQuery()" title="Remove">×</button>`;
+      html += `</div></div>`;
+
+      if (kind === 'matchType') {
+        html += `<div class="condition-inputs single">`;
+        html += `<input type="text" placeholder="Event Type" class="cb-type" value="${opts.type || ''}">`;
+        html += `</div>`;
+      } else {
+        html += `<div class="condition-inputs double">`;
+        html += `<input type="text" placeholder="Key" class="cb-key" value="${opts.key || ''}">`;
+        html += `<input type="text" placeholder="Value" class="cb-value" value="${opts.value || ''}">`;
+        html += `</div>`;
+      }
+
+      // AND keys
+      if (opts.keys) {
+        for (const k of opts.keys) {
+          html += buildAndKeyHtml(k.name, k.value);
+        }
+      }
+
+      html += `</div>`;
+      return html;
+    }
+
+    function buildAndKeyHtml(name, value) {
+      return `<div class="and-key-row">
+        <span class="and-label">AND</span>
+        <input type="text" placeholder="Key" class="ak-key" value="${name || ''}">
+        <input type="text" placeholder="Value" class="ak-value" value="${value || ''}">
+        <button onclick="this.parentElement.remove(); refreshLiveQuery()" title="Remove">×</button>
+      </div>`;
+    }
+
+    window.addConditionBlock = function(kind) {
       const container = document.getElementById('live-conditions');
-      container.innerHTML = conditions.map((c, i) => `
-        <div class="condition-row">
-          <input type="text" placeholder="Type" class="cond-type" value="${c.type}">
-          <input type="text" placeholder="Key" class="cond-key" value="${c.key}">
-          <input type="text" placeholder="Value" class="cond-value" value="${c.value}">
-          <button onclick="${i === 0 ? 'addLiveConditionRow()' : 'this.parentElement.remove(); refreshLiveQuery()'}">${i === 0 ? '+' : '-'}</button>
-        </div>
-      `).join('');
-      
-      // Update active button
-      document.querySelectorAll('.query-presets button').forEach(b => b.classList.remove('active'));
-      if (btn) btn.classList.add('active');
-      
-      currentLiveConditions = conditions;
-      refreshLiveQuery();
+      container.insertAdjacentHTML('beforeend', buildConditionBlockHtml(kind));
     };
 
-    window.addLiveConditionRow = function() {
+    window.addAndKey = function(blockId) {
+      const block = document.querySelector(`.condition-block[data-id="${blockId}"]`);
+      if (block) {
+        block.insertAdjacentHTML('beforeend', buildAndKeyHtml('', ''));
+      }
+    };
+
+    window.setLivePreset = function(presetConditions, btn) {
       const container = document.getElementById('live-conditions');
-      const row = document.createElement('div');
-      row.className = 'condition-row';
-      row.innerHTML = `
-        <input type="text" placeholder="Type" class="cond-type">
-        <input type="text" placeholder="Key" class="cond-key">
-        <input type="text" placeholder="Value" class="cond-value">
-        <button onclick="this.parentElement.remove(); refreshLiveQuery()">-</button>
-      `;
-      container.appendChild(row);
+      container.innerHTML = presetConditions.map(c => buildConditionBlockHtml(c.kind, c)).join('');
+      document.querySelectorAll('.query-presets button').forEach(b => b.classList.remove('active'));
+      if (btn) btn.classList.add('active');
+      refreshLiveQuery();
     };
 
     window.refreshLiveQuery = async function() {
       if (!store) return;
 
-      // Get conditions from UI
-      const rows = document.querySelectorAll('#live-conditions .condition-row');
+      // Build conditions from UI blocks
+      const blocks = document.querySelectorAll('#live-conditions .condition-block');
       const conditions = [];
-      for (const row of rows) {
-        const type = row.querySelector('.cond-type').value.trim();
-        const key = row.querySelector('.cond-key').value.trim();
-        const value = row.querySelector('.cond-value').value.trim();
-        if (type && key && value) conditions.push({ type, key, value });
+
+      for (const block of blocks) {
+        const kind = block.dataset.kind;
+        const andKeys = [...block.querySelectorAll('.and-key-row')].map(row => ({
+          name: row.querySelector('.ak-key').value.trim(),
+          value: row.querySelector('.ak-value').value.trim(),
+        })).filter(k => k.name && k.value);
+
+        if (kind === 'matchType') {
+          const type = block.querySelector('.cb-type')?.value.trim();
+          if (!type) continue;
+          if (andKeys.length > 0) {
+            conditions.push({ type, keys: andKeys });
+          } else {
+            conditions.push({ type });
+          }
+        } else {
+          const key = block.querySelector('.cb-key')?.value.trim();
+          const value = block.querySelector('.cb-value')?.value.trim();
+          if (!key || !value) continue;
+          const allKeys = [{ name: key, value }, ...andKeys];
+          conditions.push({ keys: allKeys });
+        }
       }
-      
+
       if (!conditions.length) {
         document.getElementById('live-count').textContent = '0';
         document.getElementById('live-token').textContent = 'Position: —';
-        document.getElementById('live-events').innerHTML = '<div style="color:#666;text-align:center;padding:2rem">No query conditions</div>';
+        document.getElementById('live-events').innerHTML = '<div style="color:#666;text-align:center;padding:2rem">Add a condition above</div>';
         return;
       }
       
