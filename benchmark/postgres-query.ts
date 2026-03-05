@@ -291,25 +291,25 @@ const queries: QueryDef[] = [
   },
   {
     name: 'Constrained (Enrollments/course)',
-    fn: (store) => () => store.query().matchTypeAndKey('StudentEnrolled', 'course', 'course-50').read(),
+    fn: (store) => () => store.query().matchTypeAndKeys('StudentEnrolled', { course: 'course-50' }).read(),
   },
   {
     name: 'Constrained (Lessons/student)',
-    fn: (store) => () => store.query().matchTypeAndKey('LessonCompleted', 'student', 'student-50-5').read(),
+    fn: (store) => () => store.query().matchTypeAndKeys('LessonCompleted', { student: 'student-50-5' }).read(),
   },
   {
     name: 'Mixed (2 types/course)',
     fn: (store) => () => store.query()
-      .matchTypeAndKey('StudentEnrolled', 'course', 'course-50')
-      .matchTypeAndKey('CertificateIssued', 'course', 'course-50')
+      .matchTypeAndKeys('StudentEnrolled', { course: 'course-50' })
+      .matchTypeAndKeys('CertificateIssued', { course: 'course-50' })
       .read(),
   },
   {
     name: 'Full course aggregate (3 types)',
     fn: (store) => () => store.query()
-      .matchTypeAndKey('StudentEnrolled', 'course', 'course-50')
-      .matchTypeAndKey('LessonCompleted', 'course', 'course-50')
-      .matchTypeAndKey('CertificateIssued', 'course', 'course-50')
+      .matchTypeAndKeys('StudentEnrolled', { course: 'course-50' })
+      .matchTypeAndKeys('LessonCompleted', { course: 'course-50' })
+      .matchTypeAndKeys('CertificateIssued', { course: 'course-50' })
       .read(),
   },
   {
@@ -330,7 +330,7 @@ const queries: QueryDef[] = [
       let counter = 0;
       return async () => {
         const read = await store.query()
-          .matchTypeAndKey('StudentEnrolled', 'course', 'course-latest')
+          .matchTypeAndKeys('StudentEnrolled', { course: 'course-latest' })
           .read();
         await store.append([
           { type: 'LessonCompleted', data: { courseId: 'course-latest', studentId: 'student-bench', lessonId: `lesson-${counter++}` } },
@@ -345,7 +345,7 @@ const queries: QueryDef[] = [
       let counter = 0;
       return async () => {
         const read = await store.query()
-          .matchTypeAndKey('StudentEnrolled', 'course', 'course-1')
+          .matchTypeAndKeys('StudentEnrolled', { course: 'course-1' })
           .read();
         await store.append([
           { type: 'LessonCompleted', data: { courseId: 'course-cold', studentId: 'student-bench', lessonId: `lesson-${counter++}` } },
@@ -395,7 +395,7 @@ async function runConflictBenchmarks(store: EventStore) {
     const times: number[] = [];
     for (let i = 0; i < CONFLICT_ITERATIONS; i++) {
       const read = await store.query()
-        .matchTypeAndKey('StudentEnrolled', 'course', conflictKey)
+        .matchTypeAndKeys('StudentEnrolled', { course: conflictKey })
         .read();
 
       const start = performance.now();
@@ -413,7 +413,7 @@ async function runConflictBenchmarks(store: EventStore) {
     const times: number[] = [];
     for (let i = 0; i < CONFLICT_ITERATIONS; i++) {
       const read = await store.query()
-        .matchTypeAndKey('StudentEnrolled', 'course', conflictKey)
+        .matchTypeAndKeys('StudentEnrolled', { course: conflictKey })
         .read();
 
       // Make the condition stale
@@ -440,7 +440,7 @@ async function runConflictBenchmarks(store: EventStore) {
     const times: number[] = [];
     for (let i = 0; i < CONFLICT_ITERATIONS; i++) {
       const read = await store.query()
-        .matchTypeAndKey('StudentEnrolled', 'course', conflictKey)
+        .matchTypeAndKeys('StudentEnrolled', { course: conflictKey })
         .read();
 
       // Make the condition stale
@@ -455,7 +455,7 @@ async function runConflictBenchmarks(store: EventStore) {
 
       if (staleResult.conflict) {
         const reRead = await store.query()
-          .matchTypeAndKey('StudentEnrolled', 'course', conflictKey)
+          .matchTypeAndKeys('StudentEnrolled', { course: conflictKey })
           .read();
         await store.append([
           { type: 'StudentEnrolled', data: { courseId: conflictKey, studentId: `student-retry-pg-${i}` } },
@@ -515,7 +515,7 @@ async function runConcurrentWriterBenchmarks() {
         while (!done && attempts < 10) {
           attempts++;
           const read = await writerStore.query()
-            .matchTypeAndKey('StudentEnrolled', 'course', courseKey)
+            .matchTypeAndKeys('StudentEnrolled', { course: courseKey })
             .read();
 
           const events = Array.from({ length: EVENTS_PER_WRITER }, (_, e) => ({

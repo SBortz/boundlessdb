@@ -508,8 +508,7 @@
       <div class="tab-content active" id="tab-query">
         
         <pre><code><span class="keyword">const</span> { events, appendCondition } = <span class="keyword">await</span> store.<span class="function">query</span>&lt;CourseEvent&gt;()
-  .<span class="function">matchKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>)
-  .<span class="function">andKey</span>(<span class="string">'student'</span>, <span class="string">'alice'</span>)
+  .<span class="function">matchKeys</span>({ <span class="string">course</span>: <span class="string">'cs101'</span>, <span class="string">student</span>: <span class="string">'alice'</span> })
   .<span class="function">read</span>();
 
 <span class="comment">// Build state from matching events</span>
@@ -519,9 +518,7 @@
       <div class="tab-content" id="tab-append">
         
         <pre><code><span class="keyword">const</span> { events, appendCondition } = <span class="keyword">await</span> store.<span class="function">query</span>&lt;CourseEvent&gt;()
-  .<span class="function">matchType</span>(<span class="string">'StudentEnrolled'</span>)
-  .<span class="function">andKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>)
-  .<span class="function">andKey</span>(<span class="string">'student'</span>, <span class="string">'alice'</span>)
+  .<span class="function">matchTypeAndKeys</span>(<span class="string">'StudentEnrolled'</span>, { <span class="string">course</span>: <span class="string">'cs101'</span>, <span class="string">student</span>: <span class="string">'alice'</span> })
   .<span class="function">read</span>();
 
 <span class="comment">// Build state</span>
@@ -538,10 +535,10 @@
         
         <pre><code><span class="comment">// Read from two boundaries</span>
 <span class="keyword">const</span> cartResult = <span class="keyword">await</span> store.<span class="function">query</span>()
-  .<span class="function">matchKey</span>(<span class="string">'cart'</span>, <span class="string">'cart-42'</span>).<span class="function">read</span>();
+  .<span class="function">matchKeys</span>({ <span class="string">cart</span>: <span class="string">'cart-42'</span> }).<span class="function">read</span>();
 
 <span class="keyword">const</span> inventoryResult = <span class="keyword">await</span> store.<span class="function">query</span>()
-  .<span class="function">matchKey</span>(<span class="string">'product'</span>, <span class="string">'shoe-xl'</span>).<span class="function">read</span>();
+  .<span class="function">matchKeys</span>({ <span class="string">product</span>: <span class="string">'shoe-xl'</span> }).<span class="function">read</span>();
 
 <span class="comment">// Merge conditions — protects both boundaries</span>
 <span class="keyword">const</span> merged = cartResult.appendCondition
@@ -611,7 +608,7 @@
     <div class="feature">
       <div class="feature-icon">🔗</div>
       <h3>Multi-Key AND Queries</h3>
-      <p>Chain <code>.andKey()</code> for AND semantics — match events where ALL keys match in one query.</p>
+      <p>Pass multiple keys to <code>.matchKeys()</code> for AND semantics — match events where ALL keys match in one query.</p>
     </div>
     <div class="feature">
       <div class="feature-icon">📦</div>
@@ -706,7 +703,7 @@ appendCondition = {
       <div class="case-content active" id="case-read">
         <pre><code><span class="comment">// Standard flow: Read first, then append</span>
 <span class="keyword">const</span> result = <span class="keyword">await</span> store.<span class="function">query</span>()
-  .<span class="function">matchKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>)
+  .<span class="function">matchKeys</span>({ <span class="string">course</span>: <span class="string">'cs101'</span> })
   .<span class="function">read</span>();
 
 <span class="comment">// appendCondition = { failIfEventsMatch: [...], after: position }</span>
@@ -760,24 +757,22 @@ appendCondition = {
   <div class="code-section">
     <h2>Query Across Multiple Dimensions</h2>
     <pre><code><span class="comment">// Key-only: "Everything about course cs101"</span>
-store.<span class="function">query</span>().<span class="function">matchKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>).<span class="function">read</span>()
+store.<span class="function">query</span>().<span class="function">matchKeys</span>({ <span class="string">course</span>: <span class="string">'cs101'</span> }).<span class="function">read</span>()
 
 <span class="comment">// Multi-key AND: "Alice's enrollment in cs101"</span>
 store.<span class="function">query</span>()
-  .<span class="function">matchKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>)
-  .<span class="function">andKey</span>(<span class="string">'student'</span>, <span class="string">'alice'</span>)
+  .<span class="function">matchKeys</span>({ <span class="string">course</span>: <span class="string">'cs101'</span>, <span class="string">student</span>: <span class="string">'alice'</span> })
   .<span class="function">read</span>()
 
 <span class="comment">// Multi-type + key: "Course lifecycle events for cs101"</span>
 store.<span class="function">query</span>()
-  .<span class="function">matchType</span>(<span class="string">'CourseCreated'</span>, <span class="string">'CourseCancelled'</span>)
-  .<span class="function">andKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>)
+  .<span class="function">matchTypeAndKeys</span>(<span class="string">'CourseCreated'</span>, { <span class="string">course</span>: <span class="string">'cs101'</span> })
   .<span class="function">read</span>()
 
 <span class="comment">// OR: "All cancellations OR everything about Alice"</span>
 store.<span class="function">query</span>()
   .<span class="function">matchType</span>(<span class="string">'CourseCancelled'</span>)          <span class="comment">// condition 1</span>
-  .<span class="function">matchKey</span>(<span class="string">'student'</span>, <span class="string">'alice'</span>)          <span class="comment">// condition 2 (OR)</span>
+  .<span class="function">matchKeys</span>({ <span class="string">student</span>: <span class="string">'alice'</span> })          <span class="comment">// condition 2 (OR)</span>
   .<span class="function">read</span>()</code></pre>
   </div>
   

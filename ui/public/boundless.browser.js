@@ -2433,14 +2433,33 @@ var QueryBuilder = class {
     __publicField(this, "_backwards", false);
   }
   /**
-   * Add an unconstrained condition (match events of one or more types).
-   * Use `.andKey()` after to add key constraints (AND).
-   * 
+   * Match events by key(s). All keys must match (AND).
+   * Starts a new query item (OR with previous items).
+   *
    * @example
    * ```typescript
-   * .matchType('CourseCreated')  // single type
-   * .matchType('CourseCreated', 'CourseCancelled')  // multiple types (OR within)
-   * .matchType('StudentSubscribed').andKey('course', 'cs101')  // type + key
+   * .matchKeys({ course: 'cs101' })
+   * .matchKeys({ course: 'cs101', student: 'alice' })  // AND
+   * ```
+   */
+  matchKeys(keys) {
+    const entries = Object.entries(keys);
+    if (entries.length === 0) {
+      throw new Error(".matchKeys() requires at least one key");
+    }
+    this.conditions.push({
+      keys: entries.map(([name, value]) => ({ name, value }))
+    });
+    return this;
+  }
+  /**
+   * Match events of one or more types (OR within item).
+   * Starts a new query item (OR with previous items).
+   *
+   * @example
+   * ```typescript
+   * .matchType('CourseCreated')
+   * .matchType('CourseCreated', 'CourseCancelled')
    * ```
    */
   matchType(...types) {
@@ -2455,82 +2474,35 @@ var QueryBuilder = class {
     return this;
   }
   /**
-   * Add a constrained condition (match events of type where key equals value).
-   * Shorthand for `.matchType(type).andKey(key, value)`.
-   * Use `.andKey()` after to add more key constraints (AND).
-   * 
+   * Match events of a given type where all keys match (AND).
+   * Starts a new query item (OR with previous items).
+   *
    * @example
    * ```typescript
-   * .matchTypeAndKey('StudentSubscribed', 'course', 'cs101')
-   * .matchTypeAndKey('StudentSubscribed', 'course', 'cs101').andKey('student', 'alice')
+   * .matchTypeAndKeys('StudentSubscribed', { course: 'cs101' })
+   * .matchTypeAndKeys('StudentSubscribed', { course: 'cs101', student: 'alice' })
    * ```
+   */
+  matchTypeAndKeys(type, keys) {
+    const entries = Object.entries(keys);
+    if (entries.length === 0) {
+      throw new Error(".matchTypeAndKeys() requires at least one key");
+    }
+    this.conditions.push({
+      type,
+      keys: entries.map(([name, value]) => ({ name, value }))
+    });
+    return this;
+  }
+  /**
+   * Shorthand for `.matchTypeAndKeys(type, { key: value })`.
+   * @deprecated Use `.matchTypeAndKeys(type, { key: value })` instead.
    */
   matchTypeAndKey(type, key, value) {
-    this.conditions.push({ type, keys: [{ name: key, value }] });
-    return this;
-  }
-  /**
-   * Key-only query: match events by key, regardless of event type.
-   * Starts a new condition (OR with previous conditions).
-   * Use `.andKey()` after to add more key constraints (AND).
-   * 
-   * @example
-   * ```typescript
-   * .matchKey('cart', 'abc-123')  // all events with cart=abc-123
-   * .matchKey('course', 'cs101').andKey('student', 'alice')  // AND
-   * ```
-   */
-  matchKey(key, value) {
-    this.conditions.push({ keys: [{ name: key, value }] });
-    return this;
-  }
-  /**
-   * Add a key constraint to the last condition (AND).
-   * Must be called after `.matchType()` or `.matchTypeAndKey()`.
-   * 
-   * @throws Error if no preceding condition exists
-   * 
-   * @example
-   * ```typescript
-   * .matchType('StudentSubscribed')
-   *   .andKey('course', 'cs101')
-   *   .andKey('student', 'alice')  // AND: both keys must match
-   * ```
-   */
-  andKey(key, value) {
-    if (this.conditions.length === 0) {
-      throw new Error(".andKey() requires a preceding .matchType(), .matchTypeAndKey(), or .matchKey()");
-    }
-    const lastIdx = this.conditions.length - 1;
-    const last = this.conditions[lastIdx];
-    if ("keys" in last && Array.isArray(last.keys)) {
-      last.keys.push({ name: key, value });
-    } else if ("key" in last && "value" in last) {
-      const legacy = last;
-      this.conditions[lastIdx] = {
-        type: legacy.type,
-        keys: [{ name: legacy.key, value: legacy.value }, { name: key, value }]
-      };
-    } else if ("types" in last) {
-      this.conditions[lastIdx] = {
-        types: last.types,
-        keys: [{ name: key, value }]
-      };
-    } else {
-      this.conditions[lastIdx] = {
-        type: last.type,
-        keys: [{ name: key, value }]
-      };
-    }
-    return this;
+    return this.matchTypeAndKeys(type, { [key]: value });
   }
   /**
    * Start reading from a specific position.
-   * 
-   * @example
-   * ```typescript
-   * .fromPosition(100n)  // skip events before position 100
-   * ```
    */
   fromPosition(position) {
     this._fromPosition = position;
@@ -2538,11 +2510,6 @@ var QueryBuilder = class {
   }
   /**
    * Limit the number of events returned.
-   * 
-   * @example
-   * ```typescript
-   * .limit(50)  // return at most 50 events
-   * ```
    */
   limit(count) {
     this._limit = count;
@@ -2550,12 +2517,10 @@ var QueryBuilder = class {
   }
   /**
    * Read events in reverse order (newest first).
-   * Useful with `.limit()` to get the last N events.
-   * 
+   *
    * @example
    * ```typescript
-   * // Last 100 events
-   * const result = await store.all().backwards().limit(100).read();
+   * await store.all().backwards().limit(100).read();
    * ```
    */
   backwards() {
@@ -2664,7 +2629,7 @@ var EventStore = class {
    * ```typescript
    * const result = await store.query<CourseEvent>()
    *   .matchType('CourseCreated')
-   *   .matchKey('StudentSubscribed', 'course', 'cs101')
+   *   .matchTypeAndKeys('StudentSubscribed', { course: 'cs101' })
    *   .fromPosition(100n)
    *   .limit(50)
    *   .read();
@@ -2677,7 +2642,7 @@ var EventStore = class {
    * Create a fluent query builder that reads all events (no type filter required).
    * 
    * Returns the same QueryBuilder as `query()`, but does not require any
-   * `.matchType()` or `.matchTypeAndKey()` calls before `.read()`.
+   * `.matchType()` or `.matchTypeAndKeys()` calls before `.read()`.
    * You can still use `.fromPosition()` and `.limit()` for pagination.
    * 
    * @typeParam E - Event union type for typed results
