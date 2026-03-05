@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>BoundlessDB — DCB Event Store</title>
+  <title>BoundlessDB — Streamless Event Store</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <style>
     :root {
@@ -492,7 +492,7 @@
   <div class="hero">
     <div class="logo">🗃️</div>
     <h1>BoundlessDB</h1>
-    <p class="tagline">A <a href="https://dcb.events" class="highlight" style="text-decoration: none;">DCB-inspired</a> event store library for TypeScript — with support for SQLite, PostgreSQL, in-memory</p>
+    <p class="tagline"><span class="highlight">Streamless</span> event store with dynamic indexing and append conditions — TypeScript, SQLite, PostgreSQL, in-memory</p>
   </div>
   
   <!-- Tabbed Code Example -->
@@ -618,26 +618,26 @@
   </div>
   
   <div class="architecture" style="margin-top: 3rem;">
-    <h2>Beyond Traditional DCB</h2>
+    <h2>Dynamic Indexing</h2>
     <div class="comparison-box">
       <p style="color: #888; margin-bottom: 1.5rem;">
-        <strong style="color: #0cf;">Dynamic Consistency Boundaries (DCB)</strong> solves optimistic concurrency 
-        by attaching consistency keys (tags) to events. BoundlessDB takes this further:
+        Keys are <strong style="color: #0cf;">extracted from event payloads via config</strong> — not written onto events at append time.
+        Events stay pure. Consistency boundaries can change anytime.
       </p>
       
       <div class="comparison-grid">
         <div class="comparison-item">
-          <div class="comparison-label">Traditional DCB</div>
+          <div class="comparison-label">Traditional approach</div>
           <div class="comparison-content">
-            Keys (tags) are <strong>written onto events</strong> at append time.<br>
+            Tags/keys are <strong>written onto events</strong> at append time.<br>
             Once written, they're immutable.
           </div>
         </div>
         <div class="comparison-item highlight">
-          <div class="comparison-label">BoundlessDB Approach</div>
+          <div class="comparison-label">BoundlessDB</div>
           <div class="comparison-content">
             Keys are <strong>extracted from payloads via config</strong>.<br>
-            Events stay pure. Config can change anytime.
+            Events stay clean. Config can change anytime.
           </div>
         </div>
       </div>
@@ -648,6 +648,12 @@
         • <strong>Events stay clean</strong> — Business data only, no infrastructure concerns<br>
         • <strong>Retroactive changes</strong> — Add new keys to existing events via reindex
       </div>
+    </div>
+
+    <div class="flow-note" style="margin-top: 1.5rem; border-color: #0cf44;">
+      ✅ <strong>DCB compliant</strong> — BoundlessDB implements the full <a href="https://dcb.events/specification/" style="color: #0cf;">DCB specification</a>:
+      surgical event selection by type and key, append conditions, and atomic consistency guarantees.
+      All 6 official DCB examples pass as tests.
     </div>
   </div>
   
