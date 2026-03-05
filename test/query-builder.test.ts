@@ -484,6 +484,42 @@ describe('QueryBuilder — .matchType() multi-type', () => {
     }).toThrow('.matchType() requires at least one type');
   });
 
+  it('matchTypeAndKeys with array of types matches events of any type with key (AND)', async () => {
+    const result = await store.query<MultiTypeEvent>()
+      .matchTypeAndKeys(['CourseCreated', 'CourseCancelled'], { course: 'cs101' })
+      .read();
+
+    expect(result.count).toBe(2); // CourseCreated cs101 + CourseCancelled cs101
+    const types = result.events.map(e => e.type);
+    expect(types).toContain('CourseCreated');
+    expect(types).toContain('CourseCancelled');
+  });
+
+  it('matchTypeAndKeys with array of types and multiple keys (AND within)', async () => {
+    const result = await store.query<MultiTypeEvent>()
+      .matchTypeAndKeys(['CourseCreated', 'StudentEnrolled'], { course: 'cs101', student: 'alice' })
+      .read();
+
+    // Only StudentEnrolled has both course + student keys
+    expect(result.count).toBe(1);
+    expect(result.events[0].type).toBe('StudentEnrolled');
+  });
+
+  it('matchTypeAndKeys with array of types combined with other conditions (OR)', async () => {
+    const result = await store.query<MultiTypeEvent>()
+      .matchTypeAndKeys(['CourseCreated', 'CourseCancelled'], { course: 'cs101' })
+      .matchTypeAndKeys('StudentEnrolled', { course: 'math201' })
+      .read();
+
+    expect(result.count).toBe(3); // CourseCreated cs101 + CourseCancelled cs101 + StudentEnrolled math201
+  });
+
+  it('matchTypeAndKeys with empty array throws', async () => {
+    expect(() => {
+      store.query<MultiTypeEvent>().matchTypeAndKeys([], { course: 'cs101' });
+    }).toThrow('.matchTypeAndKeys() requires at least one type');
+  });
+
   it('appendCondition with matchTypeAndKeys per type has correct structure', async () => {
     const result = await store.query<MultiTypeEvent>()
       .matchTypeAndKeys('CourseCreated', { course: 'cs101' })

@@ -2481,6 +2481,7 @@ var QueryBuilder = class {
    * ```typescript
    * .matchTypeAndKeys('StudentSubscribed', { course: 'cs101' })
    * .matchTypeAndKeys('StudentSubscribed', { course: 'cs101', student: 'alice' })
+   * .matchTypeAndKeys(['CourseCreated', 'CourseCancelled'], { course: 'cs101' })
    * ```
    */
   matchTypeAndKeys(type, keys) {
@@ -2488,10 +2489,16 @@ var QueryBuilder = class {
     if (entries.length === 0) {
       throw new Error(".matchTypeAndKeys() requires at least one key");
     }
-    this.conditions.push({
-      type,
-      keys: entries.map(([name, value]) => ({ name, value }))
-    });
+    const keyList = entries.map(([name, value]) => ({ name, value }));
+    const types = Array.isArray(type) ? type : [type];
+    if (types.length === 0) {
+      throw new Error(".matchTypeAndKeys() requires at least one type");
+    }
+    if (types.length === 1) {
+      this.conditions.push({ type: types[0], keys: keyList });
+    } else {
+      this.conditions.push({ types, keys: keyList });
+    }
     return this;
   }
   /**

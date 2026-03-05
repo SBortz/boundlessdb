@@ -100,17 +100,24 @@ export class QueryBuilder<E extends Event> {
    * ```typescript
    * .matchTypeAndKeys('StudentSubscribed', { course: 'cs101' })
    * .matchTypeAndKeys('StudentSubscribed', { course: 'cs101', student: 'alice' })
+   * .matchTypeAndKeys(['CourseCreated', 'CourseCancelled'], { course: 'cs101' })
    * ```
    */
-  matchTypeAndKeys(type: string, keys: Record<string, string>): this {
+  matchTypeAndKeys(type: string | string[], keys: Record<string, string>): this {
     const entries = Object.entries(keys);
     if (entries.length === 0) {
       throw new Error('.matchTypeAndKeys() requires at least one key');
     }
-    this.conditions.push({
-      type,
-      keys: entries.map(([name, value]) => ({ name, value })),
-    } as MultiKeyConstrainedCondition);
+    const keyList = entries.map(([name, value]) => ({ name, value }));
+    const types = Array.isArray(type) ? type : [type];
+    if (types.length === 0) {
+      throw new Error('.matchTypeAndKeys() requires at least one type');
+    }
+    if (types.length === 1) {
+      this.conditions.push({ type: types[0], keys: keyList } as MultiKeyConstrainedCondition);
+    } else {
+      this.conditions.push({ types, keys: keyList } as unknown as MultiKeyConstrainedCondition);
+    }
     return this;
   }
 
