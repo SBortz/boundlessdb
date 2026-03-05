@@ -2,6 +2,18 @@
 
 All notable changes to BoundlessDB will be documented in this file.
 
+## [0.12.1] - 2026-03-05
+
+### Added
+
+#### `matchTypeAndKeys()` accepts array of types
+
+Completes the DCB QueryItem model — types (OR) combined with keys (AND) in one call:
+
+```typescript
+.matchTypeAndKeys(['CourseCreated', 'CourseCancelled'], { course: 'cs101' })
+```
+
 ## [0.12.0] - 2026-03-05
 
 ### Changed (Breaking)
