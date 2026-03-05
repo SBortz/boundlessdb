@@ -2,7 +2,7 @@
  * DCB Specification Examples — BoundlessDB Implementation
  *
  * All 6 examples from https://dcb.events/examples/ implemented as tests
- * using the BoundlessDB v0.9.0 API (matchKey, andKey, matchType).
+ * using the BoundlessDB v0.9.0 API (matchKeys, matchTypeAndKeys, matchType).
  *
  * Each describe block mirrors one DCB example with Given/When/Then style.
  */
@@ -87,7 +87,7 @@ describe('DCB Example 1: Course Subscriptions', () => {
     cmd: { courseId: string; capacity: number },
   ) {
     const result = await store.query<CourseEvent>()
-      .matchKey('course', cmd.courseId)
+      .matchKeys({ course: cmd.courseId })
       .read();
 
     const state = projectFromEvents(result.events, cmd.courseId);
@@ -108,7 +108,7 @@ describe('DCB Example 1: Course Subscriptions', () => {
     cmd: { courseId: string; newCapacity: number },
   ) {
     const result = await store.query<CourseEvent>()
-      .matchKey('course', cmd.courseId)
+      .matchKeys({ course: cmd.courseId })
       .read();
 
     const state = projectFromEvents(result.events, cmd.courseId);
@@ -133,12 +133,12 @@ describe('DCB Example 1: Course Subscriptions', () => {
   ) {
     // Read course-level events (capacity, subscriptions for the course)
     const courseResult = await store.query<CourseEvent>()
-      .matchKey('course', cmd.courseId)
+      .matchKeys({ course: cmd.courseId })
       .read();
 
     // Read student-level events (how many courses this student is subscribed to)
     const studentResult = await store.query<CourseEvent>()
-      .matchKey('student', cmd.studentId)
+      .matchKeys({ student: cmd.studentId })
       .read();
 
     const courseState = projectFromEvents(courseResult.events, cmd.courseId);
@@ -332,7 +332,7 @@ describe('DCB Example 2: Unique Username', () => {
   ) {
     // Single key query — finds all events tagged with this username
     const result = await store.query<UsernameEvent>()
-      .matchKey('username', cmd.username)
+      .matchKeys({ username: cmd.username })
       .read();
 
     if (isUsernameClaimed(result.events, cmd.username)) {
@@ -403,12 +403,12 @@ describe('DCB Example 2: Unique Username', () => {
   it('detects concurrency conflict when two users claim same username', async () => {
     // Alice reads — username is free
     const aliceRead = await store.query<UsernameEvent>()
-      .matchKey('username', 'john')
+      .matchKeys({ username: 'john' })
       .read();
 
     // Bob reads — username is free too
     const bobRead = await store.query<UsernameEvent>()
-      .matchKey('username', 'john')
+      .matchKeys({ username: 'john' })
       .read();
 
     // Alice registers first
@@ -579,8 +579,7 @@ describe('DCB Example 4: Opt-In Token', () => {
   ) {
     // AND-query: email AND otp must both match
     const result = await store.query<OptInEvent>()
-      .matchKey('email', cmd.emailAddress)
-      .andKey('otp', cmd.otp)
+      .matchKeys({ email: cmd.emailAddress, otp: cmd.otp })
       .read();
 
     const pending = projectPendingSignUp(result.events);
@@ -646,12 +645,10 @@ describe('DCB Example 4: Opt-In Token', () => {
 
     // Two concurrent reads
     const readA = await store.query<OptInEvent>()
-      .matchKey('email', 'john@example.com')
-      .andKey('otp', '555555')
+      .matchKeys({ email: 'john@example.com', otp: '555555' })
       .read();
     const readB = await store.query<OptInEvent>()
-      .matchKey('email', 'john@example.com')
-      .andKey('otp', '555555')
+      .matchKeys({ email: 'john@example.com', otp: '555555' })
       .read();
 
     // First confirmation succeeds
@@ -705,7 +702,7 @@ describe('DCB Example 5: Dynamic Product Price', () => {
     cmd: { productId: string; displayedPrice: number },
   ) {
     const result = await store.query<ProductEvent>()
-      .matchKey('product', cmd.productId)
+      .matchKeys({ product: cmd.productId })
       .read();
 
     const currentPrice = projectProductPrice(result.events, cmd.productId);
@@ -760,7 +757,7 @@ describe('DCB Example 5: Dynamic Product Price', () => {
 
     // Customer reads: price = 100
     const customerRead = await store.query<ProductEvent>()
-      .matchKey('product', 'p1')
+      .matchKeys({ product: 'p1' })
       .read();
 
     // Admin changes price to 150 (between customer's read and write)
@@ -785,7 +782,7 @@ describe('DCB Example 5: Dynamic Product Price', () => {
 
     // Customer reads p1
     const readP1 = await store.query<ProductEvent>()
-      .matchKey('product', 'p1')
+      .matchKeys({ product: 'p1' })
       .read();
 
     // Admin changes p2's price
@@ -831,7 +828,7 @@ describe('DCB Example 6: Prevent Record Duplication (Idempotency)', () => {
   ) {
     // Query by idempotency token to check for re-submission
     const result = await store.query<OrderEvent>()
-      .matchKey('idempotency', cmd.idempotencyToken)
+      .matchKeys({ idempotency: cmd.idempotencyToken })
       .read();
 
     if (wasTokenUsed(result.events)) {
@@ -881,10 +878,10 @@ describe('DCB Example 6: Prevent Record Duplication (Idempotency)', () => {
   it('detects concurrency conflict on double submission', async () => {
     // Two concurrent submissions with same token
     const readA = await store.query<OrderEvent>()
-      .matchKey('idempotency', 'same-token')
+      .matchKeys({ idempotency: 'same-token' })
       .read();
     const readB = await store.query<OrderEvent>()
-      .matchKey('idempotency', 'same-token')
+      .matchKeys({ idempotency: 'same-token' })
       .read();
 
     // First succeeds
@@ -904,10 +901,10 @@ describe('DCB Example 6: Prevent Record Duplication (Idempotency)', () => {
 
   it('different idempotency tokens do not conflict', async () => {
     const readA = await store.query<OrderEvent>()
-      .matchKey('idempotency', 'token-1')
+      .matchKeys({ idempotency: 'token-1' })
       .read();
     const readB = await store.query<OrderEvent>()
-      .matchKey('idempotency', 'token-2')
+      .matchKeys({ idempotency: 'token-2' })
       .read();
 
     // Both succeed (different tokens = different boundaries)
@@ -1034,7 +1031,7 @@ describe('mergeConditions — integration with EventStore', () => {
     ], null);
 
     // Read both boundaries
-    const cartResult = await store.query().matchKey('cart', 'c1').read();
+    const cartResult = await store.query().matchKeys({ cart: 'c1' }).read();
     const inventoryResult = await store.query().matchType('InventoryChanged').read();
     const merged = mergeConditions(cartResult.appendCondition, inventoryResult.appendCondition);
 
@@ -1061,7 +1058,7 @@ describe('mergeConditions — integration with EventStore', () => {
       { type: 'InventoryChanged', data: { productId: 'p1', inventory: 5 } },
     ], null);
 
-    const cartResult = await store.query().matchKey('cart', 'c1').read();
+    const cartResult = await store.query().matchKeys({ cart: 'c1' }).read();
     const inventoryResult = await store.query().matchType('InventoryChanged').read();
     const merged = mergeConditions(cartResult.appendCondition, inventoryResult.appendCondition);
 

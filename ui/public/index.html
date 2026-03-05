@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>BoundlessDB — DCB Event Store</title>
+  <title>BoundlessDB — Streamless Event Store</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <style>
     :root {
@@ -492,7 +492,7 @@
   <div class="hero">
     <div class="logo">🗃️</div>
     <h1>BoundlessDB</h1>
-    <p class="tagline">A <a href="https://dcb.events" class="highlight" style="text-decoration: none;">DCB-inspired</a> event store library for TypeScript — with support for SQLite, PostgreSQL, in-memory</p>
+    <p class="tagline"><span class="highlight">Streamless</span> event store with dynamic indexing and append conditions — TypeScript, SQLite, PostgreSQL, in-memory</p>
   </div>
   
   <!-- Tabbed Code Example -->
@@ -508,8 +508,7 @@
       <div class="tab-content active" id="tab-query">
         
         <pre><code><span class="keyword">const</span> { events, appendCondition } = <span class="keyword">await</span> store.<span class="function">query</span>&lt;CourseEvent&gt;()
-  .<span class="function">matchKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>)
-  .<span class="function">andKey</span>(<span class="string">'student'</span>, <span class="string">'alice'</span>)
+  .<span class="function">matchKeys</span>({ <span class="string">course</span>: <span class="string">'cs101'</span>, <span class="string">student</span>: <span class="string">'alice'</span> })
   .<span class="function">read</span>();
 
 <span class="comment">// Build state from matching events</span>
@@ -519,9 +518,7 @@
       <div class="tab-content" id="tab-append">
         
         <pre><code><span class="keyword">const</span> { events, appendCondition } = <span class="keyword">await</span> store.<span class="function">query</span>&lt;CourseEvent&gt;()
-  .<span class="function">matchType</span>(<span class="string">'StudentEnrolled'</span>)
-  .<span class="function">andKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>)
-  .<span class="function">andKey</span>(<span class="string">'student'</span>, <span class="string">'alice'</span>)
+  .<span class="function">matchTypeAndKeys</span>(<span class="string">'StudentEnrolled'</span>, { <span class="string">course</span>: <span class="string">'cs101'</span>, <span class="string">student</span>: <span class="string">'alice'</span> })
   .<span class="function">read</span>();
 
 <span class="comment">// Build state</span>
@@ -538,10 +535,10 @@
         
         <pre><code><span class="comment">// Read from two boundaries</span>
 <span class="keyword">const</span> cartResult = <span class="keyword">await</span> store.<span class="function">query</span>()
-  .<span class="function">matchKey</span>(<span class="string">'cart'</span>, <span class="string">'cart-42'</span>).<span class="function">read</span>();
+  .<span class="function">matchKeys</span>({ <span class="string">cart</span>: <span class="string">'cart-42'</span> }).<span class="function">read</span>();
 
 <span class="keyword">const</span> inventoryResult = <span class="keyword">await</span> store.<span class="function">query</span>()
-  .<span class="function">matchKey</span>(<span class="string">'product'</span>, <span class="string">'shoe-xl'</span>).<span class="function">read</span>();
+  .<span class="function">matchKeys</span>({ <span class="string">product</span>: <span class="string">'shoe-xl'</span> }).<span class="function">read</span>();
 
 <span class="comment">// Merge conditions — protects both boundaries</span>
 <span class="keyword">const</span> merged = cartResult.appendCondition
@@ -611,7 +608,7 @@
     <div class="feature">
       <div class="feature-icon">🔗</div>
       <h3>Multi-Key AND Queries</h3>
-      <p>Chain <code>.andKey()</code> for AND semantics — match events where ALL keys match in one query.</p>
+      <p>Pass multiple keys to <code>.matchKeys()</code> for AND semantics — match events where ALL keys match in one query.</p>
     </div>
     <div class="feature">
       <div class="feature-icon">📦</div>
@@ -621,26 +618,26 @@
   </div>
   
   <div class="architecture" style="margin-top: 3rem;">
-    <h2>Beyond Traditional DCB</h2>
+    <h2>Dynamic Indexing</h2>
     <div class="comparison-box">
       <p style="color: #888; margin-bottom: 1.5rem;">
-        <strong style="color: #0cf;">Dynamic Consistency Boundaries (DCB)</strong> solves optimistic concurrency 
-        by attaching consistency keys (tags) to events. BoundlessDB takes this further:
+        Keys are <strong style="color: #0cf;">extracted from event payloads via config</strong> — not written onto events at append time.
+        Events stay pure. Consistency boundaries can change anytime.
       </p>
       
       <div class="comparison-grid">
         <div class="comparison-item">
-          <div class="comparison-label">Traditional DCB</div>
+          <div class="comparison-label">Traditional approach</div>
           <div class="comparison-content">
-            Keys (tags) are <strong>written onto events</strong> at append time.<br>
+            Tags/keys are <strong>written onto events</strong> at append time.<br>
             Once written, they're immutable.
           </div>
         </div>
         <div class="comparison-item highlight">
-          <div class="comparison-label">BoundlessDB Approach</div>
+          <div class="comparison-label">BoundlessDB</div>
           <div class="comparison-content">
             Keys are <strong>extracted from payloads via config</strong>.<br>
-            Events stay pure. Config can change anytime.
+            Events stay clean. Config can change anytime.
           </div>
         </div>
       </div>
@@ -651,6 +648,12 @@
         • <strong>Events stay clean</strong> — Business data only, no infrastructure concerns<br>
         • <strong>Retroactive changes</strong> — Add new keys to existing events via reindex
       </div>
+    </div>
+
+    <div class="flow-note" style="margin-top: 1.5rem; border-color: #0cf44;">
+      ✅ <strong>DCB compliant</strong> — BoundlessDB implements the full <a href="https://dcb.events/specification/" style="color: #0cf;">DCB specification</a>:
+      surgical event selection by type and key, append conditions, and atomic consistency guarantees.
+      All 6 official DCB examples pass as tests.
     </div>
   </div>
   
@@ -706,7 +709,7 @@ appendCondition = {
       <div class="case-content active" id="case-read">
         <pre><code><span class="comment">// Standard flow: Read first, then append</span>
 <span class="keyword">const</span> result = <span class="keyword">await</span> store.<span class="function">query</span>()
-  .<span class="function">matchKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>)
+  .<span class="function">matchKeys</span>({ <span class="string">course</span>: <span class="string">'cs101'</span> })
   .<span class="function">read</span>();
 
 <span class="comment">// appendCondition = { failIfEventsMatch: [...], after: position }</span>
@@ -760,24 +763,22 @@ appendCondition = {
   <div class="code-section">
     <h2>Query Across Multiple Dimensions</h2>
     <pre><code><span class="comment">// Key-only: "Everything about course cs101"</span>
-store.<span class="function">query</span>().<span class="function">matchKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>).<span class="function">read</span>()
+store.<span class="function">query</span>().<span class="function">matchKeys</span>({ <span class="string">course</span>: <span class="string">'cs101'</span> }).<span class="function">read</span>()
 
 <span class="comment">// Multi-key AND: "Alice's enrollment in cs101"</span>
 store.<span class="function">query</span>()
-  .<span class="function">matchKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>)
-  .<span class="function">andKey</span>(<span class="string">'student'</span>, <span class="string">'alice'</span>)
+  .<span class="function">matchKeys</span>({ <span class="string">course</span>: <span class="string">'cs101'</span>, <span class="string">student</span>: <span class="string">'alice'</span> })
   .<span class="function">read</span>()
 
 <span class="comment">// Multi-type + key: "Course lifecycle events for cs101"</span>
 store.<span class="function">query</span>()
-  .<span class="function">matchType</span>(<span class="string">'CourseCreated'</span>, <span class="string">'CourseCancelled'</span>)
-  .<span class="function">andKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>)
+  .<span class="function">matchTypeAndKeys</span>(<span class="string">'CourseCreated'</span>, { <span class="string">course</span>: <span class="string">'cs101'</span> })
   .<span class="function">read</span>()
 
 <span class="comment">// OR: "All cancellations OR everything about Alice"</span>
 store.<span class="function">query</span>()
   .<span class="function">matchType</span>(<span class="string">'CourseCancelled'</span>)          <span class="comment">// condition 1</span>
-  .<span class="function">matchKey</span>(<span class="string">'student'</span>, <span class="string">'alice'</span>)          <span class="comment">// condition 2 (OR)</span>
+  .<span class="function">matchKeys</span>({ <span class="string">student</span>: <span class="string">'alice'</span> })          <span class="comment">// condition 2 (OR)</span>
   .<span class="function">read</span>()</code></pre>
   </div>
   

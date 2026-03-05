@@ -2,6 +2,50 @@
 
 All notable changes to BoundlessDB will be documented in this file.
 
+## [0.12.0] - 2026-03-05
+
+### Changed (Breaking)
+
+#### Flat query API — `matchKeys()` and `matchTypeAndKeys()`
+
+The nested `.andKey()` chaining is replaced by flat top-level methods where AND-keys are passed as an object. Each top-level call now represents exactly one DCB QueryItem.
+
+**Before:**
+```typescript
+store.query()
+  .matchType('StudentSubscribed')
+  .andKey('course', 'cs101')
+  .andKey('student', 'alice')
+```
+
+**After:**
+```typescript
+store.query()
+  .matchTypeAndKeys('StudentSubscribed', { course: 'cs101', student: 'alice' })
+```
+
+**New API:**
+```typescript
+// Key-only query
+.matchKeys({ course: 'cs101' })
+.matchKeys({ course: 'cs101', student: 'alice' })  // AND within
+
+// Type + keys
+.matchTypeAndKeys('StudentSubscribed', { course: 'cs101' })
+.matchTypeAndKeys('StudentSubscribed', { course: 'cs101', student: 'alice' })
+
+// Type-only (unchanged)
+.matchType('CourseCreated')
+.matchType('CourseCreated', 'CourseCancelled')
+```
+
+#### Removed
+- `matchKey(key, value)` — use `matchKeys({ key: value })` instead
+- `andKey(key, value)` — no longer needed
+
+#### Deprecated
+- `matchTypeAndKey(type, key, value)` — kept as alias, use `matchTypeAndKeys()` instead
+
 ## [0.11.0] - 2026-03-02
 
 ### Added

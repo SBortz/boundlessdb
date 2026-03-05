@@ -747,7 +747,7 @@ describe('EventStore', () => {
       });
     });
 
-    describe('.matchKey() method', () => {
+    describe('.matchKeys() method', () => {
       it('key-only match returns events across types', async () => {
         await store.append([
           { type: 'CourseCreated', data: { courseId: 'cs101', name: 'CS' } },
@@ -758,7 +758,7 @@ describe('EventStore', () => {
 
         // Key-only: all events with course=cs101, regardless of type
         const result = await store.query()
-          .matchKey('course', 'cs101')
+          .matchKeys({ course: 'cs101' })
           .read();
 
         expect(result.events).toHaveLength(2);
@@ -774,7 +774,7 @@ describe('EventStore', () => {
         ], null);
 
         const result = await store.query()
-          .matchKey('course', 'cs101').andKey('student', 'alice')
+          .matchKeys({ course: 'cs101', student: 'alice' })
           .read();
 
         expect(result.events).toHaveLength(1);
@@ -799,7 +799,7 @@ describe('EventStore', () => {
         expect(matchResult.events.map(e => e.id)).toEqual(matchTypeResult.events.map(e => e.id));
       });
 
-      it('type+keys match works like matchTypeAndKey + andKey', async () => {
+      it('type+keys match works with matchTypeAndKeys', async () => {
         await store.append([
           { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } },
           { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'bob' } },
@@ -807,12 +807,11 @@ describe('EventStore', () => {
         ], null);
 
         const matchResult = await store.query()
-          .matchType('StudentSubscribed').andKey('course', 'cs101').andKey('student', 'alice')
+          .matchTypeAndKeys('StudentSubscribed', { course: 'cs101', student: 'alice' })
           .read();
 
         const legacyResult = await store.query()
-          .matchTypeAndKey('StudentSubscribed', 'course', 'cs101')
-          .andKey('student', 'alice')
+          .matchTypeAndKeys('StudentSubscribed', { course: 'cs101', student: 'alice' })
           .read();
 
         expect(matchResult.events).toHaveLength(legacyResult.events.length);
@@ -827,7 +826,7 @@ describe('EventStore', () => {
         ], null);
 
         const result = await store.query()
-          .matchKey('course', 'cs101')
+          .matchKeys({ course: 'cs101' })
           .fromPosition(1n)
           .read();
 
@@ -843,7 +842,7 @@ describe('EventStore', () => {
         ], null);
 
         const result = await store.query()
-          .matchKey('course', 'cs101')
+          .matchKeys({ course: 'cs101' })
           .limit(2)
           .read();
 
@@ -857,7 +856,7 @@ describe('EventStore', () => {
 
         // Read with key-only condition
         const readResult = await store.query()
-          .matchKey('course', 'cs101')
+          .matchKeys({ course: 'cs101' })
           .read();
 
         // Someone else adds an event with course=cs101
@@ -882,7 +881,7 @@ describe('EventStore', () => {
 
         // Read with key-only condition for cs101
         const readResult = await store.query()
-          .matchKey('course', 'cs101')
+          .matchKeys({ course: 'cs101' })
           .read();
 
         // Someone adds event for math201 (different key value)

@@ -288,25 +288,25 @@ const queries: QueryDef[] = [
   },
   {
     name: 'Constrained (Enrollments/course)',
-    fn: (store) => () => store.query().matchTypeAndKey('StudentEnrolled', 'course', 'course-50').read(),
+    fn: (store) => () => store.query().matchTypeAndKeys('StudentEnrolled', { course: 'course-50' }).read(),
   },
   {
     name: 'Constrained (Lessons/student)',
-    fn: (store) => () => store.query().matchTypeAndKey('LessonCompleted', 'student', 'student-50-5').read(),
+    fn: (store) => () => store.query().matchTypeAndKeys('LessonCompleted', { student: 'student-50-5' }).read(),
   },
   {
     name: 'Mixed (2 types/course)',
     fn: (store) => () => store.query()
-      .matchTypeAndKey('StudentEnrolled', 'course', 'course-50')
-      .matchTypeAndKey('CertificateIssued', 'course', 'course-50')
+      .matchTypeAndKeys('StudentEnrolled', { course: 'course-50' })
+      .matchTypeAndKeys('CertificateIssued', { course: 'course-50' })
       .read(),
   },
   {
     name: 'Full course aggregate (3 types)',
     fn: (store) => () => store.query()
-      .matchTypeAndKey('StudentEnrolled', 'course', 'course-50')
-      .matchTypeAndKey('LessonCompleted', 'course', 'course-50')
-      .matchTypeAndKey('CertificateIssued', 'course', 'course-50')
+      .matchTypeAndKeys('StudentEnrolled', { course: 'course-50' })
+      .matchTypeAndKeys('LessonCompleted', { course: 'course-50' })
+      .matchTypeAndKeys('CertificateIssued', { course: 'course-50' })
       .read(),
   },
   {
@@ -328,7 +328,7 @@ const queries: QueryDef[] = [
       return async () => {
         // Read the latest course (near end of store) - realistic use case
         const read = await store.query()
-          .matchTypeAndKey('StudentEnrolled', 'course', 'course-latest')
+          .matchTypeAndKeys('StudentEnrolled', { course: 'course-latest' })
           .read();
         await store.append([
           { type: 'LessonCompleted', data: { courseId: 'course-latest', studentId: 'student-bench', lessonId: `lesson-${counter++}` } },
@@ -344,7 +344,7 @@ const queries: QueryDef[] = [
       return async () => {
         // Read an early course (position near 0) - worst case
         const read = await store.query()
-          .matchTypeAndKey('StudentEnrolled', 'course', 'course-0')
+          .matchTypeAndKeys('StudentEnrolled', { course: 'course-0' })
           .read();
         await store.append([
           { type: 'LessonCompleted', data: { courseId: 'course-cold', studentId: 'student-bench', lessonId: `lesson-${counter++}` } },
@@ -369,7 +369,7 @@ async function runConflictBenchmarks(store: EventStore) {
     const times: number[] = [];
     for (let i = 0; i < CONFLICT_ITERATIONS; i++) {
       const read = await store.query()
-        .matchTypeAndKey('StudentEnrolled', 'course', 'course-0')
+        .matchTypeAndKeys('StudentEnrolled', { course: 'course-0' })
         .read();
 
       const start = performance.now();
@@ -388,7 +388,7 @@ async function runConflictBenchmarks(store: EventStore) {
     for (let i = 0; i < CONFLICT_ITERATIONS; i++) {
       // Read to get appendCondition
       const read = await store.query()
-        .matchTypeAndKey('StudentEnrolled', 'course', 'course-0')
+        .matchTypeAndKeys('StudentEnrolled', { course: 'course-0' })
         .read();
 
       // Make the condition stale by appending another event
@@ -417,7 +417,7 @@ async function runConflictBenchmarks(store: EventStore) {
     for (let i = 0; i < CONFLICT_ITERATIONS; i++) {
       // Read to get appendCondition
       const read = await store.query()
-        .matchTypeAndKey('StudentEnrolled', 'course', 'course-0')
+        .matchTypeAndKeys('StudentEnrolled', { course: 'course-0' })
         .read();
 
       // Make the condition stale
@@ -434,7 +434,7 @@ async function runConflictBenchmarks(store: EventStore) {
       if (staleResult.conflict) {
         // Re-read and retry
         const reRead = await store.query()
-          .matchTypeAndKey('StudentEnrolled', 'course', 'course-0')
+          .matchTypeAndKeys('StudentEnrolled', { course: 'course-0' })
           .read();
         await store.append([
           { type: 'StudentEnrolled', data: { courseId: 'course-0', studentId: `student-retry-${i}` } },

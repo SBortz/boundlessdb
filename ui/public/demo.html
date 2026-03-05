@@ -1210,11 +1210,11 @@
       for (const student of students) {
         for (const course of courses) {
           // Read current state
-          showScenarioResult(`${student.emoji} ${student.name}: Reading ${course.id}...\n\n→ store.query().matchKey('course', '${course.id}').read()`, 'info');
+          showScenarioResult(`${student.emoji} ${student.name}: Reading ${course.id}...\n\n→ store.query().matchKeys({ course: '${course.id}' }).read()`, 'info');
           await sleep(1000);
           
           const readResult = await store.query()
-            .matchKey('course', course.id)
+            .matchKeys({ course: course.id })
             .read();
           
           const enrolled = readResult.events.filter(e => e.type === 'StudentSubscribed').length;
@@ -1273,11 +1273,11 @@
       await sleep(2000);
       
       // ALICE reads
-      showScenarioResult('👩 ALICE: Reading MATH201...\n\n→ store.query().matchKey(\'course\', \'math201\').read()', 'info');
+      showScenarioResult('👩 ALICE: Reading MATH201...\n\n→ store.query().matchKeys({ course: \'math201\' }).read()', 'info');
       await sleep(1500);
       
       const aliceRead = await store.query()
-        .matchKey('course', 'math201')
+        .matchKeys({ course: 'math201' })
         .read();
       const aliceCondition = aliceRead.appendCondition;
       const alicePos = Number(aliceRead.position);

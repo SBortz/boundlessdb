@@ -154,7 +154,7 @@ export class EventStore {
    * ```typescript
    * const result = await store.query<CourseEvent>()
    *   .matchType('CourseCreated')
-   *   .matchKey('StudentSubscribed', 'course', 'cs101')
+   *   .matchTypeAndKeys('StudentSubscribed', { course: 'cs101' })
    *   .fromPosition(100n)
    *   .limit(50)
    *   .read();
@@ -168,7 +168,7 @@ export class EventStore {
    * Create a fluent query builder that reads all events (no type filter required).
    * 
    * Returns the same QueryBuilder as `query()`, but does not require any
-   * `.matchType()` or `.matchTypeAndKey()` calls before `.read()`.
+   * `.matchType()` or `.matchTypeAndKeys()` calls before `.read()`.
    * You can still use `.fromPosition()` and `.limit()` for pagination.
    * 
    * @typeParam E - Event union type for typed results
