@@ -87,7 +87,7 @@ event_keys: [pos:1, course, cs101], [pos:1, student, alice]
 Find all events matching key conditions — no need to list event types:
 ```typescript
 const result = await store.query()
-  .matchKey('course', 'cs101')
+  .matchKeys({ course: 'cs101' })
   .read();
 // result.appendCondition captures: "I read all matching events up to position X"
 ```
@@ -97,7 +97,7 @@ const result = await store.query()
 ```typescript
 // 1️⃣ READ — Query by key and get an appendCondition
 const { events, appendCondition } = await store.query<CourseEvent>()
-  .matchKey('course', 'cs101')
+  .matchKeys({ course: 'cs101' })
   .read();
 
 // 2️⃣ DECIDE — Build state, run business logic
@@ -151,25 +151,23 @@ Build queries with a chainable API:
 ```typescript
 // Key-only: everything about course cs101 (any event type!)
 const { events, appendCondition } = await store.query<CourseEvent>()
-  .matchKey('course', 'cs101')
+  .matchKeys({ course: 'cs101' })
   .read();
 
 // Multi-key AND: Alice's enrollment in cs101
 const enrollment = await store.query<CourseEvent>()
-  .matchKey('course', 'cs101')
-  .andKey('student', 'alice')
+  .matchKeys({ course: 'cs101', student: 'alice' })
   .read();
 
-// Multi-type: course lifecycle events for cs101
+// Multi-type + key: course lifecycle events for cs101 (OR between types)
 const lifecycle = await store.query<CourseEvent>()
-  .matchType('CourseCreated', 'CourseCancelled')
-  .andKey('course', 'cs101')
+  .matchTypeAndKeys('CourseCreated', { course: 'cs101' })
+  .matchTypeAndKeys('CourseCancelled', { course: 'cs101' })
   .read();
 
 // Type + key
 const enrollments = await store.query<CourseEvent>()
-  .matchType('StudentSubscribed')
-  .andKey('course', 'cs101')
+  .matchTypeAndKeys('StudentSubscribed', { course: 'cs101' })
   .fromPosition(100n)
   .limit(50)
   .read();
@@ -179,17 +177,16 @@ const enrollments = await store.query<CourseEvent>()
 
 | Method | Description |
 |--------|-------------|
-| `matchKey(key, value)` | Match events by key, regardless of type. Starts new condition (OR). |
-| `matchType(...types)` | Match events of one or more types. Starts new condition (OR). |
-| `matchTypeAndKey(type, key, value)` | Shorthand for `matchType(type).andKey(key, value)` |
-| `andKey(key, value)` | Add AND key constraint to last condition |
+| `matchKeys({ key: value, ... })` | Match events by key(s), any type. Keys within = AND. Each call = new condition (OR). |
+| `matchType(...types)` | Match events of one or more types. Each call = new condition (OR). |
+| `matchTypeAndKeys(type, { key: value, ... })` | Match events by type and key(s). Keys within = AND. Each call = new condition (OR). |
 | `fromPosition(bigint)` | Start reading from position |
 | `limit(number)` | Limit number of results |
 | `read()` | Execute query, returns `QueryResult` |
 
 **Rules:**
-- `matchType()` / `matchKey()` start a **new** condition (OR between conditions)
-- `andKey()` **extends** the last condition (AND within condition)
+- Each top-level call (`matchKeys()`, `matchType()`, `matchTypeAndKeys()`) starts a **new condition** (OR between conditions)
+- Keys within a single call's object are **AND** — the same event must match all
 
 ## AppendCondition
 
@@ -206,7 +203,7 @@ interface AppendCondition {
 
 ```typescript
 const result = await store.query()
-  .matchKey('course', 'cs101')
+  .matchKeys({ course: 'cs101' })
   .read();
 
 // appendCondition = { failIfEventsMatch: [...], after: <last_position> }
@@ -267,43 +264,41 @@ Traditional streams give you ONE boundary. DCB lets you query ANY combination:
 
 ```typescript
 // Key-only: "Everything about course cs101"
-store.query().matchKey('course', 'cs101').read()
+store.query().matchKeys({ course: 'cs101' }).read()
 
 // Multi-key AND: "Alice's enrollment in cs101"
 store.query()
-  .matchKey('course', 'cs101')
-  .andKey('student', 'alice')
+  .matchKeys({ course: 'cs101', student: 'alice' })
   .read()
 
 // Multi-type + key: "Course lifecycle events for cs101"
 store.query()
-  .matchType('CourseCreated', 'CourseCancelled')
-  .andKey('course', 'cs101')
+  .matchTypeAndKeys('CourseCreated', { course: 'cs101' })
+  .matchTypeAndKeys('CourseCancelled', { course: 'cs101' })
   .read()
 
 // OR: "All cancellations OR everything about Alice"
 store.query()
-  .matchType('CourseCancelled')          // condition 1
-  .matchKey('student', 'alice')          // condition 2 (OR)
+  .matchType('CourseCancelled')            // condition 1
+  .matchKeys({ student: 'alice' })         // condition 2 (OR)
   .read()
 ```
 
 ### AND vs OR
 
-- **`.andKey()`** = **AND** — extends the last condition (same event must match all keys)
-- **`.matchType()` / `.matchKey()`** = **OR** — starts a new condition (events matching either)
+- **Keys within a single call** = **AND** — keys passed in `matchKeys({})` / `matchTypeAndKeys()` must all match the same event
+- **Multiple top-level calls** = **OR** — each call starts a new condition (events matching either)
 
 ```typescript
 // AND: Events where course='cs101' AND student='alice' (same event)
 store.query()
-  .matchKey('course', 'cs101')
-  .andKey('student', 'alice')
+  .matchKeys({ course: 'cs101', student: 'alice' })
   .read();
 
 // OR: Events where course='cs101' OR student='alice' (different events)
 store.query()
-  .matchKey('course', 'cs101')
-  .matchKey('student', 'alice')
+  .matchKeys({ course: 'cs101' })
+  .matchKeys({ student: 'alice' })
   .read();
 ```
 
@@ -366,8 +361,7 @@ const consistency = {
 
 // Query all orders from February 2026:
 const { events } = await store.query()
-  .matchType('OrderPlaced')
-  .andKey('month', '2026-02')
+  .matchTypeAndKeys('OrderPlaced', { month: '2026-02' })
   .read();
 ```
 
@@ -555,7 +549,7 @@ type CartEvents = ProductItemAdded | ProductItemRemoved;
 
 // Read with type safety
 const result = await store.query<CartEvents>()
-  .matchKey('cart', 'cart-123')
+  .matchKeys({ cart: 'cart-123' })
   .read();
 
 // TypeScript knows the event types!
@@ -617,23 +611,22 @@ Fluent query builder:
 
 ```typescript
 const result = await store.query<CourseEvent>()
-  .matchKey('course', 'cs101')                             // key-only (any event type)
+  .matchKeys({ course: 'cs101' })                          // key-only (any event type)
   .read();
 
 const result = await store.query<CourseEvent>()
-  .matchType('CourseCreated', 'CourseCancelled')           // multi-type
-  .andKey('course', 'cs101')                              // + key constraint
-  .fromPosition(100n)                                      // start from position
-  .limit(50)                                               // limit results
-  .read();                                                 // execute, returns QueryResult
+  .matchTypeAndKeys('CourseCreated', { course: 'cs101' })  // type + key
+  .matchTypeAndKeys('CourseCancelled', { course: 'cs101' }) // OR type + key
+  .fromPosition(100n)                                       // start from position
+  .limit(50)                                                // limit results
+  .read();                                                  // execute, returns QueryResult
 ```
 
 | Method | Description |
 |--------|-------------|
-| `matchKey(key, value)` | Match events by key, any type. Starts new condition (OR). |
-| `matchType(...types)` | Match events of type(s). Starts new condition (OR). |
-| `matchTypeAndKey(type, key, value)` | Shorthand for `matchType(type).andKey(key, value)` |
-| `andKey(key, value)` | Add AND key constraint to last condition |
+| `matchKeys({ key: value, ... })` | Match events by key(s), any type. Keys within = AND. Each call = new condition (OR). |
+| `matchType(...types)` | Match events of type(s). Each call = new condition (OR). |
+| `matchTypeAndKeys(type, { key: value, ... })` | Match events by type and key(s). Keys within = AND. Each call = new condition (OR). |
 | `fromPosition(bigint)` | Start reading from position |
 | `limit(number)` | Limit number of results |
 | `read()` | Execute query, returns `QueryResult` |
