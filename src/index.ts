@@ -47,3 +47,10 @@ export { validateConfig, ConfigValidationError } from './config/validator.js';
 
 // Query Builder
 export { QueryBuilder } from './query-builder.js';
+
+// Projections
+export type { EventNotifier } from './projections/notifier.js';
+export type { ProjectionHandler, ProjectionState } from './projections/types.js';
+export { InProcessNotifier } from './projections/in-process-notifier.js';
+export { PollingNotifier, type PollingNotifierOptions } from './projections/polling-notifier.js';
+export { ProjectionRunner } from './projections/runner.js';
