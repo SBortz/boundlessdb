@@ -8,7 +8,7 @@
 
 /**
  * Base Event type - marker interface for domain events.
- * 
+ *
  * @example
  * ```typescript
  * type ProductItemAdded = Event<'ProductItemAdded', {
@@ -16,34 +16,35 @@
  *   productId: string;
  *   quantity: number;
  * }>;
- * 
+ *
  * type CartEvents = ProductItemAdded | ProductItemRemoved;
  * ```
  */
 export type Event<
-  EventType extends string = string,
-  EventPayload extends Record<string, unknown> = Record<string, unknown>
+    EventType extends string = string,
+    EventPayload extends Record<string, unknown> = Record<string, unknown>,
 > = Readonly<{
-  type: EventType;
-  data: EventPayload;
+    type: EventType;
+    data: EventPayload;
 }>;
 
 /**
  * Event with optional metadata (for append operations)
  */
 export type EventWithMetadata<E extends Event = Event> = E & {
-  metadata?: Record<string, unknown>;
+    metadata?: Record<string, unknown>;
 };
 
 /**
  * Event as returned by the store (after storage)
  */
-export type StoredEvent<E extends Event = Event> = E & Readonly<{
-  id: string;
-  metadata?: Record<string, unknown>;
-  timestamp: Date;
-  position: bigint;
-}>;
+export type StoredEvent<E extends Event = Event> = E &
+    Readonly<{
+        id: string;
+        metadata?: Record<string, unknown>;
+        timestamp: Date;
+        position: bigint;
+    }>;
 
 // ============================================================
 // Query
@@ -53,7 +54,7 @@ export type StoredEvent<E extends Event = Event> = E & Readonly<{
  * Unconstrained condition: matches ALL events of the given type.
  */
 export interface UnconstrainedCondition {
-  type: string;
+    type: string;
 }
 
 /**
@@ -62,9 +63,9 @@ export interface UnconstrainedCondition {
  * Kept for backward compatibility — normalized internally to keys[].
  */
 export interface ConstrainedCondition {
-  type: string;
-  key: string;
-  value: string;
+    type: string;
+    key: string;
+    value: string;
 }
 
 /**
@@ -72,8 +73,8 @@ export interface ConstrainedCondition {
  * This is the internal representation used by storage engines.
  */
 export interface MultiKeyConstrainedCondition {
-  type: string;
-  keys: { name: string; value: string }[];
+    type: string;
+    keys: { name: string; value: string }[];
 }
 
 /**
@@ -81,15 +82,15 @@ export interface MultiKeyConstrainedCondition {
  * Used by `.matchType('TypeA', 'TypeB')` with multiple types.
  */
 export interface MultiTypeCondition {
-  types: string[];
+    types: string[];
 }
 
 /**
  * Multi-type constrained condition: matches events of any of the given types with ALL specified keys (AND).
  */
 export interface MultiTypeConstrainedCondition {
-  types: string[];
-  keys: { name: string; value: string }[];
+    types: string[];
+    keys: { name: string; value: string }[];
 }
 
 /**
@@ -97,7 +98,7 @@ export interface MultiTypeConstrainedCondition {
  * Used by `.matchKey(key, value)` when no type is specified.
  */
 export interface KeyOnlyCondition {
-  keys: { name: string; value: string }[];
+    keys: { name: string; value: string }[];
 }
 
 /**
@@ -106,60 +107,70 @@ export interface KeyOnlyCondition {
  * - Constrained (legacy): `{ type, key, value }` - events of type with specific key
  * - Multi-key constrained: `{ type, keys: [...] }` - events of type with ALL specified keys (AND)
  * - Key-only: `{ keys: [...] }` - events with ALL specified keys, any type
- * 
+ *
  * @example
  * ```typescript
  * // Constrained: Match specific type + key-value (legacy)
  * { type: 'ProductItemAdded', key: 'cart', value: 'cart-123' }
- * 
+ *
  * // Multi-key AND: Match events with ALL keys
  * { type: 'StudentEnrolled', keys: [
  *   { name: 'course', value: 'cs101' },
  *   { name: 'student', value: 'alice' }
  * ]}
- * 
+ *
  * // Unconstrained: Match all events of type
  * { type: 'ProductItemAdded' }
- * 
+ *
  * // Key-only: Match events with keys, any type
  * { keys: [{ name: 'course', value: 'cs101' }] }
  * ```
  */
-export type QueryCondition = UnconstrainedCondition | ConstrainedCondition | MultiKeyConstrainedCondition | MultiTypeCondition | MultiTypeConstrainedCondition | KeyOnlyCondition;
+export type QueryCondition =
+    | UnconstrainedCondition
+    | ConstrainedCondition
+    | MultiKeyConstrainedCondition
+    | MultiTypeCondition
+    | MultiTypeConstrainedCondition
+    | KeyOnlyCondition;
 
 /**
  * Type guard: check if condition is constrained with single key (legacy format)
  */
 export function isConstrainedCondition(c: QueryCondition): c is ConstrainedCondition {
-  return 'type' in c && 'key' in c && 'value' in c;
+    return 'type' in c && 'key' in c && 'value' in c;
 }
 
 /**
  * Type guard: check if condition is multi-key constrained
  */
 export function isMultiKeyCondition(c: QueryCondition): c is MultiKeyConstrainedCondition {
-  return 'type' in c && 'keys' in c && Array.isArray((c as MultiKeyConstrainedCondition).keys);
+    return 'type' in c && 'keys' in c && Array.isArray((c as MultiKeyConstrainedCondition).keys);
 }
 
 /**
  * Type guard: check if condition is multi-type (types[] without keys)
  */
 export function isMultiTypeCondition(c: QueryCondition): c is MultiTypeCondition {
-  return 'types' in c && !('keys' in c);
+    return 'types' in c && !('keys' in c);
 }
 
 /**
  * Type guard: check if condition is multi-type constrained (types[] + keys[])
  */
-export function isMultiTypeConstrainedCondition(c: QueryCondition): c is MultiTypeConstrainedCondition {
-  return 'types' in c && 'keys' in c;
+export function isMultiTypeConstrainedCondition(
+    c: QueryCondition
+): c is MultiTypeConstrainedCondition {
+    return 'types' in c && 'keys' in c;
 }
 
 /**
  * Type guard: check if condition is key-only (no type/types field)
  */
 export function isKeyOnlyCondition(c: QueryCondition): c is KeyOnlyCondition {
-  return !('type' in c) && !('types' in c) && 'keys' in c && Array.isArray((c as KeyOnlyCondition).keys);
+    return (
+        !('type' in c) && !('types' in c) && 'keys' in c && Array.isArray((c as KeyOnlyCondition).keys)
+    );
 }
 
 /**
@@ -169,30 +180,41 @@ export function isKeyOnlyCondition(c: QueryCondition): c is KeyOnlyCondition {
  * - `{ type }` → pass through (unconstrained)
  * - `{ keys: [...] }` → pass through (key-only)
  */
-export type NormalizedCondition = UnconstrainedCondition | MultiKeyConstrainedCondition | MultiTypeCondition | MultiTypeConstrainedCondition | KeyOnlyCondition;
+export type NormalizedCondition =
+    | UnconstrainedCondition
+    | MultiKeyConstrainedCondition
+    | MultiTypeCondition
+    | MultiTypeConstrainedCondition
+    | KeyOnlyCondition;
 
 export function normalizeCondition(c: QueryCondition): NormalizedCondition {
-  if (isConstrainedCondition(c)) {
-    return { type: c.type, keys: [{ name: c.key, value: c.value }] };
-  }
-  return c as NormalizedCondition;
+    if (isConstrainedCondition(c)) {
+        return {type: c.type, keys: [{name: c.key, value: c.value}]};
+    }
+    return c as NormalizedCondition;
 }
 
 /**
  * Check if a normalized condition has keys (is constrained)
  */
-export function hasKeys(c: NormalizedCondition): c is MultiKeyConstrainedCondition | MultiTypeConstrainedCondition | KeyOnlyCondition {
-  return 'keys' in c && Array.isArray((c as MultiKeyConstrainedCondition).keys) && (c as MultiKeyConstrainedCondition).keys.length > 0;
+export function hasKeys(
+    c: NormalizedCondition
+): c is MultiKeyConstrainedCondition | MultiTypeConstrainedCondition | KeyOnlyCondition {
+    return (
+        'keys' in c &&
+        Array.isArray((c as MultiKeyConstrainedCondition).keys) &&
+        (c as MultiKeyConstrainedCondition).keys.length > 0
+    );
 }
 
 /**
  * Query to read events from the store
  */
 export interface Query {
-  conditions: QueryCondition[];
-  fromPosition?: bigint;
-  limit?: number;
-  backwards?: boolean;
+    conditions: QueryCondition[];
+    fromPosition?: bigint;
+    limit?: number;
+    backwards?: boolean;
 }
 
 // ============================================================
@@ -203,79 +225,91 @@ export interface Query {
  * Result of a read operation - provides typed access to events and metadata.
  */
 export class QueryResult<E extends Event = Event> {
-  readonly events: StoredEvent<E>[];
-  readonly position: bigint;
-  readonly conditions: QueryCondition[];
+    readonly events: StoredEvent<E>[];
+    readonly position: bigint;
+    readonly conditions: QueryCondition[];
 
-  constructor(
-    events: StoredEvent<E>[],
-    position: bigint,
-    conditions: QueryCondition[]
-  ) {
-    this.events = events;
-    this.position = position;
-    this.conditions = conditions;
-  }
+    constructor(events: StoredEvent<E>[], position: bigint, conditions: QueryCondition[]) {
+        this.events = events;
+        this.position = position;
+        this.conditions = conditions;
+    }
 
-  /** Number of events in the result */
-  get count(): number {
-    return this.events.length;
-  }
+    /** Number of events in the result */
+    get count(): number {
+        return this.events.length;
+    }
 
-  /** Whether the result contains no events */
-  isEmpty(): boolean {
-    return this.events.length === 0;
-  }
+    /** Get the append condition for use with store.append() */
+    get appendCondition(): AppendCondition {
+        return createAppendCondition(this.conditions, this.position);
+    }
 
-  /** Get the first event, or undefined if empty */
-  first(): StoredEvent<E> | undefined {
-    return this.events[0];
-  }
+    /** Whether the result contains no events */
+    isEmpty(): boolean {
+        return this.events.length === 0;
+    }
 
-  /** Get the last event, or undefined if empty */
-  last(): StoredEvent<E> | undefined {
-    return this.events[this.events.length - 1];
-  }
+    /** Get the first event, or undefined if empty */
+    first(): StoredEvent<E> | undefined {
+        return this.events[0];
+    }
 
-  /** Get the append condition for use with store.append() */
-  get appendCondition(): AppendCondition {
-    return createAppendCondition(this.conditions, this.position);
-  }
+    /** Get the last event, or undefined if empty */
+    last(): StoredEvent<E> | undefined {
+        return this.events[this.events.length - 1];
+    }
 }
 
 // ============================================================
 // Consistency Config
 // ============================================================
 
+type IsAny<T> = 0 extends (1 & T) ? true : false;
+
+type Paths<T, Prefix extends string = ''> = {
+    [K in keyof T & string]: IsAny<T[K]> extends true
+        ? `${Prefix}${K}` | `${Prefix}${K}.${string}`  // stop recursing, allow any suffix
+        : T[K] extends object
+            ? Paths<T[K], `${Prefix}${K}.`> | `${Prefix}${K}`
+            : `${Prefix}${K}`;
+}[keyof T & string];
+
 /**
  * Definition of a consistency key extraction rule
  */
-export interface ConsistencyKeyDef {
-  /** Key name (e.g., "course") */
-  name: string;
-  /** Path in event payload (e.g., "data.courseId") */
-  path: string;
-  /** Optional transformation */
-  transform?: 'LOWER' | 'UPPER' | 'MONTH' | 'YEAR' | 'DATE';
-  /** Behavior when path resolves to null/undefined */
-  nullHandling?: 'error' | 'skip' | 'default';
-  /** Default value when nullHandling = 'default' */
-  defaultValue?: string;
+export interface ConsistencyKeyDef<T> {
+    /** Key name (e.g., "course") */
+    name: string;
+    /** Path in event payload (e.g., "data.courseId") */
+    path: Paths<{ data: T }>;
+    /** Optional transformation */
+    transform?: 'LOWER' | 'UPPER' | 'MONTH' | 'YEAR' | 'DATE';
+    /** Behavior when path resolves to null/undefined */
+    nullHandling?: 'error' | 'skip' | 'default';
+    /** Default value when nullHandling = 'default' */
+    defaultValue?: string;
 }
 
 /**
  * Configuration for a single event type
  */
-export interface EventTypeConfig {
-  keys: ConsistencyKeyDef[];
+export interface EventTypeConfig<T> {
+    keys: ConsistencyKeyDef<T>[];
 }
+
+// Map of event name → its config, constrained to known event types
+type EventTypeMap<Events extends Record<string, object>> = {
+    [K in keyof Events]?: EventTypeConfig<Events[K]>;
+};
 
 /**
  * Full consistency configuration
  */
-export interface ConsistencyConfig {
-  eventTypes: Record<string, EventTypeConfig>;
-}
+// The final config class/type
+export type ConsistencyConfig<Events extends Record<string, object> = Record<string, any>> = {
+    eventTypes: EventTypeMap<Events>;
+};
 
 // ============================================================
 // Extracted Keys
@@ -285,8 +319,8 @@ export interface ConsistencyConfig {
  * A key extracted from an event via ConsistencyConfig
  */
 export interface ExtractedKey {
-  name: string;
-  value: string;
+    name: string;
+    value: string;
 }
 
 // ============================================================
@@ -297,27 +331,27 @@ export interface ExtractedKey {
  * Result of a successful append operation
  */
 export interface AppendResult {
-  conflict: false;
-  position: bigint;
-  appendCondition: AppendCondition;
+    conflict: false;
+    position: bigint;
+    appendCondition: AppendCondition;
 }
 
 /**
  * Result when a conflict is detected
  */
 export interface ConflictResult<E extends Event = Event> {
-  conflict: true;
-  conflictingEvents: StoredEvent<E>[];
-  appendCondition: AppendCondition;
+    conflict: true;
+    conflictingEvents: StoredEvent<E>[];
+    appendCondition: AppendCondition;
 }
 
 /**
  * Type guard for conflict detection
  */
 export function isConflict<E extends Event = Event>(
-  result: AppendResult | ConflictResult<E>
+    result: AppendResult | ConflictResult<E>
 ): result is ConflictResult<E> {
-  return result.conflict;
+    return result.conflict;
 }
 
 // ============================================================
@@ -328,88 +362,91 @@ export function isConflict<E extends Event = Event>(
  * Condition for optimistic concurrency check on append.
  * Pass to store.append() to ensure no conflicting events were written
  * since your read.
- * 
+ *
  * @see https://dcb.events/specification/#append-condition
  */
 export interface AppendCondition {
-  /** 
-   * Query that defines what constitutes a conflict.
-   * If any events match this query (after the specified position), append fails.
-   */
-  failIfEventsMatch: QueryCondition[];
-  
-  /** 
-   * Position from which to check for conflicts (optional).
-   * If omitted, ALL events are checked against failIfEventsMatch.
-   */
-  after?: bigint;
+    /**
+     * Query that defines what constitutes a conflict.
+     * If any events match this query (after the specified position), append fails.
+     */
+    failIfEventsMatch: QueryCondition[];
 
-  /**
-   * Merge this condition with one or more other conditions.
-   * Concatenates failIfEventsMatch, takes max position.
-   * 
-   * @example
-   * ```typescript
-   * const merged = cartResult.appendCondition
-   *   .mergeWith(inventoryResult.appendCondition);
-   * ```
-   */
-  mergeWith(...others: AppendCondition[]): AppendCondition;
+    /**
+     * Position from which to check for conflicts (optional).
+     * If omitted, ALL events are checked against failIfEventsMatch.
+     */
+    after?: bigint;
+
+    /**
+     * Merge this condition with one or more other conditions.
+     * Concatenates failIfEventsMatch, takes max position.
+     *
+     * @example
+     * ```typescript
+     * const merged = cartResult.appendCondition
+     *   .mergeWith(inventoryResult.appendCondition);
+     * ```
+     */
+    mergeWith(...others: AppendCondition[]): AppendCondition;
 }
 
 /**
  * Create an AppendCondition with mergeWith() method.
  */
-export function createAppendCondition(failIfEventsMatch: QueryCondition[], after?: bigint): AppendCondition {
-  return {
-    failIfEventsMatch,
-    after,
-    mergeWith(...others: AppendCondition[]): AppendCondition {
-      return mergeConditions(this, ...others);
-    },
-  };
+export function createAppendCondition(
+    failIfEventsMatch: QueryCondition[],
+    after?: bigint
+): AppendCondition {
+    return {
+        failIfEventsMatch,
+        after,
+        mergeWith(...others: AppendCondition[]): AppendCondition {
+            return mergeConditions(this, ...others);
+        },
+    };
 }
 
 /**
  * Merge multiple AppendConditions into one.
- * 
+ *
  * Use when reading from multiple boundaries (e.g. cart + inventory)
  * and appending with a single condition that protects all of them.
- * 
+ *
  * - `failIfEventsMatch`: concatenated from all conditions
  * - `after`: maximum position across all conditions
- * 
+ *
  * @example
  * ```typescript
  * const cartResult = await store.query().matchKey('cart', cartId).read();
  * const inventoryResult = await store.query().matchType('InventoryChanged').read();
- * 
+ *
  * const merged = mergeConditions(
  *   cartResult.appendCondition,
  *   inventoryResult.appendCondition,
  * );
- * 
+ *
  * await store.append(allEvents, merged);
  * ```
  */
 export function mergeConditions(...conditions: AppendCondition[]): AppendCondition {
-  if (conditions.length === 0) {
-    return createAppendCondition([]);
-  }
-
-  let maxPosition: bigint | undefined;
-  for (const c of conditions) {
-    if (c.after !== undefined) {
-      if (maxPosition === undefined || c.after > maxPosition) {
-        maxPosition = c.after;
-      }
+    if (conditions.length === 0) {
+        return createAppendCondition([]);
     }
-  }
 
-  return createAppendCondition(
-    conditions.flatMap(c => c.failIfEventsMatch),
-    maxPosition,
-  );
+    let maxPosition: bigint | undefined;
+    for (const c of conditions) {
+        if (c.after !== undefined) {
+            if (maxPosition === undefined || c.after > maxPosition) {
+                maxPosition = c.after;
+            }
+        }
+    }
+
+    return createAppendCondition(
+        conditions.flatMap(c => c.failIfEventsMatch),
+        maxPosition
+    );
 }
 
 // ============================================================
@@ -417,8 +454,8 @@ export function mergeConditions(...conditions: AppendCondition[]): AppendConditi
 // ============================================================
 
 export interface EventStoreOptions {
-  /** Consistency configuration */
-  consistency: ConsistencyConfig;
+    /** Consistency configuration */
+    consistency: ConsistencyConfig;
 }
 
 // ============================================================
@@ -429,7 +466,7 @@ export interface EventStoreOptions {
  * @deprecated Use Event<EventType, EventPayload> instead
  */
 export type NewEvent<T = unknown> = {
-  type: string;
-  data: T;
-  metadata?: Record<string, unknown>;
+    type: string;
+    data: T;
+    metadata?: Record<string, unknown>;
 };

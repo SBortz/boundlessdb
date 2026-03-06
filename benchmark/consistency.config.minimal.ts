@@ -7,23 +7,23 @@
  *   npx tsx scripts/reindex.ts --config ./benchmark/consistency.config.minimal.ts --db ./benchmark/boundless-bench.sqlite
  */
 
-import type { ConsistencyConfig } from '../src/types.js';
+import type {ConsistencyConfig} from '../src/types.js';
 
 const consistency: ConsistencyConfig = {
-  eventTypes: {
-    CourseCreated: {
-      keys: [{ path: 'data.courseId', name: 'course' }],
+    eventTypes: {
+        CourseCreated: {
+            keys: [{path: 'data.courseId', name: 'course'}],
+        },
+        StudentEnrolled: {
+            keys: [{path: 'data.courseId', name: 'course'}],
+        },
+        LessonCompleted: {
+            keys: [{path: 'data.courseId', name: 'course'}],
+        },
+        CertificateIssued: {
+            keys: [{path: 'data.courseId', name: 'course'}],
+        },
     },
-    StudentEnrolled: {
-      keys: [{ path: 'data.courseId', name: 'course' }],
-    },
-    LessonCompleted: {
-      keys: [{ path: 'data.courseId', name: 'course' }],
-    },
-    CertificateIssued: {
-      keys: [{ path: 'data.courseId', name: 'course' }],
-    },
-  },
 };
 
 export default consistency;

@@ -1,524 +1,561 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>BoundlessDB — Streamless Event Store</title>
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-  <style>
-    :root {
-      --content-width: 900px;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-      color: #e0e0e0;
-      min-height: 100vh;
-      line-height: 1.6;
-    }
-    
-    .top-nav {
-      display: flex;
-      justify-content: flex-end;
-      gap: 1.25rem;
-      padding: 1rem 2rem;
-      max-width: var(--content-width);
-      margin: 0 auto;
-    }
-    
-    .top-nav a {
-      color: #888;
-      text-decoration: none;
-      font-size: 0.85rem;
-      font-weight: 500;
-      transition: color 0.2s;
-    }
-    
-    .top-nav a:hover {
-      color: #0cf;
-    }
-    
-    .hero {
-      text-align: center;
-      padding: 1rem 2rem 0.5rem;
-      max-width: var(--content-width);
-      margin: 0 auto;
-    }
-    
-    .logo {
-      font-size: 4rem;
-      margin-bottom: 1rem;
-    }
-    
-    h1 {
-      font-size: 3.5rem;
-      font-weight: 700;
-      background: linear-gradient(90deg, #0ff, #0cf);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-      margin-bottom: 0.5rem;
-    }
-    
-    .tagline {
-      font-size: 1.4rem;
-      color: #888;
-      margin-bottom: 2rem;
-    }
-    
-    .highlight {
-      color: #0cf;
-    }
-    
-    .badges {
-      display: flex;
-      justify-content: center;
-      gap: 1rem;
-      margin-bottom: 3rem;
-      flex-wrap: wrap;
-    }
-    
-    .badge {
-      background: rgba(15, 52, 96, 0.8);
-      border: 1px solid #1e5f74;
-      padding: 0.5rem 1rem;
-      border-radius: 2rem;
-      font-size: 0.9rem;
-      color: #0cf;
-    }
-    
-    .cta-buttons {
-      display: flex;
-      justify-content: center;
-      gap: 1rem;
-      margin-bottom: 2rem;
-      flex-wrap: wrap;
-    }
-    
-    .btn {
-      padding: 1rem 2rem;
-      border-radius: 8px;
-      font-size: 1.1rem;
-      font-weight: 600;
-      text-decoration: none;
-      transition: all 0.2s;
-    }
-    
-    .btn-primary {
-      background: linear-gradient(90deg, #0f4c75, #1e5f74);
-      color: white;
-      border: none;
-    }
-    
-    .btn-primary:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 8px 20px rgba(0, 255, 255, 0.2);
-    }
-    
-    .btn-secondary {
-      background: transparent;
-      color: #0cf;
-      border: 2px solid #0cf;
-    }
-    
-    .btn-secondary:hover {
-      background: rgba(0, 204, 255, 0.1);
-    }
-    
-    .cta-row {
-      display: flex;
-      justify-content: center;
-      gap: 1rem;
-      margin: 2.5rem 0 3rem;
-    }
-    
-    .cta-row .btn {
-      min-width: 180px;
-      padding: 1rem 2rem;
-      font-size: 1.1rem;
-      text-align: center;
-    }
-    
-    .features {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 1.5rem;
-      padding: 2rem;
-      max-width: var(--content-width);
-      margin: 0 auto;
-    }
-    
-    .feature {
-      background: rgba(22, 33, 62, 0.8);
-      border: 1px solid #0f3460;
-      border-radius: 12px;
-      padding: 1.5rem;
-    }
-    
-    .feature-icon {
-      font-size: 2rem;
-      margin-bottom: 0.5rem;
-    }
-    
-    .feature h3 {
-      color: #0cf;
-      margin-bottom: 0.5rem;
-      font-size: 1.2rem;
-    }
-    
-    .feature p {
-      color: #888;
-      font-size: 0.95rem;
-    }
-    
-    .code-section {
-      max-width: var(--content-width);
-      margin: 3rem auto;
-      padding: 0 2rem;
-    }
-    
-    .code-section h2 {
-      color: #0cf;
-      text-align: center;
-      margin-bottom: 1.5rem;
-      font-size: 1.8rem;
-    }
-    
-    pre {
-      background: #0a1628;
-      border: 1px solid #0f3460;
-      border-radius: 12px;
-      padding: 1.5rem;
-      overflow-x: auto;
-      font-family: 'Fira Code', 'Monaco', monospace;
-      font-size: 0.9rem;
-      line-height: 1.5;
-    }
-    
-    .keyword { color: #c678dd; }
-    .string { color: #98c379; }
-    .comment { color: #5c6370; }
-    .function { color: #61afef; }
-    .const { color: #e5c07b; }
-    
-    .architecture {
-      max-width: var(--content-width);
-      margin: 4rem auto;
-      padding: 0 2rem;
-      text-align: center;
-    }
-    
-    .architecture h2 {
-      color: #0cf;
-      margin-bottom: 2rem;
-      font-size: 1.8rem;
-    }
-    
-    .arch-diagram {
-      background: #0a1628;
-      border: 1px solid #0f3460;
-      border-radius: 12px;
-      padding: 2rem;
-      font-family: monospace;
-      font-size: 0.95rem;
-      text-align: left;
-      display: inline-block;
-    }
-    
-    .flow-section {
-      display: flex;
-      flex-direction: column;
-      gap: 1rem;
-      margin-bottom: 1.5rem;
-    }
-    
-    .flow-step {
-      display: flex;
-      gap: 1rem;
-      align-items: flex-start;
-      background: #0a1628;
-      border: 1px solid #0f3460;
-      border-radius: 12px;
-      padding: 1rem;
-    }
-    
-    .flow-number {
-      background: linear-gradient(135deg, #0f4c75, #1e5f74);
-      color: white;
-      width: 32px;
-      height: 32px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: bold;
-      flex-shrink: 0;
-    }
-    
-    .flow-content { flex: 1; }
-    .flow-title { color: #0cf; font-weight: 600; margin-bottom: 0.3rem; }
-    .flow-desc { color: #888; font-size: 0.9rem; margin-bottom: 0.5rem; }
-    .flow-code {
-      display: block;
-      background: #0d1929;
-      padding: 0.5rem;
-      border-radius: 6px;
-      font-size: 0.8rem;
-      color: #98c379;
-      overflow-x: auto;
-    }
-    
-    .flow-note {
-      background: rgba(0, 204, 255, 0.1);
-      border: 1px solid #0cf;
-      border-radius: 8px;
-      padding: 1rem;
-      font-size: 0.9rem;
-      color: #ccc;
-    }
-    
-    .comparison-box {
-      background: #0a1628;
-      border: 1px solid #0f3460;
-      border-radius: 12px;
-      padding: 1.5rem;
-      max-width: var(--content-width);
-      margin: 0 auto;
-      text-align: left;
-    }
-    
-    .comparison-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 1rem;
-    }
-    
-    @media (max-width: 600px) {
-      .comparison-grid {
-        grid-template-columns: 1fr;
-      }
-    }
-    
-    .comparison-item {
-      background: #0d1929;
-      border: 1px solid #1e3a5f;
-      border-radius: 8px;
-      padding: 1rem;
-    }
-    
-    .comparison-item.highlight {
-      border-color: #0cf;
-      background: rgba(0, 204, 255, 0.05);
-    }
-    
-    .comparison-label {
-      color: #888;
-      font-size: 0.8rem;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      margin-bottom: 0.5rem;
-    }
-    
-    .comparison-item.highlight .comparison-label {
-      color: #0cf;
-    }
-    
-    .comparison-content {
-      color: #ccc;
-      font-size: 0.9rem;
-      line-height: 1.5;
-    }
-    
-    footer {
-      text-align: center;
-      padding: 3rem 2rem;
-      color: #666;
-      border-top: 1px solid #0f3460;
-      margin-top: 4rem;
-    }
-    
-    footer a {
-      color: #0cf;
-      text-decoration: none;
-    }
-    
-    footer a:hover {
-      text-decoration: underline;
-    }
-    
-    /* Tabs - Flat Design */
-    .tabs-container {
-      max-width: var(--content-width);
-      margin: 0 auto 2rem;
-      padding: 0 2rem;
-    }
-    
-    .tabs-header {
-      display: flex;
-      gap: 0;
-      border-bottom: 2px solid #1e3a5f;
-    }
-    
-    .tab-btn {
-      padding: 0.75rem 1.5rem;
-      background: transparent;
-      border: none;
-      color: #666;
-      cursor: pointer;
-      font-size: 0.9rem;
-      font-weight: 600;
-      transition: all 0.2s;
-      position: relative;
-    }
-    
-    .tab-btn:hover {
-      color: #0cf;
-    }
-    
-    .tab-btn.active {
-      color: #0cf;
-    }
-    
-    .tab-btn.active::after {
-      content: '';
-      position: absolute;
-      bottom: -2px;
-      left: 0;
-      right: 0;
-      height: 2px;
-      background: #0cf;
-    }
-    
-    .tabs-content-wrapper {
-      background: #0a1628;
-      border: 1px solid #1e3a5f;
-      border-top: none;
-      border-radius: 0 0 8px 8px;
-      padding: 1.5rem;
-      box-shadow: 0 0 60px rgba(0, 204, 255, 0.08), 0 0 100px rgba(0, 204, 255, 0.05);
-      position: relative;
-    }
-    
-    .tabs-content-wrapper::before {
-      content: '';
-      position: absolute;
-      inset: -1px;
-      border-radius: 0 0 8px 8px;
-      padding: 1px;
-      background: linear-gradient(180deg, transparent 0%, rgba(0, 204, 255, 0.1) 100%);
-      -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-      mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-      -webkit-mask-composite: xor;
-      mask-composite: exclude;
-      pointer-events: none;
-    }
-    
-    .tab-content {
-      display: none;
-    }
-    
-    .tab-content.active {
-      display: block;
-    }
-    
-    .tab-content pre {
-      margin: 0;
-      background: transparent;
-      border: none;
-      padding: 0;
-      font-size: 0.9rem;
-      line-height: 1.7;
-    }
-    
-    /* Case content (AppendCondition section) */
-    .case-content {
-      display: none;
-    }
-    
-    .case-content.active {
-      display: block;
-    }
-    
-    .case-content pre {
-      margin: 0;
-      background: transparent;
-      border: none;
-      padding: 0;
-      font-size: 0.9rem;
-      line-height: 1.7;
-    }
-    
-    .tab-label {
-      color: #0cf;
-      font-size: 0.7rem;
-      text-transform: uppercase;
-      letter-spacing: 0.15em;
-      margin-bottom: 1rem;
-      font-weight: 600;
-    }
-    
-    .install-box {
-      text-align: center;
-      margin-top: 1.5rem;
-    }
-    
-    .install-cmd {
-      display: inline-block;
-      background: #0a1628;
-      border: 1px solid #1e3a5f;
-      border-radius: 8px;
-      padding: 0.75rem 1.5rem;
-      font-family: 'Fira Code', 'Monaco', monospace;
-      font-size: 1rem;
-      color: #98c379;
-      text-decoration: none;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-    
-    .install-cmd:hover {
-      border-color: #0cf;
-      box-shadow: 0 0 20px rgba(0, 204, 255, 0.15);
-      color: #98c379;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta content="width=device-width, initial-scale=1.0" name="viewport">
+    <title>BoundlessDB — DCB Event Store</title>
+    <link href="/favicon.svg" rel="icon" type="image/svg+xml">
+    <style>
+        :root {
+            --content-width: 900px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+
+        .top-nav {
+            display: flex;
+            justify-content: flex-end;
+            gap: 1.25rem;
+            padding: 1rem 2rem;
+            max-width: var(--content-width);
+            margin: 0 auto;
+        }
+
+        .top-nav a {
+            color: #888;
+            text-decoration: none;
+            font-size: 0.85rem;
+            font-weight: 500;
+            transition: color 0.2s;
+        }
+
+        .top-nav a:hover {
+            color: #0cf;
+        }
+
+        .hero {
+            text-align: center;
+            padding: 1rem 2rem 0.5rem;
+            max-width: var(--content-width);
+            margin: 0 auto;
+        }
+
+        .logo {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+        }
+
+        h1 {
+            font-size: 3.5rem;
+            font-weight: 700;
+            background: linear-gradient(90deg, #0ff, #0cf);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 0.5rem;
+        }
+
+        .tagline {
+            font-size: 1.4rem;
+            color: #888;
+            margin-bottom: 2rem;
+        }
+
+        .highlight {
+            color: #0cf;
+        }
+
+        .badges {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            margin-bottom: 3rem;
+            flex-wrap: wrap;
+        }
+
+        .badge {
+            background: rgba(15, 52, 96, 0.8);
+            border: 1px solid #1e5f74;
+            padding: 0.5rem 1rem;
+            border-radius: 2rem;
+            font-size: 0.9rem;
+            color: #0cf;
+        }
+
+        .cta-buttons {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 1rem 2rem;
+            border-radius: 8px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(90deg, #0f4c75, #1e5f74);
+            color: white;
+            border: none;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(0, 255, 255, 0.2);
+        }
+
+        .btn-secondary {
+            background: transparent;
+            color: #0cf;
+            border: 2px solid #0cf;
+        }
+
+        .btn-secondary:hover {
+            background: rgba(0, 204, 255, 0.1);
+        }
+
+        .cta-row {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            margin: 2.5rem 0 3rem;
+        }
+
+        .cta-row .btn {
+            min-width: 180px;
+            padding: 1rem 2rem;
+            font-size: 1.1rem;
+            text-align: center;
+        }
+
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
+            padding: 2rem;
+            max-width: var(--content-width);
+            margin: 0 auto;
+        }
+
+        .feature {
+            background: rgba(22, 33, 62, 0.8);
+            border: 1px solid #0f3460;
+            border-radius: 12px;
+            padding: 1.5rem;
+        }
+
+        .feature-icon {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .feature h3 {
+            color: #0cf;
+            margin-bottom: 0.5rem;
+            font-size: 1.2rem;
+        }
+
+        .feature p {
+            color: #888;
+            font-size: 0.95rem;
+        }
+
+        .code-section {
+            max-width: var(--content-width);
+            margin: 3rem auto;
+            padding: 0 2rem;
+        }
+
+        .code-section h2 {
+            color: #0cf;
+            text-align: center;
+            margin-bottom: 1.5rem;
+            font-size: 1.8rem;
+        }
+
+        pre {
+            background: #0a1628;
+            border: 1px solid #0f3460;
+            border-radius: 12px;
+            padding: 1.5rem;
+            overflow-x: auto;
+            font-family: 'Fira Code', 'Monaco', monospace;
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+
+        .keyword {
+            color: #c678dd;
+        }
+
+        .string {
+            color: #98c379;
+        }
+
+        .comment {
+            color: #5c6370;
+        }
+
+        .function {
+            color: #61afef;
+        }
+
+        .const {
+            color: #e5c07b;
+        }
+
+        .architecture {
+            max-width: var(--content-width);
+            margin: 4rem auto;
+            padding: 0 2rem;
+            text-align: center;
+        }
+
+        .architecture h2 {
+            color: #0cf;
+            margin-bottom: 2rem;
+            font-size: 1.8rem;
+        }
+
+        .arch-diagram {
+            background: #0a1628;
+            border: 1px solid #0f3460;
+            border-radius: 12px;
+            padding: 2rem;
+            font-family: monospace;
+            font-size: 0.95rem;
+            text-align: left;
+            display: inline-block;
+        }
+
+        .flow-section {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .flow-step {
+            display: flex;
+            gap: 1rem;
+            align-items: flex-start;
+            background: #0a1628;
+            border: 1px solid #0f3460;
+            border-radius: 12px;
+            padding: 1rem;
+        }
+
+        .flow-number {
+            background: linear-gradient(135deg, #0f4c75, #1e5f74);
+            color: white;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            flex-shrink: 0;
+        }
+
+        .flow-content {
+            flex: 1;
+        }
+
+        .flow-title {
+            color: #0cf;
+            font-weight: 600;
+            margin-bottom: 0.3rem;
+        }
+
+        .flow-desc {
+            color: #888;
+            font-size: 0.9rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .flow-code {
+            display: block;
+            background: #0d1929;
+            padding: 0.5rem;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            color: #98c379;
+            overflow-x: auto;
+        }
+
+        .flow-note {
+            background: rgba(0, 204, 255, 0.1);
+            border: 1px solid #0cf;
+            border-radius: 8px;
+            padding: 1rem;
+            font-size: 0.9rem;
+            color: #ccc;
+        }
+
+        .comparison-box {
+            background: #0a1628;
+            border: 1px solid #0f3460;
+            border-radius: 12px;
+            padding: 1.5rem;
+            max-width: var(--content-width);
+            margin: 0 auto;
+            text-align: left;
+        }
+
+        .comparison-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+
+        @media (max-width: 600px) {
+            .comparison-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .comparison-item {
+            background: #0d1929;
+            border: 1px solid #1e3a5f;
+            border-radius: 8px;
+            padding: 1rem;
+        }
+
+        .comparison-item.highlight {
+            border-color: #0cf;
+            background: rgba(0, 204, 255, 0.05);
+        }
+
+        .comparison-label {
+            color: #888;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.5rem;
+        }
+
+        .comparison-item.highlight .comparison-label {
+            color: #0cf;
+        }
+
+        .comparison-content {
+            color: #ccc;
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+
+        footer {
+            text-align: center;
+            padding: 3rem 2rem;
+            color: #666;
+            border-top: 1px solid #0f3460;
+            margin-top: 4rem;
+        }
+
+        footer a {
+            color: #0cf;
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+
+        /* Tabs - Flat Design */
+        .tabs-container {
+            max-width: var(--content-width);
+            margin: 0 auto 2rem;
+            padding: 0 2rem;
+        }
+
+        .tabs-header {
+            display: flex;
+            gap: 0;
+            border-bottom: 2px solid #1e3a5f;
+        }
+
+        .tab-btn {
+            padding: 0.75rem 1.5rem;
+            background: transparent;
+            border: none;
+            color: #666;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 600;
+            transition: all 0.2s;
+            position: relative;
+        }
+
+        .tab-btn:hover {
+            color: #0cf;
+        }
+
+        .tab-btn.active {
+            color: #0cf;
+        }
+
+        .tab-btn.active::after {
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: #0cf;
+        }
+
+        .tabs-content-wrapper {
+            background: #0a1628;
+            border: 1px solid #1e3a5f;
+            border-top: none;
+            border-radius: 0 0 8px 8px;
+            padding: 1.5rem;
+            box-shadow: 0 0 60px rgba(0, 204, 255, 0.08), 0 0 100px rgba(0, 204, 255, 0.05);
+            position: relative;
+        }
+
+        .tabs-content-wrapper::before {
+            content: '';
+            position: absolute;
+            inset: -1px;
+            border-radius: 0 0 8px 8px;
+            padding: 1px;
+            background: linear-gradient(180deg, transparent 0%, rgba(0, 204, 255, 0.1) 100%);
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask-composite: exclude;
+            pointer-events: none;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .tab-content pre {
+            margin: 0;
+            background: transparent;
+            border: none;
+            padding: 0;
+            font-size: 0.9rem;
+            line-height: 1.7;
+        }
+
+        /* Case content (AppendCondition section) */
+        .case-content {
+            display: none;
+        }
+
+        .case-content.active {
+            display: block;
+        }
+
+        .case-content pre {
+            margin: 0;
+            background: transparent;
+            border: none;
+            padding: 0;
+            font-size: 0.9rem;
+            line-height: 1.7;
+        }
+
+        .tab-label {
+            color: #0cf;
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            margin-bottom: 1rem;
+            font-weight: 600;
+        }
+
+        .install-box {
+            text-align: center;
+            margin-top: 1.5rem;
+        }
+
+        .install-cmd {
+            display: inline-block;
+            background: #0a1628;
+            border: 1px solid #1e3a5f;
+            border-radius: 8px;
+            padding: 0.75rem 1.5rem;
+            font-family: 'Fira Code', 'Monaco', monospace;
+            font-size: 1rem;
+            color: #98c379;
+            text-decoration: none;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .install-cmd:hover {
+            border-color: #0cf;
+            box-shadow: 0 0 20px rgba(0, 204, 255, 0.15);
+            color: #98c379;
+        }
+    </style>
 </head>
 <body>
-  <nav class="top-nav">
+<nav class="top-nav">
     <a href="https://www.npmjs.com/package/boundlessdb" target="_blank">📦 npm</a>
     <a href="https://github.com/SBortz/boundlessdb" target="_blank">GitHub</a>
-  </nav>
-  <div class="hero">
+</nav>
+<div class="hero">
     <div class="logo">🗃️</div>
     <h1>BoundlessDB</h1>
-    <p class="tagline"><span class="highlight">Streamless</span> event store with dynamic indexing and append conditions — TypeScript, SQLite, PostgreSQL, in-memory</p>
-  </div>
-  
-  <!-- Tabbed Code Example -->
-  <div class="tabs-container">
+    <p class="tagline">A <a class="highlight" href="https://dcb.events" style="text-decoration: none;">DCB-inspired</a> event store library for
+        TypeScript — with support for SQLite, PostgreSQL, in-memory</p>
+</div>
+
+<!-- Tabbed Code Example -->
+<div class="tabs-container">
     <div class="tabs-header">
-      <button class="tab-btn active" data-tab="query">Fine-Granular Querying</button>
-      <button class="tab-btn" data-tab="append">Append With Dynamic Consistency</button>
-      <button class="tab-btn" data-tab="multi">Multi-Boundary Append</button>
-      <button class="tab-btn" data-tab="conflict">Resolve Conflicts</button>
+        <button class="tab-btn active" data-tab="query">Fine-Granular Querying</button>
+        <button class="tab-btn" data-tab="append">Append With Dynamic Consistency</button>
+        <button class="tab-btn" data-tab="multi">Multi-Boundary Append</button>
+        <button class="tab-btn" data-tab="conflict">Resolve Conflicts</button>
     </div>
-    
+
     <div class="tabs-content-wrapper">
-      <div class="tab-content active" id="tab-query">
+        <div class="tab-content active" id="tab-query">
         
         <pre><code><span class="keyword">const</span> { events, appendCondition } = <span class="keyword">await</span> store.<span class="function">query</span>&lt;CourseEvent&gt;()
-  .<span class="function">matchKeys</span>({ <span class="string">course</span>: <span class="string">'cs101'</span>, <span class="string">student</span>: <span class="string">'alice'</span> })
+  .<span class="function">matchKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>)
+  .<span class="function">andKey</span>(<span class="string">'student'</span>, <span class="string">'alice'</span>)
   .<span class="function">read</span>();
 
 <span class="comment">// Build state from matching events</span>
 <span class="keyword">const</span> state: CourseState = events.<span class="function">reduce</span>(evolve, initialState);</code></pre>
-      </div>
-      
-      <div class="tab-content" id="tab-append">
+        </div>
+
+        <div class="tab-content" id="tab-append">
         
         <pre><code><span class="keyword">const</span> { events, appendCondition } = <span class="keyword">await</span> store.<span class="function">query</span>&lt;CourseEvent&gt;()
-  .<span class="function">matchTypeAndKeys</span>(<span class="string">'StudentEnrolled'</span>, { <span class="string">course</span>: <span class="string">'cs101'</span>, <span class="string">student</span>: <span class="string">'alice'</span> })
+  .<span class="function">matchType</span>(<span class="string">'StudentEnrolled'</span>)
+  .<span class="function">andKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>)
+  .<span class="function">andKey</span>(<span class="string">'student'</span>, <span class="string">'alice'</span>)
   .<span class="function">read</span>();
 
 <span class="comment">// Build state</span>
@@ -529,16 +566,18 @@
 
 <span class="comment">// Append with optimistic concurrency</span>
 <span class="keyword">await</span> store.<span class="function">append</span>(newEvents, appendCondition);</code></pre>
-      </div>
-      
-      <div class="tab-content" id="tab-multi">
+        </div>
+
+        <div class="tab-content" id="tab-multi">
         
         <pre><code><span class="comment">// Read from two boundaries</span>
 <span class="keyword">const</span> cartResult = <span class="keyword">await</span> store.<span class="function">query</span>()
-  .<span class="function">matchKeys</span>({ <span class="string">cart</span>: <span class="string">'cart-42'</span> }).<span class="function">read</span>();
+  .<span class="function">matchKey</span>(<span class="string">'cart'</span>, <span class="string">'cart-42'</span>).<span
+                    class="function">read</span>();
 
 <span class="keyword">const</span> inventoryResult = <span class="keyword">await</span> store.<span class="function">query</span>()
-  .<span class="function">matchKeys</span>({ <span class="string">product</span>: <span class="string">'shoe-xl'</span> }).<span class="function">read</span>();
+  .<span class="function">matchKey</span>(<span class="string">'product'</span>, <span class="string">'shoe-xl'</span>).<span
+                    class="function">read</span>();
 
 <span class="comment">// Merge conditions — protects both boundaries</span>
 <span class="keyword">const</span> merged = cartResult.appendCondition
@@ -546,9 +585,9 @@
 
 <span class="comment">// Single atomic append</span>
 <span class="keyword">await</span> store.<span class="function">append</span>(newEvents, merged);</code></pre>
-      </div>
-      
-      <div class="tab-content" id="tab-conflict">
+        </div>
+
+        <div class="tab-content" id="tab-conflict">
         
         <pre><code><span class="keyword">const</span> result = <span class="keyword">await</span> store.<span class="function">append</span>(newEvents, appendCondition);
 
@@ -562,102 +601,96 @@
   <span class="comment">// Success!</span>
   console.<span class="function">log</span>(<span class="string">'Enrolled at position'</span>, result.position);
 }</code></pre>
-      </div>
+        </div>
     </div>
     <div class="cta-row">
-      <a href="https://understanding-eventsourcing-dotnet.vercel.app" class="btn btn-primary" target="_blank">🛒 Live Shopping Cart Demo</a>
-      <a href="/demo.html" class="btn btn-secondary">🎮 Browser Demo</a>
-    </div>
-    
-    <div class="install-box">
-      <a href="https://www.npmjs.com/package/boundlessdb" class="install-cmd" target="_blank">npm install boundlessdb</a>
-    </div>
-  </div>
-  
-  <div class="features">
-    <div class="feature">
-      <div class="feature-icon">🚫</div>
-      <h3>No Streams</h3>
-      <p>Events organized via configurable consistency keys, not rigid stream boundaries.</p>
-    </div>
-    <div class="feature">
-      <div class="feature-icon">⚙️</div>
-      <h3>Config-based Keys</h3>
-      <p>Extract consistency keys from event payloads. Events stay pure business data.</p>
-    </div>
-    <div class="feature">
-      <div class="feature-icon">⚡</div>
-      <h3>Conflict Detection</h3>
-      <p>Get exactly what changed since your read — with a fresh condition for retry.</p>
-    </div>
-    <div class="feature">
-      <div class="feature-icon">🔄</div>
-      <h3>One-Command Reindex</h3>
-      <p>Change your consistency config, run one command. Keys are rebuilt — batched, resumable, crash-safe.</p>
-    </div>
-    <div class="feature">
-      <div class="feature-icon">💾</div>
-      <h3>Multiple Storage Engines</h3>
-      <p>SQLite for embedded, PostgreSQL for production, sql.js for browser, or in-memory for testing.</p>
-    </div>
-    <div class="feature">
-      <div class="feature-icon">🔒</div>
-      <h3>Multi-Node Safe</h3>
-      <p>Atomic conflict detection via SERIALIZABLE transactions. Safe for Supabase Edge Functions and concurrent deployments.</p>
-    </div>
-    <div class="feature">
-      <div class="feature-icon">🔗</div>
-      <h3>Multi-Key AND Queries</h3>
-      <p>Pass multiple keys to <code>.matchKeys()</code> for AND semantics — match events where ALL keys match in one query.</p>
-    </div>
-    <div class="feature">
-      <div class="feature-icon">📦</div>
-      <h3>Embedded Library</h3>
-      <p>Runs in your process — no separate server needed. (No gRPC/HTTP API yet.)</p>
-    </div>
-  </div>
-  
-  <div class="architecture" style="margin-top: 3rem;">
-    <h2>Dynamic Indexing</h2>
-    <div class="comparison-box">
-      <p style="color: #888; margin-bottom: 1.5rem;">
-        Keys are <strong style="color: #0cf;">extracted from event payloads via config</strong> — not written onto events at append time.
-        Events stay pure. Consistency boundaries can change anytime.
-      </p>
-      
-      <div class="comparison-grid">
-        <div class="comparison-item">
-          <div class="comparison-label">Traditional approach</div>
-          <div class="comparison-content">
-            Tags/keys are <strong>written onto events</strong> at append time.<br>
-            Once written, they're immutable.
-          </div>
-        </div>
-        <div class="comparison-item highlight">
-          <div class="comparison-label">BoundlessDB</div>
-          <div class="comparison-content">
-            Keys are <strong>extracted from payloads via config</strong>.<br>
-            Events stay clean. Config can change anytime.
-          </div>
-        </div>
-      </div>
-      
-      <div class="flow-note" style="margin-top: 1.5rem;">
-        💡 <strong>Why more flexible?</strong><br><br>
-        • <strong>No migration needed</strong> — Change your consistency boundaries by updating config, not events<br>
-        • <strong>Events stay clean</strong> — Business data only, no infrastructure concerns<br>
-        • <strong>Retroactive changes</strong> — Add new keys to existing events via reindex
-      </div>
+        <a class="btn btn-primary" href="https://understanding-eventsourcing-dotnet.vercel.app" target="_blank">🛒 Live Shopping Cart Demo</a>
+        <a class="btn btn-secondary" href="/demo.html">🎮 Browser Demo</a>
     </div>
 
-    <div class="flow-note" style="margin-top: 1.5rem; border-color: #0cf44;">
-      ✅ <strong>DCB compliant</strong> — BoundlessDB implements the full <a href="https://dcb.events/specification/" style="color: #0cf;">DCB specification</a>:
-      surgical event selection by type and key, append conditions, and atomic consistency guarantees.
-      All 6 official DCB examples pass as tests.
+    <div class="install-box">
+        <a class="install-cmd" href="https://www.npmjs.com/package/boundlessdb" target="_blank">npm install boundlessdb</a>
     </div>
-  </div>
-  
-  <div class="code-section">
+</div>
+
+<div class="features">
+    <div class="feature">
+        <div class="feature-icon">🚫</div>
+        <h3>No Streams</h3>
+        <p>Events organized via configurable consistency keys, not rigid stream boundaries.</p>
+    </div>
+    <div class="feature">
+        <div class="feature-icon">⚙️</div>
+        <h3>Config-based Keys</h3>
+        <p>Extract consistency keys from event payloads. Events stay pure business data.</p>
+    </div>
+    <div class="feature">
+        <div class="feature-icon">⚡</div>
+        <h3>Conflict Detection</h3>
+        <p>Get exactly what changed since your read — with a fresh condition for retry.</p>
+    </div>
+    <div class="feature">
+        <div class="feature-icon">🔄</div>
+        <h3>One-Command Reindex</h3>
+        <p>Change your consistency config, run one command. Keys are rebuilt — batched, resumable, crash-safe.</p>
+    </div>
+    <div class="feature">
+        <div class="feature-icon">💾</div>
+        <h3>Multiple Storage Engines</h3>
+        <p>SQLite for embedded, PostgreSQL for production, sql.js for browser, or in-memory for testing.</p>
+    </div>
+    <div class="feature">
+        <div class="feature-icon">🔒</div>
+        <h3>Multi-Node Safe</h3>
+        <p>Atomic conflict detection via SERIALIZABLE transactions. Safe for Supabase Edge Functions and concurrent deployments.</p>
+    </div>
+    <div class="feature">
+        <div class="feature-icon">🔗</div>
+        <h3>Multi-Key AND Queries</h3>
+        <p>Chain <code>.andKey()</code> for AND semantics — match events where ALL keys match in one query.</p>
+    </div>
+    <div class="feature">
+        <div class="feature-icon">📦</div>
+        <h3>Embedded Library</h3>
+        <p>Runs in your process — no separate server needed. (No gRPC/HTTP API yet.)</p>
+    </div>
+</div>
+
+<div class="architecture" style="margin-top: 3rem;">
+    <h2>Beyond Traditional DCB</h2>
+    <div class="comparison-box">
+        <p style="color: #888; margin-bottom: 1.5rem;">
+            <strong style="color: #0cf;">Dynamic Consistency Boundaries (DCB)</strong> solves optimistic concurrency
+            by attaching consistency keys (tags) to events. BoundlessDB takes this further:
+        </p>
+
+        <div class="comparison-grid">
+            <div class="comparison-item">
+                <div class="comparison-label">Traditional DCB</div>
+                <div class="comparison-content">
+                    Keys (tags) are <strong>written onto events</strong> at append time.<br>
+                    Once written, they're immutable.
+                </div>
+            </div>
+            <div class="comparison-item highlight">
+                <div class="comparison-label">BoundlessDB Approach</div>
+                <div class="comparison-content">
+                    Keys are <strong>extracted from payloads via config</strong>.<br>
+                    Events stay pure. Config can change anytime.
+                </div>
+            </div>
+        </div>
+
+        <div class="flow-note" style="margin-top: 1.5rem;">
+            💡 <strong>Why more flexible?</strong><br><br>
+            • <strong>No migration needed</strong> — Change your consistency boundaries by updating config, not events<br>
+            • <strong>Events stay clean</strong> — Business data only, no infrastructure concerns<br>
+            • <strong>Retroactive changes</strong> — Add new keys to existing events via reindex
+        </div>
+    </div>
+</div>
+
+<div class="code-section">
     <h2>Conflict? No Problem!</h2>
     <pre><code><span class="keyword">if</span> (result.conflict) {
   <span class="comment">// Someone else enrolled while you were deciding!</span>
@@ -669,9 +702,9 @@
   <span class="comment">// Success!</span>
   console.<span class="function">log</span>(<span class="string">'Enrolled at position'</span>, result.position);
 }</code></pre>
-  </div>
-  
-  <div class="code-section">
+</div>
+
+<div class="code-section">
     <h2>How Conflict Detection Works</h2>
     <pre><code><span class="comment">// The appendCondition captures your exact query scope (DCB spec):</span>
 appendCondition = {
@@ -690,37 +723,38 @@ appendCondition = {
 <span class="comment">//    - StudentSubscribed for course='cs101' was written</span>
 <span class="comment">//    - (matches your query conditions!)</span></code></pre>
     <div class="flow-note" style="margin-top:1rem">
-      💡 Conflicts are <strong>scoped to your read</strong> — not global. This is the power of Dynamic Consistency Boundaries!
+        💡 Conflicts are <strong>scoped to your read</strong> — not global. This is the power of Dynamic Consistency Boundaries!
     </div>
-  </div>
-  
-  <div class="code-section">
+</div>
+
+<div class="code-section">
     <h2>AppendCondition Cases</h2>
-    <p style="color:#888; margin-bottom:1.5rem;">The <code>AppendCondition</code> controls when a conflict is detected. Four patterns cover all use cases:</p>
-    
+    <p style="color:#888; margin-bottom:1.5rem;">The <code>AppendCondition</code> controls when a conflict is detected. Four patterns cover all use
+        cases:</p>
+
     <div class="tabs-header">
-      <button class="tab-btn case-tab active" data-case="read">1. Read → Append</button>
-      <button class="tab-btn case-tab" data-case="manual">2. Manual Position</button>
-      <button class="tab-btn case-tab" data-case="uniqueness">3. Uniqueness Check</button>
-      <button class="tab-btn case-tab" data-case="blind">4. Blind Append</button>
+        <button class="tab-btn case-tab active" data-case="read">1. Read → Append</button>
+        <button class="tab-btn case-tab" data-case="manual">2. Manual Position</button>
+        <button class="tab-btn case-tab" data-case="uniqueness">3. Uniqueness Check</button>
+        <button class="tab-btn case-tab" data-case="blind">4. Blind Append</button>
     </div>
-    
+
     <div class="tabs-content-wrapper">
-      <div class="case-content active" id="case-read">
+        <div class="case-content active" id="case-read">
         <pre><code><span class="comment">// Standard flow: Read first, then append</span>
 <span class="keyword">const</span> result = <span class="keyword">await</span> store.<span class="function">query</span>()
-  .<span class="function">matchKeys</span>({ <span class="string">course</span>: <span class="string">'cs101'</span> })
+  .<span class="function">matchKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>)
   .<span class="function">read</span>();
 
 <span class="comment">// appendCondition = { failIfEventsMatch: [...], after: position }</span>
 <span class="keyword">await</span> store.<span class="function">append</span>(events, result.appendCondition);</code></pre>
-        <div class="flow-note" style="margin-top:0.5rem">
-          ✅ No conflict if nothing new was written<br>
-          ❌ Conflict if someone else wrote matching events after your read
+            <div class="flow-note" style="margin-top:0.5rem">
+                ✅ No conflict if nothing new was written<br>
+                ❌ Conflict if someone else wrote matching events after your read
+            </div>
         </div>
-      </div>
-    
-      <div class="case-content" id="case-manual">
+
+        <div class="case-content" id="case-manual">
         <pre><code><span class="comment">// Check from a specific position</span>
 <span class="keyword">await</span> store.<span class="function">append</span>(events, {
   failIfEventsMatch: [
@@ -728,13 +762,13 @@ appendCondition = {
   ],
   after: <span class="const">42n</span>
 });</code></pre>
-        <div class="flow-note" style="margin-top:0.5rem">
-          <strong>Use case:</strong> Custom retry logic, or when you know the exact position.<br>
-          Checks only events AFTER position 42.
+            <div class="flow-note" style="margin-top:0.5rem">
+                <strong>Use case:</strong> Custom retry logic, or when you know the exact position.<br>
+                Checks only events AFTER position 42.
+            </div>
         </div>
-      </div>
-    
-      <div class="case-content" id="case-uniqueness">
+
+        <div class="case-content" id="case-uniqueness">
         <pre><code><span class="comment">// Check ALL events (no 'after' = from position 0)</span>
 <span class="keyword">await</span> store.<span class="function">append</span>(events, {
   failIfEventsMatch: [
@@ -742,51 +776,54 @@ appendCondition = {
   ]
   <span class="comment">// no 'after' → checks ALL events!</span>
 });</code></pre>
-        <div class="flow-note" style="margin-top:0.5rem">
-          <strong>Use case:</strong> Uniqueness checks without reading first.<br>
-          ❌ Fails if ANY matching event exists anywhere.<br>
-          Example: "Username 'alice' must not exist yet"
+            <div class="flow-note" style="margin-top:0.5rem">
+                <strong>Use case:</strong> Uniqueness checks without reading first.<br>
+                ❌ Fails if ANY matching event exists anywhere.<br>
+                Example: "Username 'alice' must not exist yet"
+            </div>
         </div>
-      </div>
-    
-      <div class="case-content" id="case-blind">
+
+        <div class="case-content" id="case-blind">
         <pre><code><span class="comment">// No consistency check at all</span>
 <span class="keyword">await</span> store.<span class="function">append</span>(events, <span class="const">null</span>);</code></pre>
-        <div class="flow-note" style="margin-top:0.5rem">
-          <strong>Use case:</strong> First write, or events where conflicts don't matter.<br>
-          No checks performed, event is always appended.
+            <div class="flow-note" style="margin-top:0.5rem">
+                <strong>Use case:</strong> First write, or events where conflicts don't matter.<br>
+                No checks performed, event is always appended.
+            </div>
         </div>
-      </div>
     </div>
-  </div>
-  
-  <div class="code-section">
+</div>
+
+<div class="code-section">
     <h2>Query Across Multiple Dimensions</h2>
     <pre><code><span class="comment">// Key-only: "Everything about course cs101"</span>
-store.<span class="function">query</span>().<span class="function">matchKeys</span>({ <span class="string">course</span>: <span class="string">'cs101'</span> }).<span class="function">read</span>()
+store.<span class="function">query</span>().<span class="function">matchKey</span>(<span class="string">'course'</span>, <span
+                class="string">'cs101'</span>).<span class="function">read</span>()
 
 <span class="comment">// Multi-key AND: "Alice's enrollment in cs101"</span>
 store.<span class="function">query</span>()
-  .<span class="function">matchKeys</span>({ <span class="string">course</span>: <span class="string">'cs101'</span>, <span class="string">student</span>: <span class="string">'alice'</span> })
+  .<span class="function">matchKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>)
+  .<span class="function">andKey</span>(<span class="string">'student'</span>, <span class="string">'alice'</span>)
   .<span class="function">read</span>()
 
 <span class="comment">// Multi-type + key: "Course lifecycle events for cs101"</span>
 store.<span class="function">query</span>()
-  .<span class="function">matchTypeAndKeys</span>(<span class="string">'CourseCreated'</span>, { <span class="string">course</span>: <span class="string">'cs101'</span> })
+  .<span class="function">matchType</span>(<span class="string">'CourseCreated'</span>, <span class="string">'CourseCancelled'</span>)
+  .<span class="function">andKey</span>(<span class="string">'course'</span>, <span class="string">'cs101'</span>)
   .<span class="function">read</span>()
 
 <span class="comment">// OR: "All cancellations OR everything about Alice"</span>
 store.<span class="function">query</span>()
   .<span class="function">matchType</span>(<span class="string">'CourseCancelled'</span>)          <span class="comment">// condition 1</span>
-  .<span class="function">matchKeys</span>({ <span class="string">student</span>: <span class="string">'alice'</span> })          <span class="comment">// condition 2 (OR)</span>
+  .<span class="function">matchKey</span>(<span class="string">'student'</span>, <span class="string">'alice'</span>)          <span class="comment">// condition 2 (OR)</span>
   .<span class="function">read</span>()</code></pre>
-  </div>
-  
-  <div class="code-section">
+</div>
+
+<div class="code-section">
     <h2>Config-based Key Extraction</h2>
     <div class="flow-note" style="margin-bottom:1rem">
-      Keys are extracted from event payloads via configuration.<br>
-      Events stay pure — no tags or metadata pollution!
+        Keys are extracted from event payloads via configuration.<br>
+        Events stay pure — no tags or metadata pollution!
     </div>
     <pre><code><span class="keyword">const</span> consistency = {
   eventTypes: {
@@ -799,22 +836,23 @@ store.<span class="function">query</span>()
       keys: [
         { name: <span class="string">'course'</span>, path: <span class="string">'data.courseId'</span> },
         { name: <span class="string">'student'</span>, path: <span class="string">'data.studentId'</span> },
-        { name: <span class="string">'semester'</span>, path: <span class="string">'data.semester'</span>, transform: <span class="string">'UPPER'</span> }
+        { name: <span class="string">'semester'</span>, path: <span class="string">'data.semester'</span>, transform: <span
+                class="string">'UPPER'</span> }
       ]
     }
   }
 };</code></pre>
     <div class="flow-note" style="margin-top:1rem">
-      <strong>When an event is appended:</strong><br>
-      <code style="color:#98c379">{ type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice', semester: 'ws24' } }</code><br><br>
-      <strong>Keys are automatically extracted and indexed:</strong><br>
-      → course: <code>'cs101'</code><br>
-      → student: <code>'alice'</code><br>
-      → semester: <code>'WS24'</code> (transformed to uppercase)
+        <strong>When an event is appended:</strong><br>
+        <code style="color:#98c379">{ type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice', semester: 'ws24' } }</code><br><br>
+        <strong>Keys are automatically extracted and indexed:</strong><br>
+        → course: <code>'cs101'</code><br>
+        → student: <code>'alice'</code><br>
+        → semester: <code>'WS24'</code> (transformed to uppercase)
     </div>
-  </div>
-  
-  <div class="code-section">
+</div>
+
+<div class="code-section">
     <h2>One-Command Reindex</h2>
     <pre><code><span class="comment">// Change your config → run one command → done</span>
 <span class="comment">// No migration files. No manual SQL. Just config.</span>
@@ -831,247 +869,248 @@ $ npx tsx scripts/reindex.ts --config ./consistency.ts --db ./events.sqlite
 
 <span class="comment">// Batched, resumable, crash-safe.</span>
 <span class="comment">// Add to your CI/CD pipeline — runs only when config changed.</span></code></pre>
-  </div>
-  
-  <div class="architecture">
+</div>
+
+<div class="architecture">
     <h2>How It Works</h2>
-    
+
     <div class="flow-section">
-      <div class="flow-step">
-        <div class="flow-number">1</div>
-        <div class="flow-content">
-          <div class="flow-title">Event Appended</div>
-          <div class="flow-desc">You append an event with business data</div>
-          <code class="flow-code">{ type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } }</code>
+        <div class="flow-step">
+            <div class="flow-number">1</div>
+            <div class="flow-content">
+                <div class="flow-title">Event Appended</div>
+                <div class="flow-desc">You append an event with business data</div>
+                <code class="flow-code">{ type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice' } }</code>
+            </div>
         </div>
-      </div>
-      
-      <div class="flow-step">
-        <div class="flow-number">2</div>
-        <div class="flow-content">
-          <div class="flow-title">Keys Extracted</div>
-          <div class="flow-desc">Config tells BoundlessDB which fields are consistency keys</div>
-          <code class="flow-code">course → 'cs101', student → 'alice'</code>
+
+        <div class="flow-step">
+            <div class="flow-number">2</div>
+            <div class="flow-content">
+                <div class="flow-title">Keys Extracted</div>
+                <div class="flow-desc">Config tells BoundlessDB which fields are consistency keys</div>
+                <code class="flow-code">course → 'cs101', student → 'alice'</code>
+            </div>
         </div>
-      </div>
-      
-      <div class="flow-step">
-        <div class="flow-number">3</div>
-        <div class="flow-content">
-          <div class="flow-title">Index Updated</div>
-          <div class="flow-desc">Keys are stored in a separate index table, linked to the event position</div>
-          <code class="flow-code">event_keys: [pos:1, course, cs101], [pos:1, student, alice]</code>
+
+        <div class="flow-step">
+            <div class="flow-number">3</div>
+            <div class="flow-content">
+                <div class="flow-title">Index Updated</div>
+                <div class="flow-desc">Keys are stored in a separate index table, linked to the event position</div>
+                <code class="flow-code">event_keys: [pos:1, course, cs101], [pos:1, student, alice]</code>
+            </div>
         </div>
-      </div>
-      
-      <div class="flow-step">
-        <div class="flow-number">4</div>
-        <div class="flow-content">
-          <div class="flow-title">Query by Keys</div>
-          <div class="flow-desc">Find all events matching any combination of key conditions</div>
-          <code class="flow-code">WHERE (type='StudentSubscribed' AND key='course' AND value='cs101')</code>
+
+        <div class="flow-step">
+            <div class="flow-number">4</div>
+            <div class="flow-content">
+                <div class="flow-title">Query by Keys</div>
+                <div class="flow-desc">Find all events matching any combination of key conditions</div>
+                <code class="flow-code">WHERE (type='StudentSubscribed' AND key='course' AND value='cs101')</code>
+            </div>
         </div>
-      </div>
     </div>
-    
+
     <div class="flow-note">
-      💡 <strong>Config changed?</strong> BoundlessDB compares the config hash on startup. If different, all keys are automatically re-extracted from existing events. No manual migration needed!
+        💡 <strong>Config changed?</strong> BoundlessDB compares the config hash on startup. If different, all keys are automatically re-extracted from
+        existing events. No manual migration needed!
     </div>
-  </div>
-  
-  <div class="code-section" style="margin-top: 4rem;">
+</div>
+
+<div class="code-section" style="margin-top: 4rem;">
     <h2>⚡ Performance</h2>
     <p style="color:#888; text-align:center; margin-bottom:1.5rem;">
-      Query performance at <strong style="color:#0cf">50,000,000 events</strong>.
+        Query performance at <strong style="color:#0cf">50,000,000 events</strong>.
     </p>
-    
+
     <div style="overflow-x:auto;">
-      <table style="width:100%; border-collapse:collapse; background:#0a1628; border:1px solid #0f3460; border-radius:12px; font-size:0.9rem;">
-        <thead>
-          <tr style="border-bottom:2px solid #1e3a5f;">
-            <th style="text-align:left; padding:1rem; color:#0cf;">Query</th>
-            <th style="text-align:right; padding:1rem; color:#888;">Results</th>
-            <th style="text-align:right; padding:1rem; color:#4db8ff;">SQLite</th>
-            <th style="text-align:right; padding:1rem; color:#ff9e64;">PostgreSQL</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr style="border-bottom:1px solid #1e3a5f;">
-            <td style="padding:0.75rem 1rem; color:#ccc;">Single type</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">24,940</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#4db8ff;">117.58 ms</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">302.48 ms</td>
-          </tr>
-          <tr style="border-bottom:1px solid #1e3a5f;">
-            <td style="padding:0.75rem 1rem; color:#ccc;">Constrained (type + key)</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">167</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#4db8ff; font-weight:600;">0.49 ms</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">3.73 ms</td>
-          </tr>
-          <tr style="border-bottom:1px solid #1e3a5f;">
-            <td style="padding:0.75rem 1rem; color:#ccc;">Highly selective</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">10</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#4db8ff; font-weight:600;">0.14 ms</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64; font-weight:600;">1.14 ms</td>
-          </tr>
-          <tr style="border-bottom:1px solid #1e3a5f;">
-            <td style="padding:0.75rem 1rem; color:#ccc;">Mixed (2 types, 1 key)</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">334</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#4db8ff; font-weight:600;">1.41 ms</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">3.83 ms</td>
-          </tr>
-          <tr style="border-bottom:1px solid #1e3a5f;">
-            <td style="padding:0.75rem 1rem; color:#ccc;">Full aggregate (3 types)</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">2,004</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#4db8ff;">4.59 ms</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">7.96 ms</td>
-          </tr>
-          <tr style="border-bottom:1px solid #1e3a5f;">
-            <td style="padding:0.75rem 1rem; color:#ccc;">Append (single event)</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#4db8ff;">1.39 ms</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">3.27 ms</td>
-          </tr>
-          <tr style="border-bottom:1px solid #1e3a5f;">
-            <td style="padding:0.75rem 1rem; color:#ccc;">Read + Append (recent)</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#4db8ff;">1.93 ms</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">5.28 ms</td>
-          </tr>
-          <tr>
-            <td style="padding:0.75rem 1rem; color:#ccc;">Read + Append (cold)</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#4db8ff;">1.12 ms</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">6.57 ms</td>
-          </tr>
-        </tbody>
-      </table>
+        <table style="width:100%; border-collapse:collapse; background:#0a1628; border:1px solid #0f3460; border-radius:12px; font-size:0.9rem;">
+            <thead>
+            <tr style="border-bottom:2px solid #1e3a5f;">
+                <th style="text-align:left; padding:1rem; color:#0cf;">Query</th>
+                <th style="text-align:right; padding:1rem; color:#888;">Results</th>
+                <th style="text-align:right; padding:1rem; color:#4db8ff;">SQLite</th>
+                <th style="text-align:right; padding:1rem; color:#ff9e64;">PostgreSQL</th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr style="border-bottom:1px solid #1e3a5f;">
+                <td style="padding:0.75rem 1rem; color:#ccc;">Single type</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#666;">24,940</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#4db8ff;">117.58 ms</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">302.48 ms</td>
+            </tr>
+            <tr style="border-bottom:1px solid #1e3a5f;">
+                <td style="padding:0.75rem 1rem; color:#ccc;">Constrained (type + key)</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#666;">167</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#4db8ff; font-weight:600;">0.49 ms</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">3.73 ms</td>
+            </tr>
+            <tr style="border-bottom:1px solid #1e3a5f;">
+                <td style="padding:0.75rem 1rem; color:#ccc;">Highly selective</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#666;">10</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#4db8ff; font-weight:600;">0.14 ms</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64; font-weight:600;">1.14 ms</td>
+            </tr>
+            <tr style="border-bottom:1px solid #1e3a5f;">
+                <td style="padding:0.75rem 1rem; color:#ccc;">Mixed (2 types, 1 key)</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#666;">334</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#4db8ff; font-weight:600;">1.41 ms</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">3.83 ms</td>
+            </tr>
+            <tr style="border-bottom:1px solid #1e3a5f;">
+                <td style="padding:0.75rem 1rem; color:#ccc;">Full aggregate (3 types)</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#666;">2,004</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#4db8ff;">4.59 ms</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">7.96 ms</td>
+            </tr>
+            <tr style="border-bottom:1px solid #1e3a5f;">
+                <td style="padding:0.75rem 1rem; color:#ccc;">Append (single event)</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#4db8ff;">1.39 ms</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">3.27 ms</td>
+            </tr>
+            <tr style="border-bottom:1px solid #1e3a5f;">
+                <td style="padding:0.75rem 1rem; color:#ccc;">Read + Append (recent)</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#4db8ff;">1.93 ms</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">5.28 ms</td>
+            </tr>
+            <tr>
+                <td style="padding:0.75rem 1rem; color:#ccc;">Read + Append (cold)</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#4db8ff;">1.12 ms</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">6.57 ms</td>
+            </tr>
+            </tbody>
+        </table>
     </div>
-    
+
     <div style="display:flex; gap:1.5rem; margin-top:1.5rem; flex-wrap:wrap;">
-      <div style="flex:1; min-width:200px; background:#0a1628; border:1px solid #0f3460; border-radius:12px; padding:1.25rem; text-align:center;">
-        <div style="color:#888; font-size:0.85rem; margin-bottom:0.5rem;">Write Throughput</div>
-        <div style="font-size:1.5rem; font-weight:700;">
-          <span style="color:#4db8ff;">26,827</span> <span style="color:#888; font-size:0.85rem;">evt/s</span>
+        <div style="flex:1; min-width:200px; background:#0a1628; border:1px solid #0f3460; border-radius:12px; padding:1.25rem; text-align:center;">
+            <div style="color:#888; font-size:0.85rem; margin-bottom:0.5rem;">Write Throughput</div>
+            <div style="font-size:1.5rem; font-weight:700;">
+                <span style="color:#4db8ff;">26,827</span> <span style="color:#888; font-size:0.85rem;">evt/s</span>
+            </div>
+            <div style="color:#4db8ff; font-size:0.8rem; margin-top:0.25rem;">SQLite on disk</div>
         </div>
-        <div style="color:#4db8ff; font-size:0.8rem; margin-top:0.25rem;">SQLite on disk</div>
-      </div>
-      <div style="flex:1; min-width:200px; background:#0a1628; border:1px solid #0f3460; border-radius:12px; padding:1.25rem; text-align:center;">
-        <div style="color:#888; font-size:0.85rem; margin-bottom:0.5rem;">Write Throughput</div>
-        <div style="font-size:1.5rem; font-weight:700;">
-          <span style="color:#ff9e64;">6,950</span> <span style="color:#888; font-size:0.85rem;">evt/s</span>
+        <div style="flex:1; min-width:200px; background:#0a1628; border:1px solid #0f3460; border-radius:12px; padding:1.25rem; text-align:center;">
+            <div style="color:#888; font-size:0.85rem; margin-bottom:0.5rem;">Write Throughput</div>
+            <div style="font-size:1.5rem; font-weight:700;">
+                <span style="color:#ff9e64;">6,950</span> <span style="color:#888; font-size:0.85rem;">evt/s</span>
+            </div>
+            <div style="color:#ff9e64; font-size:0.8rem; margin-top:0.25rem;">PostgreSQL 16</div>
         </div>
-        <div style="color:#ff9e64; font-size:0.8rem; margin-top:0.25rem;">PostgreSQL 16</div>
-      </div>
     </div>
 
     <div class="flow-note" style="margin-top:1rem;">
-      💡 <strong>Sub-millisecond queries</strong> for selective lookups, even with 50M events in the store.
-      Shuffled execution order (no cache bias). Bold = sub-millisecond.
+        💡 <strong>Sub-millisecond queries</strong> for selective lookups, even with 50M events in the store.
+        Shuffled execution order (no cache bias). Bold = sub-millisecond.
     </div>
 
     <h3 style="margin-top:2.5rem; text-align:center; color:#e0e0e0;">🔒 Conflict &amp; Concurrency (PostgreSQL, 50M events)</h3>
     <p style="color:#888; text-align:center; margin-bottom:1rem; font-size:0.85rem;">
-      SERIALIZABLE isolation with decorrelated jitter backoff.
+        SERIALIZABLE isolation with decorrelated jitter backoff.
     </p>
 
     <div style="overflow-x:auto;">
-      <table style="width:100%; border-collapse:collapse; background:#0a1628; border:1px solid #0f3460; border-radius:12px; font-size:0.9rem;">
-        <thead>
-          <tr style="border-bottom:2px solid #1e3a5f;">
-            <th style="text-align:left; padding:1rem; color:#0cf;">Scenario</th>
-            <th style="text-align:right; padding:1rem; color:#ff9e64;">Latency</th>
-            <th style="text-align:right; padding:1rem; color:#888;">Conflicts</th>
-            <th style="text-align:right; padding:1rem; color:#888;">Success</th>
-            <th style="text-align:right; padding:1rem; color:#ff9e64;">Throughput</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr style="border-bottom:1px solid #1e3a5f;">
-            <td style="padding:0.75rem 1rem; color:#ccc;">Append with condition</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">2.35 ms</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
-          </tr>
-          <tr style="border-bottom:1px solid #1e3a5f;">
-            <td style="padding:0.75rem 1rem; color:#ccc;">Conflict detection</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64; font-weight:600;">1.00 ms</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
-          </tr>
-          <tr style="border-bottom:1px solid #1e3a5f;">
-            <td style="padding:0.75rem 1rem; color:#ccc;">Conflict + retry round-trip</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">4.13 ms</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
-          </tr>
-          <tr style="border-bottom:1px solid #1e3a5f;">
-            <td style="padding:0.75rem 1rem; color:#ccc;">10 writers × 100 events, same key</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">3,869 ms</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#ffa0a0;">39/round</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#9ece6a; font-weight:600;">10/10</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">258 evt/s</td>
-          </tr>
-          <tr>
-            <td style="padding:0.75rem 1rem; color:#ccc;">10 writers × 100 events, different keys</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">722 ms</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#9ece6a; font-weight:600;">0</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#9ece6a; font-weight:600;">10/10</td>
-            <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64; font-weight:600;">1,384 evt/s</td>
-          </tr>
-        </tbody>
-      </table>
+        <table style="width:100%; border-collapse:collapse; background:#0a1628; border:1px solid #0f3460; border-radius:12px; font-size:0.9rem;">
+            <thead>
+            <tr style="border-bottom:2px solid #1e3a5f;">
+                <th style="text-align:left; padding:1rem; color:#0cf;">Scenario</th>
+                <th style="text-align:right; padding:1rem; color:#ff9e64;">Latency</th>
+                <th style="text-align:right; padding:1rem; color:#888;">Conflicts</th>
+                <th style="text-align:right; padding:1rem; color:#888;">Success</th>
+                <th style="text-align:right; padding:1rem; color:#ff9e64;">Throughput</th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr style="border-bottom:1px solid #1e3a5f;">
+                <td style="padding:0.75rem 1rem; color:#ccc;">Append with condition</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">2.35 ms</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
+            </tr>
+            <tr style="border-bottom:1px solid #1e3a5f;">
+                <td style="padding:0.75rem 1rem; color:#ccc;">Conflict detection</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64; font-weight:600;">1.00 ms</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
+            </tr>
+            <tr style="border-bottom:1px solid #1e3a5f;">
+                <td style="padding:0.75rem 1rem; color:#ccc;">Conflict + retry round-trip</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">4.13 ms</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#666;">—</td>
+            </tr>
+            <tr style="border-bottom:1px solid #1e3a5f;">
+                <td style="padding:0.75rem 1rem; color:#ccc;">10 writers × 100 events, same key</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">3,869 ms</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#ffa0a0;">39/round</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#9ece6a; font-weight:600;">10/10</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">258 evt/s</td>
+            </tr>
+            <tr>
+                <td style="padding:0.75rem 1rem; color:#ccc;">10 writers × 100 events, different keys</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64;">722 ms</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#9ece6a; font-weight:600;">0</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#9ece6a; font-weight:600;">10/10</td>
+                <td style="padding:0.75rem 1rem; text-align:right; color:#ff9e64; font-weight:600;">1,384 evt/s</td>
+            </tr>
+            </tbody>
+        </table>
     </div>
 
     <div style="margin-top:1rem; padding:0.75rem 1rem; background:#0a1628; border:1px solid #0f3460; border-radius:8px; font-size:0.8rem; color:#666;">
-      <strong style="color:#888;">Parameters:</strong>
-      50 rounds · 10 app-level retries · PostgreSQL SERIALIZABLE · Decorrelated jitter backoff (50ms base, 2s cap) · 10 internal retries (40001)
+        <strong style="color:#888;">Parameters:</strong>
+        50 rounds · 10 app-level retries · PostgreSQL SERIALIZABLE · Decorrelated jitter backoff (50ms base, 2s cap) · 10 internal retries (40001)
     </div>
 
     <div class="flow-note" style="margin-top:1rem;">
-      💡 <strong>Same key = serialized</strong> (conflicts, retries). <strong>Different keys = full parallelism</strong> (zero conflicts).
-      DCB boundaries map directly to PostgreSQL SERIALIZABLE concurrency — no tuning required.
-      <a href="https://github.com/SBortz/boundlessdb/tree/main/benchmark" style="color:#0cf; text-decoration:none;">Run benchmarks yourself →</a>
+        💡 <strong>Same key = serialized</strong> (conflicts, retries). <strong>Different keys = full parallelism</strong> (zero conflicts).
+        DCB boundaries map directly to PostgreSQL SERIALIZABLE concurrency — no tuning required.
+        <a href="https://github.com/SBortz/boundlessdb/tree/main/benchmark" style="color:#0cf; text-decoration:none;">Run benchmarks yourself →</a>
     </div>
-  </div>
-  
-  <footer>
+</div>
+
+<footer>
     <p>Built with ❤️ for Event Sourcing · Learn more about <a href="https://dcb.events">Dynamic Consistency Boundaries</a></p>
-  </footer>
-  
-  <script>
+</footer>
+
+<script>
     // Tab switching (hero section) - only tabs with data-tab attribute
     document.querySelectorAll('.tab-btn[data-tab]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const tabId = btn.dataset.tab;
-        
-        // Update buttons (only hero tabs)
-        document.querySelectorAll('.tab-btn[data-tab]').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        
-        // Update content
-        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-        document.getElementById('tab-' + tabId).classList.add('active');
-      });
+        btn.addEventListener('click', () => {
+            const tabId = btn.dataset.tab;
+
+            // Update buttons (only hero tabs)
+            document.querySelectorAll('.tab-btn[data-tab]').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+
+            // Update content
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            document.getElementById('tab-' + tabId).classList.add('active');
+        });
     });
-    
+
     // Case tabs (AppendCondition section) - only tabs with data-case attribute
     document.querySelectorAll('.case-tab[data-case]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const caseId = btn.dataset.case;
-        
-        // Update buttons (only case tabs)
-        document.querySelectorAll('.case-tab[data-case]').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        
-        // Update content
-        document.querySelectorAll('.case-content').forEach(c => c.classList.remove('active'));
-        document.getElementById('case-' + caseId).classList.add('active');
-      });
+        btn.addEventListener('click', () => {
+            const caseId = btn.dataset.case;
+
+            // Update buttons (only case tabs)
+            document.querySelectorAll('.case-tab[data-case]').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+
+            // Update content
+            document.querySelectorAll('.case-content').forEach(c => c.classList.remove('active'));
+            document.getElementById('case-' + caseId).classList.add('active');
+        });
     });
-  </script>
+</script>
 </body>
 </html>

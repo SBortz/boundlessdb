@@ -3,27 +3,30 @@
  */
 
 declare module 'sql.js' {
-  export interface SqlJsStatic {
-    Database: typeof Database;
-  }
+    export interface SqlJsStatic {
+        Database: typeof Database;
+    }
 
-  export interface Database {
-    run(sql: string, params?: unknown[]): void;
-    exec(sql: string, params?: unknown[]): QueryExecResult[];
-    close(): void;
-    export(): Uint8Array;
-  }
+    export interface Database {
+        run(sql: string, params?: unknown[]): void;
 
-  export interface QueryExecResult {
-    columns: string[];
-    values: SqlValue[][];
-  }
+        exec(sql: string, params?: unknown[]): QueryExecResult[];
 
-  export type SqlValue = string | number | null | Uint8Array;
+        close(): void;
 
-  export interface SqlJsConfig {
-    locateFile?: (filename: string) => string;
-  }
+        export(): Uint8Array;
+    }
 
-  export default function initSqlJs(config?: SqlJsConfig): Promise<SqlJsStatic>;
+    export interface QueryExecResult {
+        columns: string[];
+        values: SqlValue[][];
+    }
+
+    export type SqlValue = string | number | null | Uint8Array;
+
+    export interface SqlJsConfig {
+        locateFile?: (filename: string) => string;
+    }
+
+    export default function initSqlJs(config?: SqlJsConfig): Promise<SqlJsStatic>;
 }

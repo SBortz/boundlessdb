@@ -1,397 +1,404 @@
 /**
  * DCB End-to-End Scenario Test
- * 
+ *
  * Classic course enrollment example with capacity constraint
  */
 
-import { describe, it, expect } from 'vitest';
-import { EventStore, InMemoryStorage, isConflict } from '../src/index.js';
-import type { ConsistencyConfig, StoredEvent, Query } from '../src/types.js';
+import {describe, expect, it} from 'vitest';
+import {EventStore, InMemoryStorage, isConflict} from '../src/index.js';
+import type {ConsistencyConfig, Query, StoredEvent} from '../src/types.js';
 
+
+// Define your event registry
+type MyEvents = {
+    CourseCreated: CourseCreatedData;
+    StudentSubscribed: StudentSubscribedData;
+    StudentUnsubscribed: StudentUnsubscribedData
+};
 // Domain configuration
-const ENROLLMENT_CONFIG: ConsistencyConfig = {
-  eventTypes: {
-    CourseCreated: {
-      keys: [{ name: 'course', path: 'data.courseId' }],
+const ENROLLMENT_CONFIG: ConsistencyConfig<MyEvents> = {
+    eventTypes: {
+        CourseCreated: {
+            keys: [{name: 'course', path: 'data.courseId'}],
+        },
+        StudentSubscribed: {
+            keys: [
+                {name: 'course', path: 'data.courseId'},
+                {name: 'student', path: 'data.studentId'},
+            ],
+        },
+        StudentUnsubscribed: {
+            keys: [
+                {name: 'course', path: 'data.courseId'},
+                {name: 'student', path: 'data.studentId'},
+            ],
+        },
     },
-    StudentSubscribed: {
-      keys: [
-        { name: 'course', path: 'data.courseId' },
-        { name: 'student', path: 'data.studentId' },
-      ],
-    },
-    StudentUnsubscribed: {
-      keys: [
-        { name: 'course', path: 'data.courseId' },
-        { name: 'student', path: 'data.studentId' },
-      ],
-    },
-  },
 };
 
 // Domain types
 interface CourseCreatedData {
-  courseId: string;
-  name: string;
-  capacity: number;
+    courseId: string;
+    name: string;
+    capacity: number;
 }
 
 interface StudentSubscribedData {
-  courseId: string;
-  studentId: string;
-  studentName: string;
+    courseId: string;
+    studentId: string;
+    studentName: string;
 }
 
 interface StudentUnsubscribedData {
-  courseId: string;
-  studentId: string;
+    courseId: string;
+    studentId: string;
 }
 
 // Projection: Course state
 interface CourseState {
-  courseId: string;
-  name: string;
-  capacity: number;
-  enrolled: Set<string>;
+    courseId: string;
+    name: string;
+    capacity: number;
+    enrolled: Set<string>;
 }
 
 function projectCourseState(
-  events: StoredEvent[],
-  courseId: string
+    events: StoredEvent[],
+    courseId: string
 ): CourseState | null {
-  let state: CourseState | null = null;
+    let state: CourseState | null = null;
 
-  for (const event of events) {
-    switch (event.type) {
-      case 'CourseCreated': {
-        const data = event.data as CourseCreatedData;
-        if (data.courseId === courseId) {
-          state = {
-            courseId: data.courseId,
-            name: data.name,
-            capacity: data.capacity,
-            enrolled: new Set(),
-          };
+    for (const event of events) {
+        switch (event.type) {
+            case 'CourseCreated': {
+                const data = event.data as CourseCreatedData;
+                if (data.courseId === courseId) {
+                    state = {
+                        courseId: data.courseId,
+                        name: data.name,
+                        capacity: data.capacity,
+                        enrolled: new Set(),
+                    };
+                }
+                break;
+            }
+            case 'StudentSubscribed': {
+                const data = event.data as StudentSubscribedData;
+                if (data.courseId === courseId && state) {
+                    state.enrolled.add(data.studentId);
+                }
+                break;
+            }
+            case 'StudentUnsubscribed': {
+                const data = event.data as StudentUnsubscribedData;
+                if (data.courseId === courseId && state) {
+                    state.enrolled.delete(data.studentId);
+                }
+                break;
+            }
         }
-        break;
-      }
-      case 'StudentSubscribed': {
-        const data = event.data as StudentSubscribedData;
-        if (data.courseId === courseId && state) {
-          state.enrolled.add(data.studentId);
-        }
-        break;
-      }
-      case 'StudentUnsubscribed': {
-        const data = event.data as StudentUnsubscribedData;
-        if (data.courseId === courseId && state) {
-          state.enrolled.delete(data.studentId);
-        }
-        break;
-      }
     }
-  }
 
-  return state;
+    return state;
 }
 
 describe('DCB Course Enrollment Scenario', () => {
-  function createStore() {
-    return new EventStore({
-      storage: new InMemoryStorage(),
-      consistency: ENROLLMENT_CONFIG,
+    function createStore() {
+        return new EventStore({
+            storage: new InMemoryStorage(),
+            consistency: ENROLLMENT_CONFIG,
+        });
+    }
+
+    function courseQuery(courseId: string): Query {
+        return {
+            conditions: [
+                {type: 'CourseCreated', key: 'course', value: courseId},
+                {type: 'StudentSubscribed', key: 'course', value: courseId},
+                {type: 'StudentUnsubscribed', key: 'course', value: courseId},
+            ],
+        };
+    }
+
+    it('allows enrollment when course has capacity', async () => {
+        const store = createStore();
+
+        // Admin creates course with capacity 30
+        await store.append(
+            [{
+                type: 'CourseCreated',
+                data: {courseId: 'cs101', name: 'Intro to CS', capacity: 30},
+            }],
+            null
+        );
+
+        // Student reads course state
+        const readResult = await store.read(courseQuery('cs101'));
+        const state = projectCourseState(readResult.events, 'cs101');
+
+        expect(state).not.toBeNull();
+        expect(state!.enrolled.size).toBe(0);
+
+        // Invariant check: capacity available
+        expect(state!.enrolled.size < state!.capacity).toBe(true);
+
+        // Student enrolls
+        const result = await store.append(
+            [{
+                type: 'StudentSubscribed',
+                data: {courseId: 'cs101', studentId: 'alice', studentName: 'Alice'},
+            }],
+            readResult.appendCondition
+        );
+
+        expect(isConflict(result)).toBe(false);
     });
-  }
 
-  function courseQuery(courseId: string): Query {
-    return {
-      conditions: [
-        { type: 'CourseCreated', key: 'course', value: courseId },
-        { type: 'StudentSubscribed', key: 'course', value: courseId },
-        { type: 'StudentUnsubscribed', key: 'course', value: courseId },
-      ],
-    };
-  }
+    it('detects concurrent enrollment conflict', async () => {
+        const store = createStore();
 
-  it('allows enrollment when course has capacity', async () => {
-    const store = createStore();
+        // Course with capacity 2
+        await store.append(
+            [{
+                type: 'CourseCreated',
+                data: {courseId: 'cs101', name: 'Small Course', capacity: 2},
+            }],
+            null
+        );
 
-    // Admin creates course with capacity 30
-    await store.append(
-      [{
-        type: 'CourseCreated',
-        data: { courseId: 'cs101', name: 'Intro to CS', capacity: 30 },
-      }],
-      null
-    );
+        // Alice reads (sees 0 enrolled)
+        const aliceRead = await store.read(courseQuery('cs101'));
+        const aliceState = projectCourseState(aliceRead.events, 'cs101');
+        expect(aliceState!.enrolled.size).toBe(0);
 
-    // Student reads course state
-    const readResult = await store.read(courseQuery('cs101'));
-    const state = projectCourseState(readResult.events, 'cs101');
+        // Bob reads (sees 0 enrolled)
+        const bobRead = await store.read(courseQuery('cs101'));
+        const bobState = projectCourseState(bobRead.events, 'cs101');
+        expect(bobState!.enrolled.size).toBe(0);
 
-    expect(state).not.toBeNull();
-    expect(state!.enrolled.size).toBe(0);
+        // Alice enrolls successfully
+        const aliceResult = await store.append(
+            [{
+                type: 'StudentSubscribed',
+                data: {courseId: 'cs101', studentId: 'alice', studentName: 'Alice'},
+            }],
+            aliceRead.appendCondition
+        );
+        expect(isConflict(aliceResult)).toBe(false);
 
-    // Invariant check: capacity available
-    expect(state!.enrolled.size < state!.capacity).toBe(true);
+        // Bob tries to enroll with stale appendCondition
+        const bobResult = await store.append(
+            [{
+                type: 'StudentSubscribed',
+                data: {courseId: 'cs101', studentId: 'bob', studentName: 'Bob'},
+            }],
+            bobRead.appendCondition
+        );
 
-    // Student enrolls
-    const result = await store.append(
-      [{
-        type: 'StudentSubscribed',
-        data: { courseId: 'cs101', studentId: 'alice', studentName: 'Alice' },
-      }],
-      readResult.appendCondition
-    );
+        // Bob gets conflict with Alice's enrollment as delta
+        expect(isConflict(bobResult)).toBe(true);
+        if (isConflict(bobResult)) {
+            expect(bobResult.conflictingEvents).toHaveLength(1);
+            expect((bobResult.conflictingEvents[0].data as StudentSubscribedData).studentId).toBe('alice');
+        }
+    });
 
-    expect(isConflict(result)).toBe(false);
-  });
+    it('prevents over-enrollment after conflict resolution', async () => {
+        const store = createStore();
 
-  it('detects concurrent enrollment conflict', async () => {
-    const store = createStore();
+        // Course with capacity 1 (only one seat!)
+        await store.append(
+            [{
+                type: 'CourseCreated',
+                data: {courseId: 'cs101', name: 'Exclusive Seminar', capacity: 1},
+            }],
+            null
+        );
 
-    // Course with capacity 2
-    await store.append(
-      [{
-        type: 'CourseCreated',
-        data: { courseId: 'cs101', name: 'Small Course', capacity: 2 },
-      }],
-      null
-    );
+        // Alice and Bob both read (see 0 enrolled)
+        const aliceRead = await store.read(courseQuery('cs101'));
+        const bobRead = await store.read(courseQuery('cs101'));
 
-    // Alice reads (sees 0 enrolled)
-    const aliceRead = await store.read(courseQuery('cs101'));
-    const aliceState = projectCourseState(aliceRead.events, 'cs101');
-    expect(aliceState!.enrolled.size).toBe(0);
+        // Alice enrolls first
+        await store.append(
+            [{
+                type: 'StudentSubscribed',
+                data: {courseId: 'cs101', studentId: 'alice', studentName: 'Alice'},
+            }],
+            aliceRead.appendCondition
+        );
 
-    // Bob reads (sees 0 enrolled)
-    const bobRead = await store.read(courseQuery('cs101'));
-    const bobState = projectCourseState(bobRead.events, 'cs101');
-    expect(bobState!.enrolled.size).toBe(0);
+        // Bob tries to enroll - gets conflict
+        const bobResult = await store.append(
+            [{
+                type: 'StudentSubscribed',
+                data: {courseId: 'cs101', studentId: 'bob', studentName: 'Bob'},
+            }],
+            bobRead.appendCondition
+        );
 
-    // Alice enrolls successfully
-    const aliceResult = await store.append(
-      [{
-        type: 'StudentSubscribed',
-        data: { courseId: 'cs101', studentId: 'alice', studentName: 'Alice' },
-      }],
-      aliceRead.appendCondition
-    );
-    expect(isConflict(aliceResult)).toBe(false);
+        expect(isConflict(bobResult)).toBe(true);
 
-    // Bob tries to enroll with stale appendCondition
-    const bobResult = await store.append(
-      [{
-        type: 'StudentSubscribed',
-        data: { courseId: 'cs101', studentId: 'bob', studentName: 'Bob' },
-      }],
-      bobRead.appendCondition
-    );
+        if (isConflict(bobResult)) {
+            // Bob re-evaluates with conflict delta
+            const updatedEvents = [...bobRead.events, ...bobResult.conflictingEvents];
+            const updatedState = projectCourseState(updatedEvents, 'cs101');
 
-    // Bob gets conflict with Alice's enrollment as delta
-    expect(isConflict(bobResult)).toBe(true);
-    if (isConflict(bobResult)) {
-      expect(bobResult.conflictingEvents).toHaveLength(1);
-      expect((bobResult.conflictingEvents[0].data as StudentSubscribedData).studentId).toBe('alice');
-    }
-  });
+            // Course is now full!
+            expect(updatedState!.enrolled.size).toBe(1);
+            expect(updatedState!.enrolled.size >= updatedState!.capacity).toBe(true);
 
-  it('prevents over-enrollment after conflict resolution', async () => {
-    const store = createStore();
+            // Bob should NOT retry enrollment
+            // In real code: throw new Error("Course is full")
+        }
+    });
 
-    // Course with capacity 1 (only one seat!)
-    await store.append(
-      [{
-        type: 'CourseCreated',
-        data: { courseId: 'cs101', name: 'Exclusive Seminar', capacity: 1 },
-      }],
-      null
-    );
+    it('allows retry when still capacity after conflict', async () => {
+        const store = createStore();
 
-    // Alice and Bob both read (see 0 enrolled)
-    const aliceRead = await store.read(courseQuery('cs101'));
-    const bobRead = await store.read(courseQuery('cs101'));
+        // Course with capacity 3
+        await store.append(
+            [{
+                type: 'CourseCreated',
+                data: {courseId: 'cs101', name: 'Medium Course', capacity: 3},
+            }],
+            null
+        );
 
-    // Alice enrolls first
-    await store.append(
-      [{
-        type: 'StudentSubscribed',
-        data: { courseId: 'cs101', studentId: 'alice', studentName: 'Alice' },
-      }],
-      aliceRead.appendCondition
-    );
+        // Alice reads
+        const aliceRead = await store.read(courseQuery('cs101'));
 
-    // Bob tries to enroll - gets conflict
-    const bobResult = await store.append(
-      [{
-        type: 'StudentSubscribed',
-        data: { courseId: 'cs101', studentId: 'bob', studentName: 'Bob' },
-      }],
-      bobRead.appendCondition
-    );
+        // Bob sneaks in
+        await store.append(
+            [{
+                type: 'StudentSubscribed',
+                data: {courseId: 'cs101', studentId: 'bob', studentName: 'Bob'},
+            }],
+            null
+        );
 
-    expect(isConflict(bobResult)).toBe(true);
+        // Alice tries to enroll
+        const aliceResult = await store.append(
+            [{
+                type: 'StudentSubscribed',
+                data: {courseId: 'cs101', studentId: 'alice', studentName: 'Alice'},
+            }],
+            aliceRead.appendCondition
+        );
 
-    if (isConflict(bobResult)) {
-      // Bob re-evaluates with conflict delta
-      const updatedEvents = [...bobRead.events, ...bobResult.conflictingEvents];
-      const updatedState = projectCourseState(updatedEvents, 'cs101');
+        expect(isConflict(aliceResult)).toBe(true);
 
-      // Course is now full!
-      expect(updatedState!.enrolled.size).toBe(1);
-      expect(updatedState!.enrolled.size >= updatedState!.capacity).toBe(true);
+        if (isConflict(aliceResult)) {
+            // Alice re-evaluates
+            const updatedEvents = [...aliceRead.events, ...aliceResult.conflictingEvents];
+            const updatedState = projectCourseState(updatedEvents, 'cs101');
 
-      // Bob should NOT retry enrollment
-      // In real code: throw new Error("Course is full")
-    }
-  });
+            // Still capacity (1 of 3)
+            expect(updatedState!.enrolled.size).toBe(1);
+            expect(updatedState!.enrolled.size < updatedState!.capacity).toBe(true);
 
-  it('allows retry when still capacity after conflict', async () => {
-    const store = createStore();
+            // Alice can retry with new appendCondition
+            const retryResult = await store.append(
+                [{
+                    type: 'StudentSubscribed',
+                    data: {courseId: 'cs101', studentId: 'alice', studentName: 'Alice'},
+                }],
+                aliceResult.appendCondition
+            );
 
-    // Course with capacity 3
-    await store.append(
-      [{
-        type: 'CourseCreated',
-        data: { courseId: 'cs101', name: 'Medium Course', capacity: 3 },
-      }],
-      null
-    );
+            expect(isConflict(retryResult)).toBe(false);
+        }
+    });
 
-    // Alice reads
-    const aliceRead = await store.read(courseQuery('cs101'));
+    it('tracks individual student consistency', async () => {
+        const store = createStore();
 
-    // Bob sneaks in
-    await store.append(
-      [{
-        type: 'StudentSubscribed',
-        data: { courseId: 'cs101', studentId: 'bob', studentName: 'Bob' },
-      }],
-      null
-    );
+        // Course
+        await store.append(
+            [{
+                type: 'CourseCreated',
+                data: {courseId: 'cs101', name: 'Course', capacity: 10},
+            }],
+            null
+        );
 
-    // Alice tries to enroll
-    const aliceResult = await store.append(
-      [{
-        type: 'StudentSubscribed',
-        data: { courseId: 'cs101', studentId: 'alice', studentName: 'Alice' },
-      }],
-      aliceRead.appendCondition
-    );
+        // Alice enrolls
+        await store.append(
+            [{
+                type: 'StudentSubscribed',
+                data: {courseId: 'cs101', studentId: 'alice', studentName: 'Alice'},
+            }],
+            null
+        );
 
-    expect(isConflict(aliceResult)).toBe(true);
+        // Query specifically for Alice's enrollment
+        const aliceQuery: Query = {
+            conditions: [
+                {type: 'StudentSubscribed', key: 'student', value: 'alice'},
+                {type: 'StudentUnsubscribed', key: 'student', value: 'alice'},
+            ],
+        };
 
-    if (isConflict(aliceResult)) {
-      // Alice re-evaluates
-      const updatedEvents = [...aliceRead.events, ...aliceResult.conflictingEvents];
-      const updatedState = projectCourseState(updatedEvents, 'cs101');
+        const aliceEnrollment = await store.read(aliceQuery);
 
-      // Still capacity (1 of 3)
-      expect(updatedState!.enrolled.size).toBe(1);
-      expect(updatedState!.enrolled.size < updatedState!.capacity).toBe(true);
+        expect(aliceEnrollment.events).toHaveLength(1);
+        expect((aliceEnrollment.events[0].data as StudentSubscribedData).studentId).toBe('alice');
 
-      // Alice can retry with new appendCondition
-      const retryResult = await store.append(
-        [{
-          type: 'StudentSubscribed',
-          data: { courseId: 'cs101', studentId: 'alice', studentName: 'Alice' },
-        }],
-        aliceResult.appendCondition
-      );
+        // Try to re-enroll Alice (should conflict)
+        const reEnrollResult = await store.append(
+            [{
+                type: 'StudentSubscribed',
+                data: {courseId: 'cs101', studentId: 'alice', studentName: 'Alice Again'},
+            }],
+            aliceEnrollment.appendCondition
+        );
 
-      expect(isConflict(retryResult)).toBe(false);
-    }
-  });
+        // Wait... this shouldn't conflict because we're appending, not checking uniqueness.
+        // The DCB check only prevents stale reads, not duplicate enrollments.
+        // That's a domain rule that the projection would catch.
+        expect(isConflict(reEnrollResult)).toBe(false);
 
-  it('tracks individual student consistency', async () => {
-    const store = createStore();
+        // But the projection would show Alice as already enrolled
+        const finalRead = await store.read(courseQuery('cs101'));
+        const state = projectCourseState(finalRead.events, 'cs101');
 
-    // Course
-    await store.append(
-      [{
-        type: 'CourseCreated',
-        data: { courseId: 'cs101', name: 'Course', capacity: 10 },
-      }],
-      null
-    );
+        // Alice is only counted once because Set handles duplicates
+        expect(state!.enrolled.size).toBe(1);
+        // But there are 2 enrollment events!
+        expect(finalRead.events.filter(e => e.type === 'StudentSubscribed')).toHaveLength(2);
+    });
 
-    // Alice enrolls
-    await store.append(
-      [{
-        type: 'StudentSubscribed',
-        data: { courseId: 'cs101', studentId: 'alice', studentName: 'Alice' },
-      }],
-      null
-    );
+    it('handles unsubscription correctly', async () => {
+        const store = createStore();
 
-    // Query specifically for Alice's enrollment
-    const aliceQuery: Query = {
-      conditions: [
-        { type: 'StudentSubscribed', key: 'student', value: 'alice' },
-        { type: 'StudentUnsubscribed', key: 'student', value: 'alice' },
-      ],
-    };
+        // Setup
+        await store.append(
+            [
+                {type: 'CourseCreated', data: {courseId: 'cs101', name: 'Course', capacity: 10}},
+                {type: 'StudentSubscribed', data: {courseId: 'cs101', studentId: 'alice', studentName: 'Alice'}},
+                {type: 'StudentSubscribed', data: {courseId: 'cs101', studentId: 'bob', studentName: 'Bob'}},
+            ],
+            null
+        );
 
-    const aliceEnrollment = await store.read(aliceQuery);
+        // Read current state
+        const {events} = await store.read(courseQuery('cs101'));
+        const state = projectCourseState(events, 'cs101');
 
-    expect(aliceEnrollment.events).toHaveLength(1);
-    expect((aliceEnrollment.events[0].data as StudentSubscribedData).studentId).toBe('alice');
+        expect(state!.enrolled.size).toBe(2);
 
-    // Try to re-enroll Alice (should conflict)
-    const reEnrollResult = await store.append(
-      [{
-        type: 'StudentSubscribed',
-        data: { courseId: 'cs101', studentId: 'alice', studentName: 'Alice Again' },
-      }],
-      aliceEnrollment.appendCondition
-    );
+        // Alice unsubscribes
+        await store.append(
+            [{type: 'StudentUnsubscribed', data: {courseId: 'cs101', studentId: 'alice'}}],
+            null
+        );
 
-    // Wait... this shouldn't conflict because we're appending, not checking uniqueness.
-    // The DCB check only prevents stale reads, not duplicate enrollments.
-    // That's a domain rule that the projection would catch.
-    expect(isConflict(reEnrollResult)).toBe(false);
+        // New state
+        const afterUnsub = await store.read(courseQuery('cs101'));
+        const newState = projectCourseState(afterUnsub.events, 'cs101');
 
-    // But the projection would show Alice as already enrolled
-    const finalRead = await store.read(courseQuery('cs101'));
-    const state = projectCourseState(finalRead.events, 'cs101');
-
-    // Alice is only counted once because Set handles duplicates
-    expect(state!.enrolled.size).toBe(1);
-    // But there are 2 enrollment events!
-    expect(finalRead.events.filter(e => e.type === 'StudentSubscribed')).toHaveLength(2);
-  });
-
-  it('handles unsubscription correctly', async () => {
-    const store = createStore();
-
-    // Setup
-    await store.append(
-      [
-        { type: 'CourseCreated', data: { courseId: 'cs101', name: 'Course', capacity: 10 } },
-        { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'alice', studentName: 'Alice' } },
-        { type: 'StudentSubscribed', data: { courseId: 'cs101', studentId: 'bob', studentName: 'Bob' } },
-      ],
-      null
-    );
-
-    // Read current state
-    const { events } = await store.read(courseQuery('cs101'));
-    const state = projectCourseState(events, 'cs101');
-
-    expect(state!.enrolled.size).toBe(2);
-
-    // Alice unsubscribes
-    await store.append(
-      [{ type: 'StudentUnsubscribed', data: { courseId: 'cs101', studentId: 'alice' } }],
-      null
-    );
-
-    // New state
-    const afterUnsub = await store.read(courseQuery('cs101'));
-    const newState = projectCourseState(afterUnsub.events, 'cs101');
-
-    expect(newState!.enrolled.size).toBe(1);
-    expect(newState!.enrolled.has('bob')).toBe(true);
-    expect(newState!.enrolled.has('alice')).toBe(false);
-  });
+        expect(newState!.enrolled.size).toBe(1);
+        expect(newState!.enrolled.has('bob')).toBe(true);
+        expect(newState!.enrolled.has('alice')).toBe(false);
+    });
 });
