@@ -2,9 +2,23 @@
  * sql.js Storage implementation for browser environments
  */
 
-import initSqlJs, { type Database as SqlJsDatabase, type SqlValue } from 'sql.js';
-import { isConstrainedCondition, isMultiKeyCondition, isKeyOnlyCondition, isMultiTypeCondition, isMultiTypeConstrainedCondition, normalizeCondition, hasKeys, type ExtractedKey, type QueryCondition, type StoredEvent, type MultiKeyConstrainedCondition, type MultiTypeCondition, type MultiTypeConstrainedCondition, type UnconstrainedCondition, type KeyOnlyCondition } from '../types.js';
-import type { EventStorage, EventToStore, StorageAppendCondition, AppendWithConditionResult } from './interface.js';
+import initSqlJs, {type Database as SqlJsDatabase, type SqlValue} from 'sql.js';
+import {
+    type ExtractedKey,
+    hasKeys,
+    isKeyOnlyCondition,
+    isMultiTypeCondition,
+    isMultiTypeConstrainedCondition,
+    type KeyOnlyCondition,
+    type MultiKeyConstrainedCondition,
+    type MultiTypeCondition,
+    type MultiTypeConstrainedCondition,
+    normalizeCondition,
+    type QueryCondition,
+    type StoredEvent,
+    type UnconstrainedCondition,
+} from '../types.js';
+import type {AppendWithConditionResult, EventStorage, EventToStore, StorageAppendCondition,} from './interface.js';
 
 const SCHEMA = `
 -- Events (Append-Only Log)
@@ -40,605 +54,610 @@ CREATE INDEX IF NOT EXISTS idx_key_position ON event_keys(key_name, key_value, p
 `;
 
 interface EventRow {
-  position: number;
-  event_id: string;
-  event_type: string;
-  data: string;
-  metadata: string | null;
-  timestamp: string;
+    position: number;
+    event_id: string;
+    event_type: string;
+    data: string;
+    metadata: string | null;
+    timestamp: string;
 }
 
 export interface SqlJsStorageOptions {
-  /** URL to load sql.js WASM from (optional, uses CDN by default) */
-  wasmUrl?: string;
-  /** Existing database bytes to restore from */
-  data?: ArrayLike<number>;
+    /** URL to load sql.js WASM from (optional, uses CDN by default) */
+    wasmUrl?: string;
+    /** Existing database bytes to restore from */
+    data?: ArrayLike<number>;
 }
 
 /**
  * sql.js-backed event storage for browser environments
  */
 export class SqlJsStorage implements EventStorage {
-  private db: SqlJsDatabase | null = null;
-  private initPromise: Promise<void>;
+    private db: SqlJsDatabase | null = null;
+    private initPromise: Promise<void>;
 
-  constructor(options: SqlJsStorageOptions = {}) {
-    this.initPromise = this.initialize(options);
-  }
-
-  private async initialize(options: SqlJsStorageOptions): Promise<void> {
-    const SQL = await initSqlJs({
-      locateFile: (file: string) => {
-        if (options.wasmUrl) return options.wasmUrl;
-        // Use CDN by default
-        return `https://sql.js.org/dist/${file}`;
-      }
-    });
-
-    if (options.data) {
-      this.db = new SQL.Database(new Uint8Array(options.data));
-    } else {
-      this.db = new SQL.Database();
+    constructor(options: SqlJsStorageOptions = {}) {
+        this.initPromise = this.initialize(options);
     }
 
-    this.db!.run(SCHEMA);
-  }
+    async appendWithCondition(
+        eventsToStore: EventToStore[],
+        keys: ExtractedKey[][],
+        condition: StorageAppendCondition | null
+    ): Promise<AppendWithConditionResult> {
+        const db = await this.ensureInitialized();
 
-  private async ensureInitialized(): Promise<SqlJsDatabase> {
-    await this.initPromise;
-    if (!this.db) {
-      throw new Error('Database not initialized');
-    }
-    return this.db;
-  }
-
-  async appendWithCondition(
-    eventsToStore: EventToStore[],
-    keys: ExtractedKey[][],
-    condition: StorageAppendCondition | null
-  ): Promise<AppendWithConditionResult> {
-    const db = await this.ensureInitialized();
-
-    if (eventsToStore.length !== keys.length) {
-      throw new Error('Events and keys arrays must have the same length');
-    }
-
-    if (eventsToStore.length === 0) {
-      const position = await this.getLatestPosition();
-      return { position };
-    }
-
-    let lastPosition: bigint = 0n;
-
-    // sql.js doesn't have built-in transactions, but we can use BEGIN/COMMIT
-    db.run('BEGIN TRANSACTION');
-
-    try {
-      // 1. Conflict check (if condition provided)
-      if (condition !== null) {
-        const conflictingEvents = await this.query(
-          condition.failIfEventsMatch,
-          condition.after
-        );
-
-        if (conflictingEvents.length > 0) {
-          db.run('ROLLBACK');
-          return { conflicting: conflictingEvents };
+        if (eventsToStore.length !== keys.length) {
+            throw new Error('Events and keys arrays must have the same length');
         }
-      }
 
-      // 2. Insert events
-      // sql.js db.run() doesn't support params properly - use escaped SQL
-      const escapeSql = (s: string | null): string => {
-        if (s === null) return 'NULL';
-        return "'" + s.replace(/'/g, "''") + "'";
-      };
-      
-      for (let i = 0; i < eventsToStore.length; i++) {
-        const event = eventsToStore[i];
-        const eventKeys = keys[i];
-
-        // Insert event
-        const eventId = String(event.id);
-        const eventType = String(event.type);
-        const eventData = JSON.stringify(event.data);
-        const eventMeta = event.metadata ? JSON.stringify(event.metadata) : null;
-        const eventTime = event.timestamp.toISOString();
-        
-        if (!eventId || eventId === 'undefined' || eventId === 'null') {
-          throw new Error(`[SqlJsStorage] Invalid event ID: "${eventId}"`);
+        if (eventsToStore.length === 0) {
+            const position = await this.getLatestPosition();
+            return {position};
         }
-        
-        const sql = `INSERT INTO events (event_id, event_type, data, metadata, timestamp)
+
+        let lastPosition: bigint = 0n;
+
+        // sql.js doesn't have built-in transactions, but we can use BEGIN/COMMIT
+        db.run('BEGIN TRANSACTION');
+
+        try {
+            // 1. Conflict check (if condition provided)
+            if (condition !== null) {
+                const conflictingEvents = await this.query(condition.failIfEventsMatch, condition.after);
+
+                if (conflictingEvents.length > 0) {
+                    db.run('ROLLBACK');
+                    return {conflicting: conflictingEvents};
+                }
+            }
+
+            // 2. Insert events
+            // sql.js db.run() doesn't support params properly - use escaped SQL
+            const escapeSql = (s: string | null): string => {
+                if (s === null) return 'NULL';
+                return "'" + s.replace(/'/g, "''") + "'";
+            };
+
+            for (let i = 0; i < eventsToStore.length; i++) {
+                const event = eventsToStore[i];
+                const eventKeys = keys[i];
+
+                // Insert event
+                const eventId = String(event.id);
+                const eventType = String(event.type);
+                const eventData = JSON.stringify(event.data);
+                const eventMeta = event.metadata ? JSON.stringify(event.metadata) : null;
+                const eventTime = event.timestamp.toISOString();
+
+                if (!eventId || eventId === 'undefined' || eventId === 'null') {
+                    throw new Error(`[SqlJsStorage] Invalid event ID: "${eventId}"`);
+                }
+
+                const sql = `INSERT INTO events (event_id, event_type, data, metadata, timestamp)
            VALUES (${escapeSql(eventId)}, ${escapeSql(eventType)}, ${escapeSql(eventData)}, ${eventMeta === null ? 'NULL' : escapeSql(eventMeta)}, ${escapeSql(eventTime)})`;
-        
-        db.run(sql);
 
-        // Get the last inserted position
-        const result = db.exec('SELECT last_insert_rowid() as position');
-        const position = BigInt(result[0].values[0][0] as number);
-        lastPosition = position;
+                db.run(sql);
 
-        // Insert keys
-        for (const key of eventKeys) {
-          const keySql = `INSERT INTO event_keys (position, key_name, key_value) VALUES (${Number(position)}, ${escapeSql(key.name)}, ${escapeSql(key.value)})`;
-          db.run(keySql);
+                // Get the last inserted position
+                const result = db.exec('SELECT last_insert_rowid() as position');
+                const position = BigInt(result[0].values[0][0] as number);
+                lastPosition = position;
+
+                // Insert keys
+                for (const key of eventKeys) {
+                    const keySql = `INSERT INTO event_keys (position, key_name, key_value) VALUES (${Number(position)}, ${escapeSql(key.name)}, ${escapeSql(key.value)})`;
+                    db.run(keySql);
+                }
+            }
+
+            db.run('COMMIT');
+        } catch (error) {
+            db.run('ROLLBACK');
+            throw error;
         }
-      }
 
-      db.run('COMMIT');
-    } catch (error) {
-      db.run('ROLLBACK');
-      throw error;
+        return {position: lastPosition};
     }
 
-    return { position: lastPosition };
-  }
+    async query(
+        conditions: QueryCondition[],
+        fromPosition?: bigint,
+        limit?: number,
+        backwards?: boolean
+    ): Promise<StoredEvent[]> {
+        const db = await this.ensureInitialized();
 
-  async query(
-    conditions: QueryCondition[],
-    fromPosition?: bigint,
-    limit?: number,
-    backwards?: boolean
-  ): Promise<StoredEvent[]> {
-    const db = await this.ensureInitialized();
+        // sql.js doesn't support params properly - use escaped SQL
+        const escapeSql = (s: string): string => "'" + s.replace(/'/g, "''") + "'";
+        const order = backwards ? 'DESC' : 'ASC';
 
-    // sql.js doesn't support params properly - use escaped SQL
-    const escapeSql = (s: string): string => "'" + s.replace(/'/g, "''") + "'";
-    const order = backwards ? 'DESC' : 'ASC';
-
-    if (conditions.length === 0) {
-      // No conditions = return all events
-      let sql = `
+        if (conditions.length === 0) {
+            // No conditions = return all events
+            let sql = `
         SELECT position, event_id, event_type, data, metadata, timestamp
         FROM events
       `;
 
-      if (fromPosition !== undefined) {
-        sql += backwards
-          ? ` WHERE position < ${Number(fromPosition)}`
-          : ` WHERE position > ${Number(fromPosition)}`;
-      }
+            if (fromPosition !== undefined) {
+                sql += backwards
+                    ? ` WHERE position < ${Number(fromPosition)}`
+                    : ` WHERE position > ${Number(fromPosition)}`;
+            }
 
-      sql += ` ORDER BY position ${order}`;
+            sql += ` ORDER BY position ${order}`;
 
-      if (limit !== undefined) {
-        sql += ` LIMIT ${Number(limit)}`;
-      }
+            if (limit !== undefined) {
+                sql += ` LIMIT ${Number(limit)}`;
+            }
 
-      const result = db.exec(sql);
-      if (result.length === 0) return [];
+            const result = db.exec(sql);
+            if (result.length === 0) return [];
 
-      const columns = (result[0] as any).columns || (result[0] as any).lc;
-      const rows = result[0].values;
+            const columns = (result[0] as any).columns || (result[0] as any).lc;
+            const rows = result[0].values;
 
-      return rows.map((row: SqlValue[]) => {
-        const obj: Record<string, unknown> = {};
-        columns.forEach((col: string, i: number) => {
-          obj[col] = row[i];
-        });
-        return this.rowToEvent(obj as unknown as EventRow);
-      });
-    }
-
-    // Normalize all conditions to the internal format
-    const normalized = conditions.map(normalizeCondition);
-    const keyOnly = normalized.filter(isKeyOnlyCondition) as KeyOnlyCondition[];
-    const multiType = normalized.filter(isMultiTypeCondition) as MultiTypeCondition[];
-    const multiTypeConstrained = normalized.filter(isMultiTypeConstrainedCondition) as MultiTypeConstrainedCondition[];
-    const singleType = normalized.filter(c => !isKeyOnlyCondition(c) && !isMultiTypeCondition(c) && !isMultiTypeConstrainedCondition(c));
-    const constrained = singleType.filter(hasKeys) as MultiKeyConstrainedCondition[];
-    const unconstrained = singleType.filter(c => !hasKeys(c)) as UnconstrainedCondition[];
-
-    const positionFilter = fromPosition !== undefined ? Number(fromPosition) : null;
-
-    // Build CTE-based query (mirrors SQLite approach but without INDEXED BY / MATERIALIZED)
-    const ctes: string[] = [];
-    const cteNames: string[] = [];
-
-    // CTE for unconstrained conditions (type-only, no join needed)
-    if (unconstrained.length > 0) {
-      const typeList = unconstrained.map(c => escapeSql(c.type)).join(', ');
-      let cteSql = `
-        SELECT position, event_id, event_type, data, metadata, timestamp
-        FROM events
-        WHERE event_type IN (${typeList})`;
-      if (positionFilter !== null) {
-        cteSql += ` AND position > ${positionFilter}`;
-      }
-      ctes.push(`unconstrained_matches AS (${cteSql})`);
-      cteNames.push('unconstrained_matches');
-    }
-
-    // CTE for multi-type unconstrained conditions
-    if (multiType.length > 0) {
-      multiType.forEach((c, i) => {
-        const typeList = c.types.map(t => escapeSql(t)).join(', ');
-        let cteSql = `
-        SELECT position, event_id, event_type, data, metadata, timestamp
-        FROM events
-        WHERE event_type IN (${typeList})`;
-        if (positionFilter !== null) {
-          cteSql += ` AND position > ${positionFilter}`;
+            return rows.map((row: SqlValue[]) => {
+                const obj: Record<string, unknown> = {};
+                columns.forEach((col: string, i: number) => {
+                    obj[col] = row[i];
+                });
+                return this.rowToEvent(obj as unknown as EventRow);
+            });
         }
-        ctes.push(`multitype_${i} AS (${cteSql})`);
-        cteNames.push(`multitype_${i}`);
-      });
-    }
 
-    // CTEs for multi-type constrained conditions (types[] + keys)
-    if (multiTypeConstrained.length > 0) {
-      multiTypeConstrained.forEach((c, i) => {
-        const isMultiKey = c.keys.length > 1;
-        const typeList = c.types.map(t => escapeSql(t)).join(', ');
+        // Normalize all conditions to the internal format
+        const normalized = conditions.map(normalizeCondition);
+        const keyOnly = normalized.filter(isKeyOnlyCondition) as KeyOnlyCondition[];
+        const multiType = normalized.filter(isMultiTypeCondition) as MultiTypeCondition[];
+        const multiTypeConstrained = normalized.filter(
+            isMultiTypeConstrainedCondition
+        ) as MultiTypeConstrainedCondition[];
+        const singleType = normalized.filter(
+            c => !isKeyOnlyCondition(c) && !isMultiTypeCondition(c) && !isMultiTypeConstrainedCondition(c)
+        );
+        const constrained = singleType.filter(hasKeys) as MultiKeyConstrainedCondition[];
+        const unconstrained = singleType.filter(c => !hasKeys(c)) as UnconstrainedCondition[];
 
-        if (isMultiKey) {
-          const cteName = `mtc_${i}`;
-          const intersectParts = c.keys.map(key =>
-            `SELECT position FROM event_keys WHERE key_name = ${escapeSql(key.name)} AND key_value = ${escapeSql(key.value)}`
-          );
-          const cteSql = `
+        const positionFilter = fromPosition !== undefined ? Number(fromPosition) : null;
+
+        // Build CTE-based query (mirrors SQLite approach but without INDEXED BY / MATERIALIZED)
+        const ctes: string[] = [];
+        const cteNames: string[] = [];
+
+        // CTE for unconstrained conditions (type-only, no join needed)
+        if (unconstrained.length > 0) {
+            const typeList = unconstrained.map(c => escapeSql(c.type)).join(', ');
+            let cteSql = `
+        SELECT position, event_id, event_type, data, metadata, timestamp
+        FROM events
+        WHERE event_type IN (${typeList})`;
+            if (positionFilter !== null) {
+                cteSql += ` AND position > ${positionFilter}`;
+            }
+            ctes.push(`unconstrained_matches AS (${cteSql})`);
+            cteNames.push('unconstrained_matches');
+        }
+
+        // CTE for multi-type unconstrained conditions
+        if (multiType.length > 0) {
+            multiType.forEach((c, i) => {
+                const typeList = c.types.map(t => escapeSql(t)).join(', ');
+                let cteSql = `
+        SELECT position, event_id, event_type, data, metadata, timestamp
+        FROM events
+        WHERE event_type IN (${typeList})`;
+                if (positionFilter !== null) {
+                    cteSql += ` AND position > ${positionFilter}`;
+                }
+                ctes.push(`multitype_${i} AS (${cteSql})`);
+                cteNames.push(`multitype_${i}`);
+            });
+        }
+
+        // CTEs for multi-type constrained conditions (types[] + keys)
+        if (multiTypeConstrained.length > 0) {
+            multiTypeConstrained.forEach((c, i) => {
+                const isMultiKey = c.keys.length > 1;
+                const typeList = c.types.map(t => escapeSql(t)).join(', ');
+
+                if (isMultiKey) {
+                    const cteName = `mtc_${i}`;
+                    const intersectParts = c.keys.map(
+                        key =>
+                            `SELECT position FROM event_keys WHERE key_name = ${escapeSql(key.name)} AND key_value = ${escapeSql(key.value)}`
+                    );
+                    const cteSql = `
             SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
             FROM (${intersectParts.join('\n          INTERSECT')}) keys
             INNER JOIN events e ON e.position = keys.position
             WHERE e.event_type IN (${typeList})`;
-          ctes.push(`${cteName} AS (${cteSql})`);
-          cteNames.push(cteName);
-        } else {
-          const cteName = `mtc_${i}`;
-          let cteSql = `
+                    ctes.push(`${cteName} AS (${cteSql})`);
+                    cteNames.push(cteName);
+                } else {
+                    const cteName = `mtc_${i}`;
+                    let cteSql = `
             SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
             FROM event_keys k
             INNER JOIN events e ON e.position = k.position
             WHERE k.key_name = ${escapeSql(c.keys[0].name)} AND k.key_value = ${escapeSql(c.keys[0].value)}
             AND e.event_type IN (${typeList})`;
-          if (positionFilter !== null) {
-            cteSql += ` AND e.position > ${positionFilter}`;
-          }
-          ctes.push(`${cteName} AS (${cteSql})`);
-          cteNames.push(cteName);
+                    if (positionFilter !== null) {
+                        cteSql += ` AND e.position > ${positionFilter}`;
+                    }
+                    ctes.push(`${cteName} AS (${cteSql})`);
+                    cteNames.push(cteName);
+                }
+            });
         }
-      });
-    }
 
-    // CTEs for key-only conditions (no type filter)
-    if (keyOnly.length > 0) {
-      keyOnly.forEach((c, i) => {
-        const isMultiKey = c.keys.length > 1;
-        const cteName = `keyonly_${i}`;
+        // CTEs for key-only conditions (no type filter)
+        if (keyOnly.length > 0) {
+            keyOnly.forEach((c, i) => {
+                const isMultiKey = c.keys.length > 1;
+                const cteName = `keyonly_${i}`;
 
-        if (isMultiKey) {
-          const intersectParts = c.keys.map(key => {
-            let part = `SELECT position FROM event_keys WHERE key_name = ${escapeSql(key.name)} AND key_value = ${escapeSql(key.value)}`;
-            if (positionFilter !== null) {
-              part += ` AND position > ${positionFilter}`;
-            }
-            return part;
-          });
-          const cteSql = `
+                if (isMultiKey) {
+                    const intersectParts = c.keys.map(key => {
+                        let part = `SELECT position FROM event_keys WHERE key_name = ${escapeSql(key.name)} AND key_value = ${escapeSql(key.value)}`;
+                        if (positionFilter !== null) {
+                            part += ` AND position > ${positionFilter}`;
+                        }
+                        return part;
+                    });
+                    const cteSql = `
             SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
             FROM (${intersectParts.join(' INTERSECT ')}) keys
             INNER JOIN events e ON e.position = keys.position`;
-          ctes.push(`${cteName} AS (${cteSql})`);
-        } else {
-          let cteSql = `
+                    ctes.push(`${cteName} AS (${cteSql})`);
+                } else {
+                    let cteSql = `
             SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
             FROM event_keys k
             INNER JOIN events e ON e.position = k.position
             WHERE k.key_name = ${escapeSql(c.keys[0].name)} AND k.key_value = ${escapeSql(c.keys[0].value)}`;
-          if (positionFilter !== null) {
-            cteSql += ` AND e.position > ${positionFilter}`;
-          }
-          ctes.push(`${cteName} AS (${cteSql})`);
+                    if (positionFilter !== null) {
+                        cteSql += ` AND e.position > ${positionFilter}`;
+                    }
+                    ctes.push(`${cteName} AS (${cteSql})`);
+                }
+                cteNames.push(cteName);
+            });
         }
-        cteNames.push(cteName);
-      });
-    }
 
-    // CTEs for constrained conditions
-    if (constrained.length > 0) {
-      constrained.forEach((c, i) => {
-        const isMultiKey = c.keys.length > 1;
-        const cteName = `constrained_${i}`;
+        // CTEs for constrained conditions
+        if (constrained.length > 0) {
+            constrained.forEach((c, i) => {
+                const isMultiKey = c.keys.length > 1;
+                const cteName = `constrained_${i}`;
 
-        if (isMultiKey) {
-          // Multi-key: INTERSECT sub-selects
-          const intersectParts = c.keys.map(key => {
-            let part = `SELECT position FROM event_keys WHERE key_name = ${escapeSql(key.name)} AND key_value = ${escapeSql(key.value)}`;
-            if (positionFilter !== null) {
-              part += ` AND position > ${positionFilter}`;
-            }
-            return part;
-          });
-          const cteSql = `
+                if (isMultiKey) {
+                    // Multi-key: INTERSECT sub-selects
+                    const intersectParts = c.keys.map(key => {
+                        let part = `SELECT position FROM event_keys WHERE key_name = ${escapeSql(key.name)} AND key_value = ${escapeSql(key.value)}`;
+                        if (positionFilter !== null) {
+                            part += ` AND position > ${positionFilter}`;
+                        }
+                        return part;
+                    });
+                    const cteSql = `
             SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
             FROM (${intersectParts.join(' INTERSECT ')}) keys
             INNER JOIN events e ON e.position = keys.position
             WHERE e.event_type = ${escapeSql(c.type)}`;
-          ctes.push(`${cteName} AS (${cteSql})`);
-        } else {
-          // Single key: direct join
-          let cteSql = `
+                    ctes.push(`${cteName} AS (${cteSql})`);
+                } else {
+                    // Single key: direct join
+                    let cteSql = `
             SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
             FROM event_keys k
             INNER JOIN events e ON e.position = k.position
             WHERE k.key_name = ${escapeSql(c.keys[0].name)} AND k.key_value = ${escapeSql(c.keys[0].value)}
               AND e.event_type = ${escapeSql(c.type)}`;
-          if (positionFilter !== null) {
-            cteSql += ` AND e.position > ${positionFilter}`;
-          }
-          ctes.push(`${cteName} AS (${cteSql})`);
+                    if (positionFilter !== null) {
+                        cteSql += ` AND e.position > ${positionFilter}`;
+                    }
+                    ctes.push(`${cteName} AS (${cteSql})`);
+                }
+                cteNames.push(cteName);
+            });
         }
-        cteNames.push(cteName);
-      });
-    }
 
-    // Build final query with UNION
-    const unionParts = cteNames.map(name => `SELECT * FROM ${name}`);
+        // Build final query with UNION
+        const unionParts = cteNames.map(name => `SELECT * FROM ${name}`);
 
-    let sql = `WITH ${ctes.join(',\n')}
+        let sql = `WITH ${ctes.join(',\n')}
 SELECT * FROM (${unionParts.join(' UNION ALL ')}) AS combined
 ORDER BY position ${order}`;
 
-    if (limit !== undefined) {
-      sql += ` LIMIT ${Number(limit)}`;
+        if (limit !== undefined) {
+            sql += ` LIMIT ${Number(limit)}`;
+        }
+
+        const result = db.exec(sql);
+        if (result.length === 0) return [];
+
+        // sql.js uses 'columns' or 'lc' depending on version
+        const columns = (result[0] as any).columns || (result[0] as any).lc;
+        const rows = result[0].values;
+
+        return rows.map((row: SqlValue[]) => {
+            const obj: Record<string, unknown> = {};
+            columns.forEach((col: string, i: number) => {
+                obj[col] = row[i];
+            });
+            return this.rowToEvent(obj as unknown as EventRow);
+        });
     }
 
-    const result = db.exec(sql);
-    if (result.length === 0) return [];
-
-    // sql.js uses 'columns' or 'lc' depending on version
-    const columns = (result[0] as any).columns || (result[0] as any).lc;
-    const rows = result[0].values;
-
-    return rows.map((row: SqlValue[]) => {
-      const obj: Record<string, unknown> = {};
-      columns.forEach((col: string, i: number) => {
-        obj[col] = row[i];
-      });
-      return this.rowToEvent(obj as unknown as EventRow);
-    });
-  }
-
-  async getLatestPosition(): Promise<bigint> {
-    const db = await this.ensureInitialized();
-    const result = db.exec('SELECT MAX(position) as pos FROM events');
-    if (result.length === 0 || result[0].values[0][0] === null) {
-      return 0n;
+    async getLatestPosition(): Promise<bigint> {
+        const db = await this.ensureInitialized();
+        const result = db.exec('SELECT MAX(position) as pos FROM events');
+        if (result.length === 0 || result[0].values[0][0] === null) {
+            return 0n;
+        }
+        return BigInt(result[0].values[0][0] as number);
     }
-    return BigInt(result[0].values[0][0] as number);
-  }
 
-  async close(): Promise<void> {
-    const db = await this.ensureInitialized();
-    db.close();
-    this.db = null;
-  }
+    async close(): Promise<void> {
+        const db = await this.ensureInitialized();
+        db.close();
+        this.db = null;
+    }
 
-  // --- Internal Helper Methods ---
+    /**
+     * Clear all data (for testing)
+     */
+    async clear(): Promise<void> {
+        const db = await this.ensureInitialized();
+        db.run('DELETE FROM event_keys');
+        db.run('DELETE FROM events');
+        db.run("DELETE FROM sqlite_sequence WHERE name IN ('events', 'event_keys')");
+    }
 
-  /**
-   * Get all events (internal use only - needed for reindex)
-   */
-  private async getAllEvents(): Promise<StoredEvent[]> {
-    const db = await this.ensureInitialized();
-    const result = db.exec(`
+    /**
+     * Export database as Uint8Array for persistence
+     */
+    async export(): Promise<Uint8Array> {
+        const db = await this.ensureInitialized();
+        return db.export();
+    }
+
+    // --- Internal Helper Methods ---
+
+    /**
+     * Get stored config hash
+     */
+    async getConfigHash(): Promise<string | null> {
+        const db = await this.ensureInitialized();
+        const result = db.exec("SELECT value FROM metadata WHERE key = 'config_hash'");
+        if (result.length === 0 || result[0].values.length === 0) {
+            return null;
+        }
+        return result[0].values[0][0] as string;
+    }
+
+    /**
+     * Set config hash
+     */
+    async setConfigHash(hash: string): Promise<void> {
+        if (!hash) {
+            console.warn('[SqlJsStorage] setConfigHash called with empty hash, skipping');
+            return;
+        }
+        const db = await this.ensureInitialized();
+        // sql.js ignores params - use escaped SQL
+        const escapedHash = hash.replace(/'/g, "''");
+        db.run(`INSERT OR REPLACE INTO metadata (key, value) VALUES ('config_hash', '${escapedHash}')`);
+    }
+
+    /**
+     * Reindex all events with new keys
+     * @deprecated Use reindexBatch() for production-safe batch-based reindexing
+     */
+    async reindex(extractKeys: (event: StoredEvent) => ExtractedKey[]): Promise<void> {
+        const db = await this.ensureInitialized();
+        const events = await this.getAllEvents();
+
+        db.run('BEGIN TRANSACTION');
+
+        try {
+            // Clear all keys
+            db.run('DELETE FROM event_keys');
+
+            // Re-extract and insert keys for all events
+            const escapeSql = (s: string): string => "'" + s.replace(/'/g, "''") + "'";
+            for (const event of events) {
+                const keys = extractKeys(event);
+                for (const key of keys) {
+                    db.run(
+                        `INSERT INTO event_keys (position, key_name, key_value) VALUES (${Number(event.position)}, ${escapeSql(key.name)}, ${escapeSql(key.value)})`
+                    );
+                }
+            }
+
+            db.run('COMMIT');
+        } catch (error) {
+            db.run('ROLLBACK');
+            throw error;
+        }
+    }
+
+    // --- Metadata Methods ---
+
+    /**
+     * Batch-based reindex: processes events in cursor-based batches.
+     * Crash-safe via reindex_position metadata. Resumes from last completed batch.
+     */
+    async reindexBatch(
+        extractKeys: (event: StoredEvent) => ExtractedKey[],
+        options?: {
+            batchSize?: number;
+            onProgress?: (done: number, total: number) => void;
+        }
+    ): Promise<{ events: number; keys: number; durationMs: number }> {
+        const db = await this.ensureInitialized();
+        const batchSize = options?.batchSize ?? 10_000;
+        const onProgress = options?.onProgress;
+        const startTime = Date.now();
+
+        const escapeSql = (s: string): string => "'" + s.replace(/'/g, "''") + "'";
+
+        // Count total events
+        const countResult = db.exec('SELECT COUNT(*) as cnt FROM events');
+        const totalEvents = countResult.length > 0 ? (countResult[0].values[0][0] as number) : 0;
+
+        if (totalEvents === 0) {
+            db.run("DELETE FROM metadata WHERE key = 'reindex_position'");
+            return {events: 0, keys: 0, durationMs: Date.now() - startTime};
+        }
+
+        // Check for resume position (crash recovery)
+        const resumeResult = db.exec("SELECT value FROM metadata WHERE key = 'reindex_position'");
+        let cursor =
+            resumeResult.length > 0 && resumeResult[0].values.length > 0
+                ? Number(resumeResult[0].values[0][0])
+                : 0;
+
+        let totalProcessed = 0;
+        if (cursor > 0) {
+            const countDone = db.exec(`SELECT COUNT(*) as cnt
+                                       FROM events
+                                       WHERE position <= ${cursor}`);
+            totalProcessed = countDone.length > 0 ? (countDone[0].values[0][0] as number) : 0;
+        }
+        let totalKeys = 0;
+
+        // Process batches
+        while (true) {
+            const batchResult = db.exec(
+                `SELECT position, event_id, event_type, data, metadata, timestamp
+                 FROM events
+                 WHERE position > ${cursor}
+                 ORDER BY position
+                     LIMIT ${batchSize}`
+            );
+
+            if (batchResult.length === 0 || batchResult[0].values.length === 0) break;
+
+            const columns = (batchResult[0] as any).columns || (batchResult[0] as any).lc;
+            const rows = batchResult[0].values;
+
+            const parsedRows = rows.map((row: SqlValue[]) => {
+                const obj: Record<string, unknown> = {};
+                columns.forEach((col: string, i: number) => {
+                    obj[col] = row[i];
+                });
+                return obj as unknown as EventRow;
+            });
+
+            const minPos = parsedRows[0].position;
+            const maxPos = parsedRows[parsedRows.length - 1].position;
+
+            db.run('BEGIN TRANSACTION');
+            try {
+                // Delete old keys for this batch range
+                db.run(`DELETE FROM event_keys WHERE position >= ${minPos} AND position <= ${maxPos}`);
+
+                // Extract and insert new keys
+                for (const row of parsedRows) {
+                    const event = this.rowToEvent(row);
+                    const keys = extractKeys(event);
+                    for (const key of keys) {
+                        db.run(
+                            `INSERT INTO event_keys (position, key_name, key_value) VALUES (${Number(row.position)}, ${escapeSql(key.name)}, ${escapeSql(key.value)})`
+                        );
+                        totalKeys++;
+                    }
+                }
+
+                // Store progress
+                db.run(
+                    `INSERT OR REPLACE INTO metadata (key, value) VALUES ('reindex_position', '${maxPos}')`
+                );
+
+                db.run('COMMIT');
+            } catch (error) {
+                db.run('ROLLBACK');
+                throw error;
+            }
+
+            cursor = maxPos as number;
+            totalProcessed += parsedRows.length;
+
+            if (onProgress) {
+                onProgress(totalProcessed, totalEvents);
+            }
+        }
+
+        // Completion: remove progress marker
+        db.run("DELETE FROM metadata WHERE key = 'reindex_position'");
+
+        return {events: totalProcessed, keys: totalKeys, durationMs: Date.now() - startTime};
+    }
+
+    private async initialize(options: SqlJsStorageOptions): Promise<void> {
+        const SQL = await initSqlJs({
+            locateFile: (file: string) => {
+                if (options.wasmUrl) return options.wasmUrl;
+                // Use CDN by default
+                return `https://sql.js.org/dist/${file}`;
+            },
+        });
+
+        if (options.data) {
+            this.db = new SQL.Database(new Uint8Array(options.data));
+        } else {
+            this.db = new SQL.Database();
+        }
+
+        this.db!.run(SCHEMA);
+    }
+
+    private async ensureInitialized(): Promise<SqlJsDatabase> {
+        await this.initPromise;
+        if (!this.db) {
+            throw new Error('Database not initialized');
+        }
+        return this.db;
+    }
+
+    /**
+     * Get all events (internal use only - needed for reindex)
+     */
+    private async getAllEvents(): Promise<StoredEvent[]> {
+        const db = await this.ensureInitialized();
+        const result = db.exec(`
       SELECT position, event_id, event_type, data, metadata, timestamp
       FROM events
       ORDER BY position ASC
     `);
 
-    if (result.length === 0) {
-      return [];
-    }
-
-    // sql.js uses 'columns' or 'lc' depending on version
-    const columns = (result[0] as any).columns || (result[0] as any).lc;
-    const rows = result[0].values;
-
-    return rows.map((row: SqlValue[]) => {
-      const obj: Record<string, unknown> = {};
-      columns.forEach((col: string, i: number) => {
-        obj[col] = row[i];
-      });
-      return this.rowToEvent(obj as unknown as EventRow);
-    });
-  }
-
-  /**
-   * Clear all data (for testing)
-   */
-  async clear(): Promise<void> {
-    const db = await this.ensureInitialized();
-    db.run('DELETE FROM event_keys');
-    db.run('DELETE FROM events');
-    db.run("DELETE FROM sqlite_sequence WHERE name IN ('events', 'event_keys')");
-  }
-
-  /**
-   * Export database as Uint8Array for persistence
-   */
-  async export(): Promise<Uint8Array> {
-    const db = await this.ensureInitialized();
-    return db.export();
-  }
-
-  // --- Metadata Methods ---
-
-  /**
-   * Get stored config hash
-   */
-  async getConfigHash(): Promise<string | null> {
-    const db = await this.ensureInitialized();
-    const result = db.exec("SELECT value FROM metadata WHERE key = 'config_hash'");
-    if (result.length === 0 || result[0].values.length === 0) {
-      return null;
-    }
-    return result[0].values[0][0] as string;
-  }
-
-  /**
-   * Set config hash
-   */
-  async setConfigHash(hash: string): Promise<void> {
-    if (!hash) {
-      console.warn('[SqlJsStorage] setConfigHash called with empty hash, skipping');
-      return;
-    }
-    const db = await this.ensureInitialized();
-    // sql.js ignores params - use escaped SQL
-    const escapedHash = hash.replace(/'/g, "''");
-    db.run(
-      `INSERT OR REPLACE INTO metadata (key, value) VALUES ('config_hash', '${escapedHash}')`
-    );
-  }
-
-  /**
-   * Reindex all events with new keys
-   * @deprecated Use reindexBatch() for production-safe batch-based reindexing
-   */
-  async reindex(extractKeys: (event: StoredEvent) => ExtractedKey[]): Promise<void> {
-    const db = await this.ensureInitialized();
-    const events = await this.getAllEvents();
-
-    db.run('BEGIN TRANSACTION');
-
-    try {
-      // Clear all keys
-      db.run('DELETE FROM event_keys');
-
-      // Re-extract and insert keys for all events
-      const escapeSql = (s: string): string => "'" + s.replace(/'/g, "''") + "'";
-      for (const event of events) {
-        const keys = extractKeys(event);
-        for (const key of keys) {
-          db.run(
-            `INSERT INTO event_keys (position, key_name, key_value) VALUES (${Number(event.position)}, ${escapeSql(key.name)}, ${escapeSql(key.value)})`
-          );
+        if (result.length === 0) {
+            return [];
         }
-      }
 
-      db.run('COMMIT');
-    } catch (error) {
-      db.run('ROLLBACK');
-      throw error;
-    }
-  }
+        // sql.js uses 'columns' or 'lc' depending on version
+        const columns = (result[0] as any).columns || (result[0] as any).lc;
+        const rows = result[0].values;
 
-  /**
-   * Batch-based reindex: processes events in cursor-based batches.
-   * Crash-safe via reindex_position metadata. Resumes from last completed batch.
-   */
-  async reindexBatch(
-    extractKeys: (event: StoredEvent) => ExtractedKey[],
-    options?: {
-      batchSize?: number;
-      onProgress?: (done: number, total: number) => void;
-    }
-  ): Promise<{ events: number; keys: number; durationMs: number }> {
-    const db = await this.ensureInitialized();
-    const batchSize = options?.batchSize ?? 10_000;
-    const onProgress = options?.onProgress;
-    const startTime = Date.now();
-
-    const escapeSql = (s: string): string => "'" + s.replace(/'/g, "''") + "'";
-
-    // Count total events
-    const countResult = db.exec('SELECT COUNT(*) as cnt FROM events');
-    const totalEvents = countResult.length > 0 ? (countResult[0].values[0][0] as number) : 0;
-
-    if (totalEvents === 0) {
-      db.run("DELETE FROM metadata WHERE key = 'reindex_position'");
-      return { events: 0, keys: 0, durationMs: Date.now() - startTime };
-    }
-
-    // Check for resume position (crash recovery)
-    const resumeResult = db.exec("SELECT value FROM metadata WHERE key = 'reindex_position'");
-    let cursor = resumeResult.length > 0 && resumeResult[0].values.length > 0
-      ? Number(resumeResult[0].values[0][0])
-      : 0;
-
-    let totalProcessed = 0;
-    if (cursor > 0) {
-      const countDone = db.exec(`SELECT COUNT(*) as cnt FROM events WHERE position <= ${cursor}`);
-      totalProcessed = countDone.length > 0 ? (countDone[0].values[0][0] as number) : 0;
-    }
-    let totalKeys = 0;
-
-    // Process batches
-    while (true) {
-      const batchResult = db.exec(
-        `SELECT position, event_id, event_type, data, metadata, timestamp
-         FROM events
-         WHERE position > ${cursor}
-         ORDER BY position
-         LIMIT ${batchSize}`
-      );
-
-      if (batchResult.length === 0 || batchResult[0].values.length === 0) break;
-
-      const columns = (batchResult[0] as any).columns || (batchResult[0] as any).lc;
-      const rows = batchResult[0].values;
-
-      const parsedRows = rows.map((row: SqlValue[]) => {
-        const obj: Record<string, unknown> = {};
-        columns.forEach((col: string, i: number) => {
-          obj[col] = row[i];
+        return rows.map((row: SqlValue[]) => {
+            const obj: Record<string, unknown> = {};
+            columns.forEach((col: string, i: number) => {
+                obj[col] = row[i];
+            });
+            return this.rowToEvent(obj as unknown as EventRow);
         });
-        return obj as unknown as EventRow;
-      });
-
-      const minPos = parsedRows[0].position;
-      const maxPos = parsedRows[parsedRows.length - 1].position;
-
-      db.run('BEGIN TRANSACTION');
-      try {
-        // Delete old keys for this batch range
-        db.run(`DELETE FROM event_keys WHERE position >= ${minPos} AND position <= ${maxPos}`);
-
-        // Extract and insert new keys
-        for (const row of parsedRows) {
-          const event = this.rowToEvent(row);
-          const keys = extractKeys(event);
-          for (const key of keys) {
-            db.run(
-              `INSERT INTO event_keys (position, key_name, key_value) VALUES (${Number(row.position)}, ${escapeSql(key.name)}, ${escapeSql(key.value)})`
-            );
-            totalKeys++;
-          }
-        }
-
-        // Store progress
-        db.run(`INSERT OR REPLACE INTO metadata (key, value) VALUES ('reindex_position', '${maxPos}')`);
-
-        db.run('COMMIT');
-      } catch (error) {
-        db.run('ROLLBACK');
-        throw error;
-      }
-
-      cursor = maxPos as number;
-      totalProcessed += parsedRows.length;
-
-      if (onProgress) {
-        onProgress(totalProcessed, totalEvents);
-      }
     }
 
-    // Completion: remove progress marker
-    db.run("DELETE FROM metadata WHERE key = 'reindex_position'");
-
-    return { events: totalProcessed, keys: totalKeys, durationMs: Date.now() - startTime };
-  }
-
-  private rowToEvent(row: EventRow): StoredEvent {
-    return {
-      id: row.event_id,
-      type: row.event_type,
-      data: JSON.parse(row.data),
-      metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
-      timestamp: new Date(row.timestamp),
-      position: BigInt(row.position),
-    };
-  }
+    private rowToEvent(row: EventRow): StoredEvent {
+        return {
+            id: row.event_id,
+            type: row.event_type,
+            data: JSON.parse(row.data),
+            metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
+            timestamp: new Date(row.timestamp),
+            position: BigInt(row.position),
+        };
+    }
 }

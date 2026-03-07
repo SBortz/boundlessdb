@@ -20,6 +20,7 @@ jobs:
       - name: Set version from tag
         run: npm version "${GITHUB_REF#refs/tags/v}" --no-git-tag-version --allow-same-version
       - run: npm ci
+      - run: npm run lint
       - run: npm run build
       - run: npm test
       - run: npm publish --provenance --access public

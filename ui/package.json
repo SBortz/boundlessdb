@@ -9,7 +9,11 @@
     "start": "node dist/server.js",
     "dev": "tsx watch src/server.ts"
   },
-  "keywords": ["event-store", "dcb", "test-ui"],
+  "keywords": [
+    "event-store",
+    "dcb",
+    "test-ui"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {

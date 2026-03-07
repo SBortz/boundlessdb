@@ -3,8 +3,22 @@
  */
 
 import Database from 'better-sqlite3';
-import { isConstrainedCondition, isMultiKeyCondition, isKeyOnlyCondition, isMultiTypeCondition, isMultiTypeConstrainedCondition, normalizeCondition, hasKeys, type ExtractedKey, type QueryCondition, type StoredEvent, type MultiKeyConstrainedCondition, type MultiTypeCondition, type MultiTypeConstrainedCondition, type UnconstrainedCondition, type KeyOnlyCondition, type NormalizedCondition } from '../types.js';
-import type { EventStorage, EventToStore, StorageAppendCondition, AppendWithConditionResult } from './interface.js';
+import {
+    type ExtractedKey,
+    hasKeys,
+    isKeyOnlyCondition,
+    isMultiTypeCondition,
+    isMultiTypeConstrainedCondition,
+    type KeyOnlyCondition,
+    type MultiKeyConstrainedCondition,
+    type MultiTypeCondition,
+    type MultiTypeConstrainedCondition,
+    normalizeCondition,
+    type QueryCondition,
+    type StoredEvent,
+    type UnconstrainedCondition,
+} from '../types.js';
+import type {AppendWithConditionResult, EventStorage, EventToStore, StorageAppendCondition,} from './interface.js';
 
 const SCHEMA = `
 -- Events (Append-Only Log)
@@ -39,642 +53,671 @@ CREATE INDEX IF NOT EXISTS idx_key_position ON event_keys(key_name, key_value, p
 `;
 
 interface EventRow {
-  position: number;
-  event_id: string;
-  event_type: string;
-  data: string;
-  metadata: string | null;
-  timestamp: string;
+    position: number;
+    event_id: string;
+    event_type: string;
+    data: string;
+    metadata: string | null;
+    timestamp: string;
 }
 
 /**
  * SQLite-backed event storage
  */
 export class SqliteStorage implements EventStorage {
-  private db: Database.Database;
+    private db: Database.Database;
 
-  constructor(path: string = ':memory:') {
-    this.db = new Database(path);
-    this.db.pragma('journal_mode = WAL');
-    this.db.pragma('foreign_keys = ON');
-    this.db.exec(SCHEMA);
-  }
-
-  async appendWithCondition(
-    eventsToStore: EventToStore[],
-    keys: ExtractedKey[][],
-    condition: StorageAppendCondition | null
-  ): Promise<AppendWithConditionResult> {
-    if (eventsToStore.length !== keys.length) {
-      throw new Error('Events and keys arrays must have the same length');
+    constructor(path: string = ':memory:') {
+        this.db = new Database(path);
+        this.db.pragma('journal_mode = WAL');
+        this.db.pragma('foreign_keys = ON');
+        this.db.exec(SCHEMA);
     }
 
-    if (eventsToStore.length === 0) {
-      const position = await this.getLatestPosition();
-      return { position };
-    }
+    async appendWithCondition(
+        eventsToStore: EventToStore[],
+        keys: ExtractedKey[][],
+        condition: StorageAppendCondition | null
+    ): Promise<AppendWithConditionResult> {
+        if (eventsToStore.length !== keys.length) {
+            throw new Error('Events and keys arrays must have the same length');
+        }
 
-    let lastPosition: bigint = 0n;
-    let conflicting: StoredEvent[] | undefined;
+        if (eventsToStore.length === 0) {
+            const position = await this.getLatestPosition();
+            return {position};
+        }
 
-    const insertEvent = this.db.prepare(`
+        let lastPosition: bigint = 0n;
+        let conflicting: StoredEvent[] | undefined;
+
+        const insertEvent = this.db.prepare(`
       INSERT INTO events (event_id, event_type, data, metadata, timestamp)
       VALUES (?, ?, ?, ?, ?)
     `);
 
-    const insertKey = this.db.prepare(`
+        const insertKey = this.db.prepare(`
       INSERT INTO event_keys (position, key_name, key_value)
       VALUES (?, ?, ?)
     `);
 
-    // Everything in one transaction for atomicity
-    const transaction = this.db.transaction(() => {
-      // 1. Conflict check (if condition provided)
-      if (condition !== null) {
-        const rows = this.querySync(condition.failIfEventsMatch, condition.after);
-        
-        if (rows.length > 0) {
-          conflicting = rows;
-          return; // Exit transaction without inserting
+        // Everything in one transaction for atomicity
+        const transaction = this.db.transaction(() => {
+            // 1. Conflict check (if condition provided)
+            if (condition !== null) {
+                const rows = this.querySync(condition.failIfEventsMatch, condition.after);
+
+                if (rows.length > 0) {
+                    conflicting = rows;
+                    return; // Exit transaction without inserting
+                }
+            }
+
+            // 2. Insert events
+            for (let i = 0; i < eventsToStore.length; i++) {
+                const event = eventsToStore[i];
+                const eventKeys = keys[i];
+
+                // Insert event
+                const result = insertEvent.run(
+                    event.id,
+                    event.type,
+                    JSON.stringify(event.data),
+                    event.metadata ? JSON.stringify(event.metadata) : null,
+                    event.timestamp.toISOString()
+                );
+
+                const position = BigInt(result.lastInsertRowid);
+                lastPosition = position;
+
+                // Insert keys
+                for (const key of eventKeys) {
+                    insertKey.run(Number(position), key.name, key.value);
+                }
+            }
+        });
+
+        transaction();
+
+        // Return result
+        if (conflicting) {
+            return {conflicting};
         }
-      }
+        return {position: lastPosition};
+    }
 
-      // 2. Insert events
-      for (let i = 0; i < eventsToStore.length; i++) {
-        const event = eventsToStore[i];
-        const eventKeys = keys[i];
+    async query(
+        conditions: QueryCondition[],
+        fromPosition?: bigint,
+        limit?: number,
+        backwards?: boolean
+    ): Promise<StoredEvent[]> {
+        return this.querySync(conditions, fromPosition, limit, backwards);
+    }
 
-        // Insert event
-        const result = insertEvent.run(
-          event.id,
-          event.type,
-          JSON.stringify(event.data),
-          event.metadata ? JSON.stringify(event.metadata) : null,
-          event.timestamp.toISOString()
+    async getLatestPosition(): Promise<bigint> {
+        const row = this.db.prepare('SELECT MAX(position) as pos FROM events').get() as {
+            pos: number | null;
+        };
+        return row.pos ? BigInt(row.pos) : 0n;
+    }
+
+    async close(): Promise<void> {
+        this.db.close();
+    }
+
+    /**
+     * Clear all data (for testing)
+     */
+    clear(): void {
+        this.db.exec('DELETE FROM event_keys');
+        this.db.exec('DELETE FROM events');
+        this.db.exec("DELETE FROM sqlite_sequence WHERE name IN ('events', 'event_keys')");
+    }
+
+    // --- Internal Helper Methods ---
+
+    /**
+     * Get stored config hash
+     */
+    getConfigHash(): string | null {
+        const row = this.db.prepare("SELECT value FROM metadata WHERE key = 'config_hash'").get() as
+            | { value: string }
+            | undefined;
+        return row?.value ?? null;
+    }
+
+    /**
+     * Set config hash
+     */
+    setConfigHash(hash: string): void {
+        this.db
+            .prepare("INSERT OR REPLACE INTO metadata (key, value) VALUES ('config_hash', ?)")
+            .run(hash);
+    }
+
+    // --- Metadata Methods ---
+
+    /**
+     * Reindex all events with new keys
+     * @deprecated Use reindexBatch() for production-safe batch-based reindexing
+     */
+    reindex(extractKeys: (event: StoredEvent) => ExtractedKey[]): void {
+        const events = this.getAllEvents();
+
+        const deleteKeys = this.db.prepare('DELETE FROM event_keys');
+        const insertKey = this.db.prepare(
+            'INSERT INTO event_keys (position, key_name, key_value) VALUES (?, ?, ?)'
         );
 
-        const position = BigInt(result.lastInsertRowid);
-        lastPosition = position;
+        const transaction = this.db.transaction(() => {
+            // Clear all keys
+            deleteKeys.run();
 
-        // Insert keys
-        for (const key of eventKeys) {
-          insertKey.run(Number(position), key.name, key.value);
-        }
-      }
-    });
+            // Re-extract and insert keys for all events
+            for (const event of events) {
+                const keys = extractKeys(event);
+                for (const key of keys) {
+                    insertKey.run(Number(event.position), key.name, key.value);
+                }
+            }
+        });
 
-    transaction();
-
-    // Return result
-    if (conflicting) {
-      return { conflicting };
+        transaction();
     }
-    return { position: lastPosition };
-  }
 
-  /**
-   * Synchronous query for use within transactions
-   */
-  private querySync(
-    conditions: QueryCondition[],
-    fromPosition?: bigint,
-    limit?: number,
-    backwards?: boolean
-  ): StoredEvent[] {
-    const order = backwards ? 'DESC' : 'ASC';
+    /**
+     * Batch-based reindex: processes events in cursor-based batches.
+     * Crash-safe via reindex_position metadata. Resumes from last completed batch.
+     */
+    reindexBatch(
+        extractKeys: (event: StoredEvent) => ExtractedKey[],
+        options?: {
+            batchSize?: number;
+            onProgress?: (done: number, total: number) => void;
+        }
+    ): { events: number; keys: number; durationMs: number } {
+        const batchSize = options?.batchSize ?? 10_000;
+        const onProgress = options?.onProgress;
+        const startTime = Date.now();
 
-    if (conditions.length === 0) {
-      // No conditions = return all events
-      let sql = `
+        // Count total events
+        const countRow = this.db.prepare('SELECT COUNT(*) as cnt FROM events').get() as { cnt: number };
+        const totalEvents = countRow.cnt;
+
+        if (totalEvents === 0) {
+            // Clean up any stale metadata
+            this.db.prepare("DELETE FROM metadata WHERE key = 'reindex_position'").run();
+            return {events: 0, keys: 0, durationMs: Date.now() - startTime};
+        }
+
+        // Check for resume position (crash recovery)
+        const resumeRow = this.db
+            .prepare("SELECT value FROM metadata WHERE key = 'reindex_position'")
+            .get() as { value: string } | undefined;
+        let cursor = resumeRow ? Number(resumeRow.value) : 0;
+
+        const selectBatch = this.db.prepare(`
+            SELECT position, event_id, event_type, data, metadata, timestamp
+            FROM events
+            WHERE position > ?
+            ORDER BY position
+                LIMIT ?
+        `);
+
+        const deleteKeysRange = this.db.prepare(
+            'DELETE FROM event_keys WHERE position >= ? AND position <= ?'
+        );
+
+        const insertKey = this.db.prepare(
+            'INSERT INTO event_keys (position, key_name, key_value) VALUES (?, ?, ?)'
+        );
+
+        const upsertProgress = this.db.prepare(
+            "INSERT OR REPLACE INTO metadata (key, value) VALUES ('reindex_position', ?)"
+        );
+
+        let totalProcessed =
+            cursor > 0
+                ? (
+                    this.db
+                        .prepare('SELECT COUNT(*) as cnt FROM events WHERE position <= ?')
+                        .get(cursor) as { cnt: number }
+                ).cnt
+                : 0;
+        let totalKeys = 0;
+
+        const processBatch = this.db.transaction((rows: EventRow[]) => {
+            if (rows.length === 0) return;
+            const minPos = rows[0].position;
+            const maxPos = rows[rows.length - 1].position;
+
+            // Delete old keys for this batch range
+            deleteKeysRange.run(minPos, maxPos);
+
+            // Extract and insert new keys
+            for (const row of rows) {
+                const event = this.rowToEvent(row);
+                const keys = extractKeys(event);
+                for (const key of keys) {
+                    insertKey.run(row.position, key.name, key.value);
+                    totalKeys++;
+                }
+            }
+
+            // Store progress
+            upsertProgress.run(String(maxPos));
+        });
+
+        // Process batches
+        while (true) {
+            const rows = selectBatch.all(cursor, batchSize) as EventRow[];
+            if (rows.length === 0) break;
+
+            processBatch(rows);
+
+            cursor = rows[rows.length - 1].position;
+            totalProcessed += rows.length;
+
+            if (onProgress) {
+                onProgress(totalProcessed, totalEvents);
+            }
+        }
+
+        // Completion: remove progress marker
+        this.db.prepare("DELETE FROM metadata WHERE key = 'reindex_position'").run();
+
+        return {events: totalProcessed, keys: totalKeys, durationMs: Date.now() - startTime};
+    }
+
+    /**
+     * Get the reindex resume position (for testing crash recovery)
+     */
+    getReindexPosition(): number | null {
+        const row = this.db
+            .prepare("SELECT value FROM metadata WHERE key = 'reindex_position'")
+            .get() as { value: string } | undefined;
+        return row ? Number(row.value) : null;
+    }
+
+    /**
+     * Set the reindex resume position (for testing crash recovery)
+     */
+    setReindexPosition(position: number): void {
+        this.db
+            .prepare("INSERT OR REPLACE INTO metadata (key, value) VALUES ('reindex_position', ?)")
+            .run(String(position));
+    }
+
+    /**
+     * Synchronous query for use within transactions
+     */
+    private querySync(
+        conditions: QueryCondition[],
+        fromPosition?: bigint,
+        limit?: number,
+        backwards?: boolean
+    ): StoredEvent[] {
+        const order = backwards ? 'DESC' : 'ASC';
+
+        if (conditions.length === 0) {
+            // No conditions = return all events
+            let sql = `
         SELECT position, event_id, event_type, data, metadata, timestamp
         FROM events
       `;
-      const params: (string | number)[] = [];
+            const params: (string | number)[] = [];
 
-      if (fromPosition !== undefined) {
-        sql += backwards ? ' WHERE position < ?' : ' WHERE position > ?';
-        params.push(Number(fromPosition));
-      }
-
-      sql += ` ORDER BY position ${order}`;
-
-      if (limit !== undefined) {
-        sql += ' LIMIT ?';
-        params.push(limit);
-      }
-
-      const rows = this.db.prepare(sql).all(...params) as EventRow[];
-      return rows.map(row => this.rowToEvent(row));
-    }
-
-    // Normalize all conditions to the internal format
-    const normalized = conditions.map(normalizeCondition);
-
-    // Separate conditions by type
-    const keyOnly = normalized.filter(isKeyOnlyCondition) as KeyOnlyCondition[];
-    const multiType = normalized.filter(isMultiTypeCondition) as MultiTypeCondition[];
-    const multiTypeConstrained = normalized.filter(isMultiTypeConstrainedCondition) as MultiTypeConstrainedCondition[];
-    const singleType = normalized.filter(c => !isKeyOnlyCondition(c) && !isMultiTypeCondition(c) && !isMultiTypeConstrainedCondition(c));
-    const constrained = singleType.filter(hasKeys) as MultiKeyConstrainedCondition[];
-    const unconstrained = singleType.filter(c => !hasKeys(c)) as UnconstrainedCondition[];
-
-    // Build CTE-based query with UNION for better index utilization
-    const ctes: string[] = [];
-    const cteNames: string[] = [];
-    const params: (string | number)[] = [];
-
-    const positionFilter = fromPosition !== undefined ? Number(fromPosition) : null;
-
-    // CTE for unconstrained conditions (type-only, no join needed)
-    if (unconstrained.length > 0) {
-      const typePlaceholders = unconstrained.map(() => '?').join(', ');
-      let cteSql = `
-        SELECT position, event_id, event_type, data, metadata, timestamp
-        FROM events
-        WHERE event_type IN (${typePlaceholders})`;
-      if (positionFilter !== null) {
-        cteSql += ' AND position > ?';
-      }
-      ctes.push(`unconstrained_matches AS (${cteSql})`);
-      cteNames.push('unconstrained_matches');
-      params.push(...unconstrained.map(c => c.type));
-      if (positionFilter !== null) params.push(positionFilter);
-    }
-
-    // CTE for multi-type unconstrained conditions (multiple types, no keys)
-    if (multiType.length > 0) {
-      multiType.forEach((c, i) => {
-        const typePlaceholders = c.types.map(() => '?').join(', ');
-        let cteSql = `
-        SELECT position, event_id, event_type, data, metadata, timestamp
-        FROM events
-        WHERE event_type IN (${typePlaceholders})`;
-        if (positionFilter !== null) {
-          cteSql += ' AND position > ?';
-        }
-        ctes.push(`multitype_${i} AS (${cteSql})`);
-        cteNames.push(`multitype_${i}`);
-        params.push(...c.types);
-        if (positionFilter !== null) params.push(positionFilter);
-      });
-    }
-
-    // CTEs for multi-type constrained conditions (multiple types + keys)
-    if (multiTypeConstrained.length > 0) {
-      multiTypeConstrained.forEach((c, i) => {
-        const isMultiKey = c.keys.length > 1;
-        const typePlaceholders = c.types.map(() => '?').join(', ');
-
-        if (positionFilter !== null) {
-          const keyCteName = `mtc_keys_${i}`;
-
-          if (isMultiKey) {
-            const intersectParts = c.keys.map(() => `
-            SELECT position FROM event_keys INDEXED BY idx_key_position
-            WHERE key_name = ? AND key_value = ? AND position > ?`);
-            ctes.push(`${keyCteName} AS MATERIALIZED (${intersectParts.join('\n          INTERSECT')})`);
-            for (const key of c.keys) {
-              params.push(key.name, key.value, positionFilter);
+            if (fromPosition !== undefined) {
+                sql += backwards ? ' WHERE position < ?' : ' WHERE position > ?';
+                params.push(Number(fromPosition));
             }
-          } else {
-            const keyCte = `
+
+            sql += ` ORDER BY position ${order}`;
+
+            if (limit !== undefined) {
+                sql += ' LIMIT ?';
+                params.push(limit);
+            }
+
+            const rows = this.db.prepare(sql).all(...params) as EventRow[];
+            return rows.map(row => this.rowToEvent(row));
+        }
+
+        // Normalize all conditions to the internal format
+        const normalized = conditions.map(normalizeCondition);
+
+        // Separate conditions by type
+        const keyOnly = normalized.filter(isKeyOnlyCondition) as KeyOnlyCondition[];
+        const multiType = normalized.filter(isMultiTypeCondition) as MultiTypeCondition[];
+        const multiTypeConstrained = normalized.filter(
+            isMultiTypeConstrainedCondition
+        ) as MultiTypeConstrainedCondition[];
+        const singleType = normalized.filter(
+            c => !isKeyOnlyCondition(c) && !isMultiTypeCondition(c) && !isMultiTypeConstrainedCondition(c)
+        );
+        const constrained = singleType.filter(hasKeys) as MultiKeyConstrainedCondition[];
+        const unconstrained = singleType.filter(c => !hasKeys(c)) as UnconstrainedCondition[];
+
+        // Build CTE-based query with UNION for better index utilization
+        const ctes: string[] = [];
+        const cteNames: string[] = [];
+        const params: (string | number)[] = [];
+
+        const positionFilter = fromPosition !== undefined ? Number(fromPosition) : null;
+
+        // CTE for unconstrained conditions (type-only, no join needed)
+        if (unconstrained.length > 0) {
+            const typePlaceholders = unconstrained.map(() => '?').join(', ');
+            let cteSql = `
+        SELECT position, event_id, event_type, data, metadata, timestamp
+        FROM events
+        WHERE event_type IN (${typePlaceholders})`;
+            if (positionFilter !== null) {
+                cteSql += ' AND position > ?';
+            }
+            ctes.push(`unconstrained_matches AS (${cteSql})`);
+            cteNames.push('unconstrained_matches');
+            params.push(...unconstrained.map(c => c.type));
+            if (positionFilter !== null) params.push(positionFilter);
+        }
+
+        // CTE for multi-type unconstrained conditions (multiple types, no keys)
+        if (multiType.length > 0) {
+            multiType.forEach((c, i) => {
+                const typePlaceholders = c.types.map(() => '?').join(', ');
+                let cteSql = `
+        SELECT position, event_id, event_type, data, metadata, timestamp
+        FROM events
+        WHERE event_type IN (${typePlaceholders})`;
+                if (positionFilter !== null) {
+                    cteSql += ' AND position > ?';
+                }
+                ctes.push(`multitype_${i} AS (${cteSql})`);
+                cteNames.push(`multitype_${i}`);
+                params.push(...c.types);
+                if (positionFilter !== null) params.push(positionFilter);
+            });
+        }
+
+        // CTEs for multi-type constrained conditions (multiple types + keys)
+        if (multiTypeConstrained.length > 0) {
+            multiTypeConstrained.forEach((c, i) => {
+                const isMultiKey = c.keys.length > 1;
+                const typePlaceholders = c.types.map(() => '?').join(', ');
+
+                if (positionFilter !== null) {
+                    const keyCteName = `mtc_keys_${i}`;
+
+                    if (isMultiKey) {
+                        const intersectParts = c.keys.map(
+                            () => `
+            SELECT position FROM event_keys INDEXED BY idx_key_position
+            WHERE key_name = ? AND key_value = ? AND position > ?`
+                        );
+                        ctes.push(
+                            `${keyCteName} AS MATERIALIZED (${intersectParts.join('\n          INTERSECT')})`
+                        );
+                        for (const key of c.keys) {
+                            params.push(key.name, key.value, positionFilter);
+                        }
+                    } else {
+                        const keyCte = `
             SELECT position FROM event_keys INDEXED BY idx_key_position
             WHERE key_name = ? AND key_value = ? AND position > ?`;
-            ctes.push(`${keyCteName} AS MATERIALIZED (${keyCte})`);
-            params.push(c.keys[0].name, c.keys[0].value, positionFilter);
-          }
+                        ctes.push(`${keyCteName} AS MATERIALIZED (${keyCte})`);
+                        params.push(c.keys[0].name, c.keys[0].value, positionFilter);
+                    }
 
-          const cteName = `mtc_${i}`;
-          const cteSql = `
+                    const cteName = `mtc_${i}`;
+                    const cteSql = `
             SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
             FROM ${keyCteName} k
             INNER JOIN events e ON e.position = k.position
             WHERE e.event_type IN (${typePlaceholders})`;
-          ctes.push(`${cteName} AS (${cteSql})`);
-          cteNames.push(cteName);
-          params.push(...c.types);
-        } else {
-          if (isMultiKey) {
-            const cteName = `mtc_${i}`;
-            const intersectParts = c.keys.map(() => `
+                    ctes.push(`${cteName} AS (${cteSql})`);
+                    cteNames.push(cteName);
+                    params.push(...c.types);
+                } else {
+                    if (isMultiKey) {
+                        const cteName = `mtc_${i}`;
+                        const intersectParts = c.keys.map(
+                            () => `
             SELECT position FROM event_keys INDEXED BY idx_key_position
-            WHERE key_name = ? AND key_value = ?`);
-            const cteSql = `
+            WHERE key_name = ? AND key_value = ?`
+                        );
+                        const cteSql = `
             SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
             FROM (${intersectParts.join('\n          INTERSECT')}) keys
             INNER JOIN events e ON e.position = keys.position
             WHERE e.event_type IN (${typePlaceholders})`;
-            ctes.push(`${cteName} AS (${cteSql})`);
-            cteNames.push(cteName);
-            for (const key of c.keys) {
-              params.push(key.name, key.value);
-            }
-            params.push(...c.types);
-          } else {
-            const cteName = `mtc_${i}`;
-            const cteSql = `
+                        ctes.push(`${cteName} AS (${cteSql})`);
+                        cteNames.push(cteName);
+                        for (const key of c.keys) {
+                            params.push(key.name, key.value);
+                        }
+                        params.push(...c.types);
+                    } else {
+                        const cteName = `mtc_${i}`;
+                        const cteSql = `
             SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
             FROM event_keys k INDEXED BY idx_key_position
             INNER JOIN events e ON e.position = k.position
             WHERE k.key_name = ? AND k.key_value = ? AND e.event_type IN (${typePlaceholders})`;
-            ctes.push(`${cteName} AS (${cteSql})`);
-            cteNames.push(cteName);
-            params.push(c.keys[0].name, c.keys[0].value, ...c.types);
-          }
-        }
-      });
-    }
-
-    // CTEs for key-only conditions (no type filter, just key matching)
-    if (keyOnly.length > 0) {
-      keyOnly.forEach((c, i) => {
-        const isMultiKey = c.keys.length > 1;
-
-        if (positionFilter !== null) {
-          // MATERIALIZED: key positions first, then join events by PK
-          const keyCteName = `keyonly_keys_${i}`;
-
-          if (isMultiKey) {
-            const intersectParts = c.keys.map(() => {
-              return `
-            SELECT position FROM event_keys INDEXED BY idx_key_position
-            WHERE key_name = ? AND key_value = ? AND position > ?`;
+                        ctes.push(`${cteName} AS (${cteSql})`);
+                        cteNames.push(cteName);
+                        params.push(c.keys[0].name, c.keys[0].value, ...c.types);
+                    }
+                }
             });
-            ctes.push(`${keyCteName} AS MATERIALIZED (${intersectParts.join('\n          INTERSECT')})`);
-            for (const key of c.keys) {
-              params.push(key.name, key.value, positionFilter);
-            }
-          } else {
-            const keyCte = `
+        }
+
+        // CTEs for key-only conditions (no type filter, just key matching)
+        if (keyOnly.length > 0) {
+            keyOnly.forEach((c, i) => {
+                const isMultiKey = c.keys.length > 1;
+
+                if (positionFilter !== null) {
+                    // MATERIALIZED: key positions first, then join events by PK
+                    const keyCteName = `keyonly_keys_${i}`;
+
+                    if (isMultiKey) {
+                        const intersectParts = c.keys.map(() => {
+                            return `
             SELECT position FROM event_keys INDEXED BY idx_key_position
             WHERE key_name = ? AND key_value = ? AND position > ?`;
-            ctes.push(`${keyCteName} AS MATERIALIZED (${keyCte})`);
-            params.push(c.keys[0].name, c.keys[0].value, positionFilter);
-          }
+                        });
+                        ctes.push(
+                            `${keyCteName} AS MATERIALIZED (${intersectParts.join('\n          INTERSECT')})`
+                        );
+                        for (const key of c.keys) {
+                            params.push(key.name, key.value, positionFilter);
+                        }
+                    } else {
+                        const keyCte = `
+            SELECT position FROM event_keys INDEXED BY idx_key_position
+            WHERE key_name = ? AND key_value = ? AND position > ?`;
+                        ctes.push(`${keyCteName} AS MATERIALIZED (${keyCte})`);
+                        params.push(c.keys[0].name, c.keys[0].value, positionFilter);
+                    }
 
-          const cteName = `keyonly_${i}`;
-          const cteSql = `
+                    const cteName = `keyonly_${i}`;
+                    const cteSql = `
             SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
             FROM ${keyCteName} k
             INNER JOIN events e ON e.position = k.position`;
-          ctes.push(`${cteName} AS (${cteSql})`);
-          cteNames.push(cteName);
-        } else {
-          if (isMultiKey) {
-            const cteName = `keyonly_${i}`;
-            const intersectParts = c.keys.map(() => `
+                    ctes.push(`${cteName} AS (${cteSql})`);
+                    cteNames.push(cteName);
+                } else {
+                    if (isMultiKey) {
+                        const cteName = `keyonly_${i}`;
+                        const intersectParts = c.keys.map(
+                            () => `
             SELECT position FROM event_keys INDEXED BY idx_key_position
-            WHERE key_name = ? AND key_value = ?`);
-            const cteSql = `
+            WHERE key_name = ? AND key_value = ?`
+                        );
+                        const cteSql = `
             SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
             FROM (${intersectParts.join('\n          INTERSECT')}) keys
             INNER JOIN events e ON e.position = keys.position`;
-            ctes.push(`${cteName} AS (${cteSql})`);
-            cteNames.push(cteName);
-            for (const key of c.keys) {
-              params.push(key.name, key.value);
-            }
-          } else {
-            const cteName = `keyonly_${i}`;
-            const cteSql = `
+                        ctes.push(`${cteName} AS (${cteSql})`);
+                        cteNames.push(cteName);
+                        for (const key of c.keys) {
+                            params.push(key.name, key.value);
+                        }
+                    } else {
+                        const cteName = `keyonly_${i}`;
+                        const cteSql = `
             SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
             FROM event_keys k INDEXED BY idx_key_position
             INNER JOIN events e ON e.position = k.position
             WHERE k.key_name = ? AND k.key_value = ?`;
-            ctes.push(`${cteName} AS (${cteSql})`);
-            cteNames.push(cteName);
-            params.push(c.keys[0].name, c.keys[0].value);
-          }
-        }
-      });
-    }
-
-    // CTEs for constrained conditions (keys-first via INDEXED BY)
-    //
-    // Two strategies depending on whether a position filter is active:
-    //
-    // WITHOUT position filter (normal queries):
-    //   Flat CTE with INDEXED BY. SQLite may choose idx_event_type as the
-    //   driving index, but this is acceptable: it scans index pages (compact,
-    //   cache-friendly) and does covering checks on idx_key_position. Only
-    //   matching rows read data pages. At 50M events with warm cache: <1ms.
-    //
-    // WITH position filter (AppendCondition conflict checks):
-    //   MATERIALIZED CTE forces key-index-first execution. Without this,
-    //   SQLite scans ALL events of a type after the position (up to millions
-    //   of index entries). With MATERIALIZED, it scans only key positions
-    //   after the threshold — often zero rows. Fixes 2019ms → <1ms at 50M.
-    //
-    // Multi-key AND: INTERSECT within a CTE. Each key gets its own sub-select
-    // on idx_key_position; INTERSECT returns only positions with ALL keys.
-    // Single-key (1 element in keys[]): no INTERSECT — keep current efficient path.
-    if (constrained.length > 0) {
-      constrained.forEach((c, i) => {
-        const isMultiKey = c.keys.length > 1;
-
-        if (positionFilter !== null) {
-          // MATERIALIZED: key positions first, then join events by PK
-          const keyCteName = `keys_${i}`;
-
-          if (isMultiKey) {
-            // Multi-key: INTERSECT within MATERIALIZED CTE
-            const intersectParts = c.keys.map(() => {
-              const part = `
-            SELECT position FROM event_keys INDEXED BY idx_key_position
-            WHERE key_name = ? AND key_value = ? AND position > ?`;
-              return part;
+                        ctes.push(`${cteName} AS (${cteSql})`);
+                        cteNames.push(cteName);
+                        params.push(c.keys[0].name, c.keys[0].value);
+                    }
+                }
             });
-            ctes.push(`${keyCteName} AS MATERIALIZED (${intersectParts.join('\n          INTERSECT')})`);
-            for (const key of c.keys) {
-              params.push(key.name, key.value, positionFilter);
-            }
-          } else {
-            // Single key: no INTERSECT needed
-            const keyCte = `
+        }
+
+        // CTEs for constrained conditions (keys-first via INDEXED BY)
+        //
+        // Two strategies depending on whether a position filter is active:
+        //
+        // WITHOUT position filter (normal queries):
+        //   Flat CTE with INDEXED BY. SQLite may choose idx_event_type as the
+        //   driving index, but this is acceptable: it scans index pages (compact,
+        //   cache-friendly) and does covering checks on idx_key_position. Only
+        //   matching rows read data pages. At 50M events with warm cache: <1ms.
+        //
+        // WITH position filter (AppendCondition conflict checks):
+        //   MATERIALIZED CTE forces key-index-first execution. Without this,
+        //   SQLite scans ALL events of a type after the position (up to millions
+        //   of index entries). With MATERIALIZED, it scans only key positions
+        //   after the threshold — often zero rows. Fixes 2019ms → <1ms at 50M.
+        //
+        // Multi-key AND: INTERSECT within a CTE. Each key gets its own sub-select
+        // on idx_key_position; INTERSECT returns only positions with ALL keys.
+        // Single-key (1 element in keys[]): no INTERSECT — keep current efficient path.
+        if (constrained.length > 0) {
+            constrained.forEach((c, i) => {
+                const isMultiKey = c.keys.length > 1;
+
+                if (positionFilter !== null) {
+                    // MATERIALIZED: key positions first, then join events by PK
+                    const keyCteName = `keys_${i}`;
+
+                    if (isMultiKey) {
+                        // Multi-key: INTERSECT within MATERIALIZED CTE
+                        const intersectParts = c.keys.map(() => {
+                            const part = `
             SELECT position FROM event_keys INDEXED BY idx_key_position
             WHERE key_name = ? AND key_value = ? AND position > ?`;
-            ctes.push(`${keyCteName} AS MATERIALIZED (${keyCte})`);
-            params.push(c.keys[0].name, c.keys[0].value, positionFilter);
-          }
+                            return part;
+                        });
+                        ctes.push(
+                            `${keyCteName} AS MATERIALIZED (${intersectParts.join('\n          INTERSECT')})`
+                        );
+                        for (const key of c.keys) {
+                            params.push(key.name, key.value, positionFilter);
+                        }
+                    } else {
+                        // Single key: no INTERSECT needed
+                        const keyCte = `
+            SELECT position FROM event_keys INDEXED BY idx_key_position
+            WHERE key_name = ? AND key_value = ? AND position > ?`;
+                        ctes.push(`${keyCteName} AS MATERIALIZED (${keyCte})`);
+                        params.push(c.keys[0].name, c.keys[0].value, positionFilter);
+                    }
 
-          const cteName = `constrained_${i}`;
-          const cteSql = `
+                    const cteName = `constrained_${i}`;
+                    const cteSql = `
             SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
             FROM ${keyCteName} k
             INNER JOIN events e ON e.position = k.position
             WHERE e.event_type = ?`;
-          ctes.push(`${cteName} AS (${cteSql})`);
-          cteNames.push(cteName);
-          params.push(c.type);
-        } else {
-          if (isMultiKey) {
-            // Multi-key without position filter: INTERSECT in flat CTE
-            const cteName = `constrained_${i}`;
-            const intersectParts = c.keys.map(() => `
+                    ctes.push(`${cteName} AS (${cteSql})`);
+                    cteNames.push(cteName);
+                    params.push(c.type);
+                } else {
+                    if (isMultiKey) {
+                        // Multi-key without position filter: INTERSECT in flat CTE
+                        const cteName = `constrained_${i}`;
+                        const intersectParts = c.keys.map(
+                            () => `
             SELECT position FROM event_keys INDEXED BY idx_key_position
-            WHERE key_name = ? AND key_value = ?`);
-            const cteSql = `
+            WHERE key_name = ? AND key_value = ?`
+                        );
+                        const cteSql = `
             SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
             FROM (${intersectParts.join('\n          INTERSECT')}) keys
             INNER JOIN events e ON e.position = keys.position
             WHERE e.event_type = ?`;
-            ctes.push(`${cteName} AS (${cteSql})`);
-            cteNames.push(cteName);
-            for (const key of c.keys) {
-              params.push(key.name, key.value);
-            }
-            params.push(c.type);
-          } else {
-            // Single key: flat CTE, let SQLite choose join order, INDEXED BY guides key lookups
-            const cteName = `constrained_${i}`;
-            const cteSql = `
+                        ctes.push(`${cteName} AS (${cteSql})`);
+                        cteNames.push(cteName);
+                        for (const key of c.keys) {
+                            params.push(key.name, key.value);
+                        }
+                        params.push(c.type);
+                    } else {
+                        // Single key: flat CTE, let SQLite choose join order, INDEXED BY guides key lookups
+                        const cteName = `constrained_${i}`;
+                        const cteSql = `
             SELECT e.position, e.event_id, e.event_type, e.data, e.metadata, e.timestamp
             FROM event_keys k INDEXED BY idx_key_position
             INNER JOIN events e ON e.position = k.position
             WHERE k.key_name = ? AND k.key_value = ? AND e.event_type = ?`;
-            ctes.push(`${cteName} AS (${cteSql})`);
-            cteNames.push(cteName);
-            params.push(c.keys[0].name, c.keys[0].value, c.type);
-          }
+                        ctes.push(`${cteName} AS (${cteSql})`);
+                        cteNames.push(cteName);
+                        params.push(c.keys[0].name, c.keys[0].value, c.type);
+                    }
+                }
+            });
         }
-      });
-    }
 
-    // Build final query with UNION
-    const unionParts = cteNames.map(name => `SELECT * FROM ${name}`);
-    
-    let sql = `WITH ${ctes.join(',\n')}
+        // Build final query with UNION
+        const unionParts = cteNames.map(name => `SELECT * FROM ${name}`);
+
+        let sql = `WITH ${ctes.join(',\n')}
 SELECT * FROM (${unionParts.join(' UNION ALL ')}) AS combined
 ORDER BY position ${order}`;
 
-    if (limit !== undefined) {
-      sql += ' LIMIT ?';
-      params.push(limit);
+        if (limit !== undefined) {
+            sql += ' LIMIT ?';
+            params.push(limit);
+        }
+
+        const stmt = this.db.prepare(sql);
+        const rows = stmt.all(...params) as EventRow[];
+
+        return rows.map(row => this.rowToEvent(row));
     }
 
-    const stmt = this.db.prepare(sql);
-    const rows = stmt.all(...params) as EventRow[];
-
-    return rows.map(row => this.rowToEvent(row));
-  }
-
-  async query(
-    conditions: QueryCondition[],
-    fromPosition?: bigint,
-    limit?: number,
-    backwards?: boolean
-  ): Promise<StoredEvent[]> {
-    return this.querySync(conditions, fromPosition, limit, backwards);
-  }
-
-  async getLatestPosition(): Promise<bigint> {
-    const row = this.db.prepare('SELECT MAX(position) as pos FROM events').get() as { pos: number | null };
-    return row.pos ? BigInt(row.pos) : 0n;
-  }
-
-  async close(): Promise<void> {
-    this.db.close();
-  }
-
-  // --- Internal Helper Methods ---
-
-  /**
-   * Get all events (internal use only - needed for reindex)
-   */
-  private getAllEvents(): StoredEvent[] {
-    const rows = this.db.prepare(`
+    /**
+     * Get all events (internal use only - needed for reindex)
+     */
+    private getAllEvents(): StoredEvent[] {
+        const rows = this.db
+            .prepare(
+                `
       SELECT position, event_id, event_type, data, metadata, timestamp
       FROM events
       ORDER BY position ASC
-    `).all() as EventRow[];
+    `
+            )
+            .all() as EventRow[];
 
-    return rows.map(row => this.rowToEvent(row));
-  }
-
-  /**
-   * Clear all data (for testing)
-   */
-  clear(): void {
-    this.db.exec('DELETE FROM event_keys');
-    this.db.exec('DELETE FROM events');
-    this.db.exec("DELETE FROM sqlite_sequence WHERE name IN ('events', 'event_keys')");
-  }
-
-  // --- Metadata Methods ---
-
-  /**
-   * Get stored config hash
-   */
-  getConfigHash(): string | null {
-    const row = this.db.prepare(
-      "SELECT value FROM metadata WHERE key = 'config_hash'"
-    ).get() as { value: string } | undefined;
-    return row?.value ?? null;
-  }
-
-  /**
-   * Set config hash
-   */
-  setConfigHash(hash: string): void {
-    this.db.prepare(
-      "INSERT OR REPLACE INTO metadata (key, value) VALUES ('config_hash', ?)"
-    ).run(hash);
-  }
-
-  /**
-   * Reindex all events with new keys
-   * @deprecated Use reindexBatch() for production-safe batch-based reindexing
-   */
-  reindex(extractKeys: (event: StoredEvent) => ExtractedKey[]): void {
-    const events = this.getAllEvents();
-    
-    const deleteKeys = this.db.prepare('DELETE FROM event_keys');
-    const insertKey = this.db.prepare(
-      'INSERT INTO event_keys (position, key_name, key_value) VALUES (?, ?, ?)'
-    );
-
-    const transaction = this.db.transaction(() => {
-      // Clear all keys
-      deleteKeys.run();
-
-      // Re-extract and insert keys for all events
-      for (const event of events) {
-        const keys = extractKeys(event);
-        for (const key of keys) {
-          insertKey.run(Number(event.position), key.name, key.value);
-        }
-      }
-    });
-
-    transaction();
-  }
-
-  /**
-   * Batch-based reindex: processes events in cursor-based batches.
-   * Crash-safe via reindex_position metadata. Resumes from last completed batch.
-   */
-  reindexBatch(
-    extractKeys: (event: StoredEvent) => ExtractedKey[],
-    options?: {
-      batchSize?: number;
-      onProgress?: (done: number, total: number) => void;
-    }
-  ): { events: number; keys: number; durationMs: number } {
-    const batchSize = options?.batchSize ?? 10_000;
-    const onProgress = options?.onProgress;
-    const startTime = Date.now();
-
-    // Count total events
-    const countRow = this.db.prepare('SELECT COUNT(*) as cnt FROM events').get() as { cnt: number };
-    const totalEvents = countRow.cnt;
-
-    if (totalEvents === 0) {
-      // Clean up any stale metadata
-      this.db.prepare("DELETE FROM metadata WHERE key = 'reindex_position'").run();
-      return { events: 0, keys: 0, durationMs: Date.now() - startTime };
+        return rows.map(row => this.rowToEvent(row));
     }
 
-    // Check for resume position (crash recovery)
-    const resumeRow = this.db.prepare(
-      "SELECT value FROM metadata WHERE key = 'reindex_position'"
-    ).get() as { value: string } | undefined;
-    let cursor = resumeRow ? Number(resumeRow.value) : 0;
-
-    const selectBatch = this.db.prepare(`
-      SELECT position, event_id, event_type, data, metadata, timestamp
-      FROM events
-      WHERE position > ?
-      ORDER BY position
-      LIMIT ?
-    `);
-
-    const deleteKeysRange = this.db.prepare(
-      'DELETE FROM event_keys WHERE position >= ? AND position <= ?'
-    );
-
-    const insertKey = this.db.prepare(
-      'INSERT INTO event_keys (position, key_name, key_value) VALUES (?, ?, ?)'
-    );
-
-    const upsertProgress = this.db.prepare(
-      "INSERT OR REPLACE INTO metadata (key, value) VALUES ('reindex_position', ?)"
-    );
-
-    let totalProcessed = cursor > 0
-      ? (this.db.prepare('SELECT COUNT(*) as cnt FROM events WHERE position <= ?').get(cursor) as { cnt: number }).cnt
-      : 0;
-    let totalKeys = 0;
-
-    const processBatch = this.db.transaction((rows: EventRow[]) => {
-      if (rows.length === 0) return;
-      const minPos = rows[0].position;
-      const maxPos = rows[rows.length - 1].position;
-
-      // Delete old keys for this batch range
-      deleteKeysRange.run(minPos, maxPos);
-
-      // Extract and insert new keys
-      for (const row of rows) {
-        const event = this.rowToEvent(row);
-        const keys = extractKeys(event);
-        for (const key of keys) {
-          insertKey.run(row.position, key.name, key.value);
-          totalKeys++;
-        }
-      }
-
-      // Store progress
-      upsertProgress.run(String(maxPos));
-    });
-
-    // Process batches
-    while (true) {
-      const rows = selectBatch.all(cursor, batchSize) as EventRow[];
-      if (rows.length === 0) break;
-
-      processBatch(rows);
-
-      cursor = rows[rows.length - 1].position;
-      totalProcessed += rows.length;
-
-      if (onProgress) {
-        onProgress(totalProcessed, totalEvents);
-      }
+    private rowToEvent(row: EventRow): StoredEvent {
+        return {
+            id: row.event_id,
+            type: row.event_type,
+            data: JSON.parse(row.data),
+            metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
+            timestamp: new Date(row.timestamp),
+            position: BigInt(row.position),
+        };
     }
-
-    // Completion: remove progress marker
-    this.db.prepare("DELETE FROM metadata WHERE key = 'reindex_position'").run();
-
-    return { events: totalProcessed, keys: totalKeys, durationMs: Date.now() - startTime };
-  }
-
-  /**
-   * Get the reindex resume position (for testing crash recovery)
-   */
-  getReindexPosition(): number | null {
-    const row = this.db.prepare(
-      "SELECT value FROM metadata WHERE key = 'reindex_position'"
-    ).get() as { value: string } | undefined;
-    return row ? Number(row.value) : null;
-  }
-
-  /**
-   * Set the reindex resume position (for testing crash recovery)
-   */
-  setReindexPosition(position: number): void {
-    this.db.prepare(
-      "INSERT OR REPLACE INTO metadata (key, value) VALUES ('reindex_position', ?)"
-    ).run(String(position));
-  }
-
-  private rowToEvent(row: EventRow): StoredEvent {
-    return {
-      id: row.event_id,
-      type: row.event_type,
-      data: JSON.parse(row.data),
-      metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
-      timestamp: new Date(row.timestamp),
-      position: BigInt(row.position),
-    };
-  }
 }
